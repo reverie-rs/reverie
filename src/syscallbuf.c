@@ -76,9 +76,6 @@ static int untraced_syscall(int syscallno, long a0, long a1, long a2,
 __attribute__((visibility("hidden"))) long syscall_hook(const struct syscall_info* syscall)
 {
   long rc = -1;
-  printf("<%s>: syscall: %ld, arg0: %lx, arg1: %lx, arg2: %lx, arg3: %lx, arg4: %lx, arg5: %lx\n",
-		  __func__, syscall->no, syscall->args[0], syscall->args[1], syscall->args[2],
-		  syscall->args[3], syscall->args[4], syscall->args[5]);
   switch (syscall->no) {
   case SYS_openat:
     {
