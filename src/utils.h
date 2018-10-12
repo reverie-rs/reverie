@@ -11,6 +11,7 @@
 
 extern void _expect(bool cond, const char* expr, const char* file, int line);
 extern void throwErrnoIfMinus(int x, const char* expr, const char* file, int line);
+extern void panic(const char* fmt, ...);
 
 extern void debug_init(int level);
 

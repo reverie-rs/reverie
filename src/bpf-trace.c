@@ -115,7 +115,7 @@ struct syscall_patch_hook syscall_patch_hooks[] = {
       6,
       { 0x48, 0x3d, 0x01, 0xf0, 0xff, 0xff },
       //(uintptr_t)_syscall_hook_trampoline_48_3d_01_f0_ff_ff },
-      (uintptr_t)0x1ff },
+      (uintptr_t)0x5bf },
     /* Many glibc syscall wrappers (e.g. __libc_recv) have 'syscall'
      * followed by
      * cmp $-4096,%rax (in glibc-2.18-16.fc20.x86_64) */
@@ -123,7 +123,7 @@ struct syscall_patch_hook syscall_patch_hooks[] = {
       6,
       { 0x48, 0x3d, 0x00, 0xf0, 0xff, 0xff },
       // (uintptr_t)_syscall_hook_trampoline_48_3d_00_f0_ff_ff },
-      (uintptr_t)0x213 },
+      (uintptr_t)0x5d3 },
 };
 
 static bool isSuffixOf(const char* s, const char* t)
@@ -148,7 +148,7 @@ static struct mmap_entry* find_trampoline(struct mmap_entry* map, int nb, unsign
   int i;
 
   for (i = 0; i < nb; i++) {
-    if (!trampoline && isSuffixOf("libtrampoline.so", map[i].file)) {
+    if (!trampoline && isSuffixOf("libpreload.so", map[i].file)) {
       trampoline = &map[i];
     }
     if (isSuffixOf("libpthread-2.27.so", map[i].file)) {
@@ -168,7 +168,7 @@ static struct mmap_entry* find_trampoline(struct mmap_entry* map, int nb, unsign
 
 static void setup_syscall_hook(pid_t pid, struct mmap_entry* map, int nr)
 {
-  unsigned long off = 0x590;
+  unsigned long off = 0x5f0;
   struct mmap_entry* preload = NULL;
 
   for (int i = 0; i < nr; i++) {
@@ -183,24 +183,10 @@ static void setup_syscall_hook(pid_t pid, struct mmap_entry* map, int nr)
   ThrowErrnoIfMinus(ptrace(PTRACE_POKEDATA, pid, stub, preload->base+off));
 }
 
-static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_patch_hook* p)
+static void show_mappings(struct mmap_entry* map, int nb)
 {
-  struct mmap_entry* map, *trampoline = NULL;
-  unsigned long trampoline_base, jmpAddr;
-  int n;
-  unsigned long insn;
-  int target, status;
   char perm[5] = {0,};
-  unsigned long ip = regs->rip - 2;
-  struct user_regs_struct newRegs;
-
-  map = populate_memory_map(pid, &n);
-  Expect(map != NULL);
-  
-  trampoline = find_trampoline(map, n, 0x0);
-  if (!trampoline) return false;
-
-  for (int i = 0; i < n; i++) {
+  for (int i = 0; i < nb; i++) {
     perm[0] = map[i].prot & PROT_READ? 'r': '-';
     perm[1] = map[i].prot & PROT_WRITE? 'w': '-';
     perm[2] = map[i].prot & PROT_EXEC? 'x': '-';
@@ -208,7 +194,27 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
     perm[4] = 0;
     debug("%s: %lx-%lx %s\n", map[i].file[0]? map[i].file: "<noname>", map[i].base, map[i].base+map[i].size, perm);
   }
-  
+}
+
+static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_patch_hook* p)
+{
+  struct mmap_entry* map, *trampoline = NULL;
+  unsigned long trampoline_base, jmpAddr;
+  int n;
+  unsigned long insn;
+  int target, status;
+
+  unsigned long ip = regs->rip - 2;
+  struct user_regs_struct newRegs;
+
+  map = populate_memory_map(pid, &n);
+  Expect(map != NULL);
+
+  show_mappings(map, n);
+
+  trampoline = find_trampoline(map, n, 0x0);
+  if (!trampoline) return false;
+
   trampoline_base = trampoline->base;
   Expect(trampoline_base - ip <= 1UL << 31 || ip - trampoline_base <= 1UL << 31);
 
@@ -251,7 +257,6 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &newRegs));
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip, 0);
   debug("after patching: %lx, resume from rip: %llx\n", insn, newRegs.rip);
-
   free_mmap_entry(map);
 
   return true;
@@ -511,7 +516,7 @@ static int run_app(int argc, char* argv[])
     raise(SIGSTOP);
     char* const envp[] = {
       "PATH=/bin:/usr/bin",
-      "LD_PRELOAD=./libpreload.so:./libtrampoline.so",
+      "LD_PRELOAD=./libpreload.so",
       NULL,
     };
     execvpe(argv[0], argv, envp);

@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <elf.h>
+#include <inttypes.h>
 
 #include "symbols.h"
 #include "utils.h"
@@ -44,7 +47,7 @@ struct mmap_entry* populate_memory_map(pid_t pid, int* nmemb) {
   Expect(map != NULL);
   snprintf(proc, 64, "/proc/%u/maps", pid);
   fp = fopen(proc, "rb");
-  Expect(fp != NULL);
+  if (!fp) panic("unable to open file: %s, error: %s\n", proc, strerror(errno));
 
   while(!feof(fp)) {
     if (i >= (allocated-1)) {
@@ -77,6 +80,7 @@ struct mmap_entry* populate_memory_map(pid_t pid, int* nmemb) {
   }
 
   free(line);
+  fclose(fp);
 
   memset(&map[i], 0, sizeof(map[i]));
 
@@ -88,4 +92,3 @@ struct mmap_entry* populate_memory_map(pid_t pid, int* nmemb) {
 void free_mmap_entry(struct mmap_entry* map) {
   free(map);
 }
-

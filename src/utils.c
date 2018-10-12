@@ -4,14 +4,34 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <execinfo.h>
 
 #include "utils.h"
+
+#define BACKTRACE_MAX 128
+
+void __attribute__((noreturn)) panic(const char* fmt, ...)
+{
+  void *buffer[BACKTRACE_MAX];
+  va_list ap;
+  int n;
+
+  fprintf(stderr, "\n================================ PANIC ================================\n");
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+
+  n = backtrace(buffer, BACKTRACE_MAX);
+  backtrace_symbols_fd(buffer, n, STDOUT_FILENO);
+  abort();
+}
 
 void _expect(bool cond, const char* expr, const char* file, int line)
 {
   if (!cond) {
     fprintf(stderr, "%s:%u expect: %s\n", file, line, expr);
-    abort();
+    panic("");
   }
 }
 
@@ -19,7 +39,7 @@ void throwErrnoIfMinus(int x, const char* expr, const char* file, int line)
 {
   if (x < 0) {
     fprintf(stderr, "%s:%u: %s returned %d, error: %s\n", file, line, expr, x, strerror(errno));
-    abort();
+    panic("");
   }
 }
 
