@@ -98,89 +98,32 @@ static void dump_user_regs(pid_t pid)
   }
 }
 
-extern void _syscall_hook_trampoline(void);
-extern void _syscall_hook_trampoline_48_3d_01_f0_ff_ff(void);
-extern void _syscall_hook_trampoline_48_3d_00_f0_ff_ff(void);
+static struct syscall_patch_hook* syscall_patch_hooks;
+static int nr_syscall_patch_hooks;
 
-long syscall_hook(const struct syscall_info* info)
+static void populate_syscall_patches(pid_t pid)
 {
-  return 0;
-}
+  unsigned long tls = PRELOAD_THREAD_LOCALS_ADDR;
+  unsigned long tn = tls + TLS_SYSCALL_PATCH_SIZE * sizeof(long);
+  unsigned long tp  = tls + TLS_SYSCALL_PATCH_ADDR * sizeof(long);
+  unsigned long n;
+  unsigned long p;
 
-struct syscall_patch_hook syscall_patch_hooks[] = {
-    /* Many glibc syscall wrappers (e.g. read) have 'syscall' followed
-     * by
-     * cmp $-4095,%rax (in glibc-2.18-16.fc20.x86_64) */
-    { 0,
-      6,
-      { 0x48, 0x3d, 0x01, 0xf0, 0xff, 0xff },
-      //(uintptr_t)_syscall_hook_trampoline_48_3d_01_f0_ff_ff },
-      (uintptr_t)0x5bf },
-    /* Many glibc syscall wrappers (e.g. __libc_recv) have 'syscall'
-     * followed by
-     * cmp $-4096,%rax (in glibc-2.18-16.fc20.x86_64) */
-    { 0,
-      6,
-      { 0x48, 0x3d, 0x00, 0xf0, 0xff, 0xff },
-      // (uintptr_t)_syscall_hook_trampoline_48_3d_00_f0_ff_ff },
-      (uintptr_t)0x5d3 },
-};
+  ThrowErrnoIfMinus1((n = ptrace(PTRACE_PEEKDATA, pid, tn, 0)));
+  ThrowErrnoIfMinus1((p = ptrace(PTRACE_PEEKDATA, pid, tp, 0)));
 
-static bool isSuffixOf(const char* s, const char* t)
-{
-  const char* p = t, *q = s;
+  nr_syscall_patch_hooks = n;
+  syscall_patch_hooks = calloc(n, sizeof(struct syscall_patch_hook));
+  Expect(syscall_patch_hooks != NULL);
 
-  if (!s || !t) return false;
-  while(*p != '\0') ++p;
-  while(*q != '\0') ++q;
+  unsigned long size = (sizeof(struct syscall_patch_hook) + 7) & ~7UL;
+  unsigned long* ptr = (unsigned long*)syscall_patch_hooks;
+  unsigned long* pp  = (unsigned long*)p;
 
-  while (p >= t && q >= s) {
-    if (*p-- != *q--) return false;
+  for (int i = 0; i < n * size / sizeof(long); i++) {
+    ptr[i] = ptrace(PTRACE_PEEKDATA, pid, &pp[i], 0);
+    Expect(ptr[i] != -1UL);
   }
-  return (1+q) == s;
-}
-
-extern void _stub_init(void);
-
-static struct mmap_entry* find_trampoline(struct mmap_entry* map, int nb, unsigned long hint)
-{
-  struct mmap_entry* trampoline = NULL, *libc = NULL;
-  int i;
-
-  for (i = 0; i < nb; i++) {
-    if (!trampoline && isSuffixOf("libpreload.so", map[i].file)) {
-      trampoline = &map[i];
-    }
-    if (isSuffixOf("libpthread-2.27.so", map[i].file)) {
-      libc = &map[i];
-    }
-  }
-
-  /* LD_PRELOAD haven't taken effect */
-  if (trampoline == NULL || libc == NULL) {
-    debug("warning: wait till trampoline/libc is loaded\n");
-    return NULL;
-  }
-  info("INFO trampoline %s page loaded at: %lx\n", trampoline->file, trampoline->base);
-  info("           libc %s page loaded at: %lx\n", libc->file, libc->base);
-  return trampoline;
-}
-
-static void setup_syscall_hook(pid_t pid, struct mmap_entry* map, int nr)
-{
-  unsigned long off = 0x5f0;
-  struct mmap_entry* preload = NULL;
-
-  for (int i = 0; i < nr; i++) {
-    if(isSuffixOf("libpreload.so", map[i].file)) {
-      preload = &map[i];
-      break;
-    }
-  }
-  Expect(preload);
-  debug("_syscall_hook: %lx\n", preload->base + off);
-  unsigned long* stub = (unsigned long*)0x70000100;
-  ThrowErrnoIfMinus(ptrace(PTRACE_POKEDATA, pid, stub, preload->base+off));
 }
 
 static void show_mappings(struct mmap_entry* map, int nb)
@@ -198,8 +141,8 @@ static void show_mappings(struct mmap_entry* map, int nb)
 
 static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_patch_hook* p)
 {
-  struct mmap_entry* map, *trampoline = NULL;
-  unsigned long trampoline_base, jmpAddr;
+  struct mmap_entry* map;
+  unsigned long jmpAddr;
   int n;
   unsigned long insn;
   int target, status;
@@ -212,13 +155,8 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
 
   show_mappings(map, n);
 
-  trampoline = find_trampoline(map, n, 0x0);
-  if (!trampoline) return false;
-
-  trampoline_base = trampoline->base;
-  Expect(trampoline_base - ip <= 1UL << 31 || ip - trampoline_base <= 1UL << 31);
-
-  jmpAddr = trampoline_base + p->hook_address;
+  jmpAddr = p->hook_address;
+  Expect(jmpAddr - ip <= 1UL << 31 || ip - jmpAddr <= 1UL << 31);
   insn = ptrace(PTRACE_PEEKTEXT, pid, jmpAddr, 0);
   debug("jmp target addr: %lx, insn: %lx\n", jmpAddr, insn);
 
@@ -239,8 +177,6 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   insn |= ((long)(target >> 24) & 0xff) << 32;
   insn |= 0x9090900000000000;
   debug("patched insn: %lx\n", insn);
-
-  setup_syscall_hook(pid, map, n);
 
   struct watchpoint* w = set_watchpoint(pid, ip+8);
   ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
@@ -289,8 +225,6 @@ static bool ensureSyscallInsn(int pid, unsigned long rip)
   unsigned long insn;
   
   insn = ptrace(PTRACE_PEEKTEXT, pid, rip, 0);
-  debug("%s, insn: %lx\n", __func__, insn);
-  
   Expect((insn&0xffffL) == 0x050f);
   return ((insn &0xffffL) == 0x050f);
 }
@@ -306,7 +240,9 @@ static bool patch_syscall(int pid, struct user_regs_struct* regs)
   memcpy(bytes, &insn, sizeof(insn));
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip+sizeof(insn), 0);
   memcpy(bytes+sizeof(insn), &insn, sizeof(insn));
-  for (unsigned long i = 0; i < sizeof(syscall_patch_hooks) / sizeof(syscall_patch_hooks[0]); i++) {
+
+  populate_syscall_patches(pid);
+  for (int i = 0; i < nr_syscall_patch_hooks; i++) {
     found = true;
     for (unsigned j = 0; j < (unsigned) syscall_patch_hooks[i].next_instruction_length; j++) {
       if ((bytes[j] & 0xff) != syscall_patch_hooks[i].next_instruction_bytes[j]) {
@@ -314,10 +250,7 @@ static bool patch_syscall(int pid, struct user_regs_struct* regs)
 	continue;
       }
     }
-    if (found) {
-      return patch_at(pid, regs, &syscall_patch_hooks[i]);
-      break;
-    }
+    if (found) return patch_at(pid, regs, &syscall_patch_hooks[i]);
   }
   return false;
 }
@@ -325,11 +258,16 @@ static bool patch_syscall(int pid, struct user_regs_struct* regs)
 static bool openat_enter(int pid, struct user_regs_struct* regs)
 {
   char path[1 + PATH_MAX];
-  
+  unsigned long* tls = (unsigned long*)PRELOAD_THREAD_LOCALS_ADDR;
+  unsigned long hook;
   const void* remotePtr = (const void*)regs->rsi;
   ptrace_peek_cstring(pid, path, PATH_MAX, remotePtr);
   log("openat: %s\n", path);
-  if (!patch_syscall(pid, regs)) return false;
+
+  hook = ptrace(PTRACE_PEEKDATA, pid, &tls[2], 0);
+  if (hook != 0) {
+    patch_syscall(pid, regs);
+  }
   return false;
 }
 

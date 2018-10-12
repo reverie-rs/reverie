@@ -8,14 +8,18 @@
 
 #define Expect(expr) ( _expect(expr, #expr, __FILE__, __LINE__) )
 #define ThrowErrnoIfMinus(expr) ( throwErrnoIfMinus(expr, #expr, __FILE__, __LINE__) )
+#define ThrowErrnoIfMinus1(expr) ( throwErrnoIfMinus1(expr, #expr, __FILE__, __LINE__) )
 
 extern void _expect(bool cond, const char* expr, const char* file, int line);
-extern void throwErrnoIfMinus(int x, const char* expr, const char* file, int line);
+extern void throwErrnoIfMinus(long x, const char* expr, const char* file, int line);
+extern void throwErrnoIfMinus1(long x, const char* expr, const char* file, int line);
 extern void panic(const char* fmt, ...);
 
 extern void debug_init(int level);
 
 extern void _debug_printf(int level, bool prefix, const char* fmt, ...);
+
+bool isSuffixOf(const char* suffix, const char* t);
 
 enum {
 	DEBUG_CRITICAL,

@@ -1,5 +1,5 @@
-#define stub_scratch_1 0x70001010
-#define syscall_hook   0x70000100
+#define stub_scratch_1 0x70000100
+#define syscall_hook   0x70001010
 
 	.text
 

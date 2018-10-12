@@ -85,9 +85,38 @@ __attribute__((visibility("hidden"))) long syscall_hook(const struct syscall_inf
     }
     break;
   default:
-    // printf("unknown syscall: %u\n", (int)syscall->no);
-    // exit(1);
+    printf("[WARNING] unknown syscall: %u\n", (int)syscall->no);
+    untraced_syscall6(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
     break;
   }
   return rc;
+}
+
+extern void _syscall_hook_trampoline(void);
+extern void _syscall_hook_trampoline_48_3d_01_f0_ff_ff(void);
+extern void _syscall_hook_trampoline_48_3d_00_f0_ff_ff(void);
+
+static struct syscall_patch_hook syscall_patch_hooks[] = {
+    /* Many glibc syscall wrappers (e.g. read) have 'syscall' followed
+     * by
+     * cmp $-4095,%rax (in glibc-2.18-16.fc20.x86_64) */
+    { 0,
+      6,
+      { 0x48, 0x3d, 0x01, 0xf0, 0xff, 0xff },
+      (uintptr_t)_syscall_hook_trampoline_48_3d_01_f0_ff_ff },
+    /* Many glibc syscall wrappers (e.g. __libc_recv) have 'syscall'
+     * followed by
+     * cmp $-4096,%rax (in glibc-2.18-16.fc20.x86_64) */
+    { 0,
+      6,
+      { 0x48, 0x3d, 0x00, 0xf0, 0xff, 0xff },
+      (uintptr_t)_syscall_hook_trampoline_48_3d_00_f0_ff_ff },
+};
+
+__attribute__((constructor, visibility("hidden"))) void __preload_init(void)
+{
+  unsigned long* tls = (unsigned long*)PRELOAD_THREAD_LOCALS_ADDR;
+  tls[0] = sizeof(syscall_patch_hooks) / sizeof(syscall_patch_hooks[0]);
+  tls[1] = (unsigned long)syscall_patch_hooks;
+  tls[2] = (unsigned long)syscall_hook;
 }

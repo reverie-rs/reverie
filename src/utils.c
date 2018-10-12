@@ -35,10 +35,18 @@ void _expect(bool cond, const char* expr, const char* file, int line)
   }
 }
 
-void throwErrnoIfMinus(int x, const char* expr, const char* file, int line)
+void throwErrnoIfMinus(long x, const char* expr, const char* file, int line)
 {
   if (x < 0) {
-    fprintf(stderr, "%s:%u: %s returned %d, error: %s\n", file, line, expr, x, strerror(errno));
+    fprintf(stderr, "%s:%u: %s returned %ld, error: %s\n", file, line, expr, x, strerror(errno));
+    panic("");
+  }
+}
+
+void throwErrnoIfMinus1(long x, const char* expr, const char* file, int line)
+{
+  if (x == -1) {
+    fprintf(stderr, "%s:%u: %s returned %ld, error: %s\n", file, line, expr, x, strerror(errno));
     panic("");
   }
 }
@@ -65,4 +73,18 @@ void _debug_printf(int level, bool hasPrefix, const char* fmt, ...)
     if (fp == stderr) abort();
     va_end(ap);
   }
+}
+
+bool isSuffixOf(const char* s, const char* t)
+{
+  const char* p = t, *q = s;
+
+  if (!s || !t) return false;
+  while(*p != '\0') ++p;
+  while(*q != '\0') ++q;
+
+  while (p >= t && q >= s) {
+    if (*p-- != *q--) return false;
+  }
+  return (1+q) == s;
 }
