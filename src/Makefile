@@ -17,9 +17,9 @@ OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 	$(CXX) $< -c -o $@ $(CXXFLAGS)
 
 libpreload.so: trampoline.o syscallbuf.o raw_syscall.S
-	$(CC) $^ -o $@ $(CFLAGS) -shared -Wl,--no-as-needed -lc -lrt
+	$(CC) $^ -o $@ $(CFLAGS) -shared -Wl,--no-as-needed -nostdlib
 
-bpf-trace: bpf-trace.o watchpoint.o utils.o symbols.o
+bpf-trace: bpf.o bpf-trace.o watchpoint.o utils.o symbols.o
 	$(CC) $^ -o $@ $(CFLAGS) -lrt -ldl
 
 clean:

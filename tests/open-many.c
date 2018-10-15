@@ -12,6 +12,7 @@ int main(int argc, char* argv[])
 
 	for (int i = 0; i < 100000; i++) {
 		fd = open(file, O_RDONLY);
+		assert(access(file, O_RDONLY) == 0);
 		assert(fd >= 0);
 		close(fd);
 	}

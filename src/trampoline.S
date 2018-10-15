@@ -86,6 +86,62 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_48_3d_00_f0_ff_ff)
         cmpq $0xfffffffffffff000,%rax
 SYSCALLHOOK_END(_syscall_hook_trampoline_48_3d_00_f0_ff_ff)
 
+SYSCALLHOOK_START(_syscall_hook_trampoline_48_8b_3c_24)
+         callq __morestack
+         /* The original instruction after the syscall is movq (%rsp),%rdi. */
+         movq 8(%rsp),%rdi
+         movq (%rdi),%rdi
+SYSCALLHOOK_END(_syscall_hook_trampoline_48_8b_3c_24)
+
+SYSCALLHOOK_START(_syscall_hook_trampoline_5a_5e_c3)
+        callq __morestack
+        /* The original instructions after the syscall are
+           pop %rdx; pop %rsi; retq. */
+        /* We're not returning to the dynamically generated stub, so
+           we need to fix the stack pointer ourselves. */
+        pop %rdx
+        pop %rsp
+        pop %rdx
+        pop %rsi
+        pop (stub_scratch_1)
+        jmp _syscallbuf_final_exit_instruction
+
+        .size _syscall_hook_trampoline_5a_5e_c3, .-_syscall_hook_trampoline_5a_5e_c3
+
+SYSCALLHOOK_START(_syscall_hook_trampoline_89_c2_f7_da)
+        call __morestack
+        mov %eax,%edx
+        neg %edx
+SYSCALLHOOK_END(_syscall_hook_trampoline_89_c2_f7_da)
+
+SYSCALLHOOK_START(_syscall_hook_trampoline_90_90_90)
+        call __morestack
+SYSCALLHOOK_END(_syscall_hook_trampoline_90_90_90)
+
+SYSCALLHOOK_START(_syscall_hook_trampoline_ba_01_00_00_00)
+        call __morestack
+        mov $1,%edx
+SYSCALLHOOK_END(_syscall_hook_trampoline_ba_01_00_00_00)
+
+SYSCALLHOOK_START(_syscall_hook_trampoline_89_c1_31_d2)
+        call __morestack
+        mov %eax,%ecx
+        xor %edx,%edx
+SYSCALLHOOK_END(_syscall_hook_trampoline_89_c1_31_d2)
+
+SYSCALLHOOK_START(_syscall_hook_trampoline_c3_nop)
+        callq __morestack
+        /* The original instructions after the syscall are
+           retq; nopl 0x0(%rax,%rax,1) */
+        /* We're not returning to the dynamically generated stub, so
+           we need to fix the stack pointer ourselves. */
+        pop %rdx
+        pop %rsp
+        pop (stub_scratch_1)
+        jmp _syscallbuf_final_exit_instruction
+
+        .size _syscall_hook_trampoline_c3_nop, .-_syscall_hook_trampoline_c3_nop
+
 .global __morestack
 .hidden __morestack
 .type __morestack, @function

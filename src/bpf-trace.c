@@ -11,7 +11,6 @@
 #include <sys/prctl.h>
 #include <sys/mman.h>
 #include <sys/time.h>
-#include <sys/resource.h>
 #include <sys/personality.h>
 #include <linux/seccomp.h>
 #include <linux/filter.h>
@@ -36,25 +35,7 @@
 #include "watchpoint.h"
 #include "syscallbuf.h"
 #include "symbols.h"
-
-static void load_seccomp_rules(void)
-{
-  struct sock_filter filter [] = {
-    BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_openat, 0, 3),
-    BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
-    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0x70000002, 1, 0),
-    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
-    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
-  };
-  struct sock_fprog prog = {
-    .filter = filter,
-    .len = (unsigned short)(sizeof(filter) / sizeof(filter[0])),
-  };
-
-  ThrowErrnoIfMinus(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
-  ThrowErrnoIfMinus(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog));
-}
+#include "bpf.h"
 
 static void dump_user_regs(pid_t pid)
 {
@@ -103,9 +84,8 @@ static int nr_syscall_patch_hooks;
 
 static void populate_syscall_patches(pid_t pid)
 {
-  unsigned long tls = PRELOAD_THREAD_LOCALS_ADDR;
-  unsigned long tn = tls + TLS_SYSCALL_PATCH_SIZE * sizeof(long);
-  unsigned long tp  = tls + TLS_SYSCALL_PATCH_ADDR * sizeof(long);
+  unsigned long tn  = TLS_SYSCALL_PATCH_SIZE;
+  unsigned long tp  = TLS_SYSCALL_PATCH_ADDR;
   unsigned long n;
   unsigned long p;
 
@@ -144,50 +124,84 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   struct mmap_entry* map;
   unsigned long jmpAddr;
   int n;
-  unsigned long insn;
+  unsigned long insn, insn2 = 0;
   int target, status;
+  const int jmpInsnSize = 5; /* jmpq/callq +/- 2GB */
 
   unsigned long ip = regs->rip - 2;
   struct user_regs_struct newRegs;
 
   map = populate_memory_map(pid, &n);
   Expect(map != NULL);
-
   show_mappings(map, n);
+
+  int bytes = (int)(p->next_instruction_length);
+  int remain = 2 + bytes - jmpInsnSize;
+  Expect(remain >= 0 && remain <= 8);
 
   jmpAddr = p->hook_address;
   Expect(jmpAddr - ip <= 1UL << 31 || ip - jmpAddr <= 1UL << 31);
   insn = ptrace(PTRACE_PEEKTEXT, pid, jmpAddr, 0);
   debug("jmp target addr: %lx, insn: %lx\n", jmpAddr, insn);
 
-  target = (int)((long)jmpAddr - (long)ip - 5);
+  target = (int)((long)jmpAddr - (long)ip - jmpInsnSize);
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip, 0);
-  debug("ip = %p, before patching: %lx, jmp addr: %x\n", (void*)ip, insn, target);
+  insn2 = insn;
 
   /* 5 bytes jump +/- 2GB */
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < jmpInsnSize; i++) {
     insn &=~ (0xffL << 8*i);
   }
 
-  insn = 0;
   insn |= (0xe8L) << 0;
   insn |= ((long)target & 0xff) << 8;
   insn |= ((long)(target >> 8) & 0xff) << 16;
   insn |= ((long)(target >> 16) & 0xff) << 24;
   insn |= ((long)(target >> 24) & 0xff) << 32;
-  insn |= 0x9090900000000000;
-  debug("patched insn: %lx\n", insn);
 
-  struct watchpoint* w = set_watchpoint(pid, ip+8);
+  switch(remain) {
+  case 0:
+    break;
+  case 1: insn &=~ (0xffL << 40); insn |= 0x90L << 40; break;
+  case 2: insn &=~ (0xffffL << 40); insn |= 909090L << 40; break;
+  case 3: default: insn &=~ (0xffffffL << 40); insn |= 0x001f0fL << 40; break;
+  }
+
+  debug("ip = %p, instruction length: %d, before/after patching: %lx/%lx, jmp addr: %x\n", (void*)ip, bytes, insn2, insn, target);
+
+  if (remain > 3) {
+    insn2 = ptrace(PTRACE_PEEKTEXT, pid, ip+sizeof(long), 0);
+    switch(remain-3) {
+    case 1: insn2 &=~ 0xffL; insn2 |= 0x90L; break;
+    case 2: insn2 &=~ 0xffffL; insn2 |= 0x9090L; break;
+    case 3: insn2 &=~ 0xffffffL; insn2 |= 0x001f0fL; break;
+    case 4: insn2 &=~ 0xffffffffL; insn2 |= 0x00401f0fL; break;
+    case 5: insn2 &= ~0xffffffffffL; insn2 |= 0x0000441f0fL; break;
+    default: Expect(remain <= 8); break;
+    }
+  }
+
+  /* set a breakpoint after patched bytes */
+  debug("set breakpoint at: %lx\n", ip+2+bytes);
+  struct watchpoint* w = set_watchpoint(pid, ip+2+bytes);
   ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
   /* should hit our watchpoint */
   Expect(waitpid(pid, &status, 0) == pid);
-  Expect(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
+  if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
+    ;
+  } else if (WIFEXITED(status)) {
+    return false;
+  } else {
+    panic("expect waitpid return SIGTRAP or EXITED, but got: %x\n", status);
+  }
   ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &newRegs));
   Expect(newRegs.rip - 1 == w->ip);
   remove_watchpoint(pid, w->ip);
   /* now patch our syscall */
   ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, ip, insn));
+  /* patch second instruction word */
+  if (remain > 3) ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, ip+sizeof(long), insn2));
+  /* rewind pc prior to our watchpoint */
   newRegs.rip -= 1;
   dump_user_regs(pid);
   ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &newRegs));
@@ -250,49 +264,61 @@ static bool patch_syscall(int pid, struct user_regs_struct* regs)
 	continue;
       }
     }
-    if (found) return patch_at(pid, regs, &syscall_patch_hooks[i]);
+    if (found) {
+      bool rc = patch_at(pid, regs, &syscall_patch_hooks[i]);
+      log("found patchable syscall (%d) instruction at %lx, patch status: %d\n", regs->orig_rax, ip-2, rc);
+    }
   }
   return false;
 }
 
-static bool openat_enter(int pid, struct user_regs_struct* regs)
+static void openat_enter(int pid, struct user_regs_struct* regs)
 {
   char path[1 + PATH_MAX];
-  unsigned long* tls = (unsigned long*)PRELOAD_THREAD_LOCALS_ADDR;
-  unsigned long hook;
   const void* remotePtr = (const void*)regs->rsi;
   ptrace_peek_cstring(pid, path, PATH_MAX, remotePtr);
-  log("openat: %s\n", path);
-
-  hook = ptrace(PTRACE_PEEKDATA, pid, &tls[2], 0);
-  if (hook != 0) {
-    patch_syscall(pid, regs);
-  }
-  return false;
+  info("(seccomp) openat: %s\n", path);
 }
 
-static bool access_enter(int pid, struct user_regs_struct* regs)
+static void access_enter(int pid, struct user_regs_struct* regs)
 {
   char path[1 + PATH_MAX];
-  
   const void* remotePtr = (const void*)regs->rdi;
   ptrace_peek_cstring(pid, path, PATH_MAX, remotePtr);
-  printf("access file: %s\n", path);
-  return false;
+  info("(seccomp) access file: %s\n", path);
 }
 
 static int syscall_enter(int pid, int syscall, struct user_regs_struct* regs)
 {
-  switch(syscall) {
-  case SYS_openat:
-    openat_enter(pid, regs);
-    break;
-  case SYS_access:
-    access_enter(pid, regs);
-    break;
-  default:
-    crit("<bpf-trace> unknown syscall: %u\n", syscall);
-    break;
+  errno = 0;
+  unsigned long hook = ptrace(PTRACE_PEEKDATA, pid, TLS_SYSCALL_HOOK_ADDR, 0);
+  
+  if (hook == -1UL) {
+	  if (errno) {
+		  info("ptrace failed for addr: %lx, error: %s\n", TLS_SYSCALL_HOOK_ADDR, strerror(errno));
+		  return 0;
+	  }
+  }
+
+  debug("seccomp syscall enter: %d\n", syscall);
+  /* syscall hooks installed, patch syscall instruction, 
+   * otherwise allow syscall go through seccomp
+   * NB: even we patched syscall, we still allow it fall
+   * through because the patched instruction only taken
+   * effects on next run */
+  if (hook != 0 && hook != -1UL){
+    patch_syscall(pid, regs);
+  } else {
+    switch(syscall) {
+    case SYS_openat:
+      openat_enter(pid, regs);
+      break;
+    case SYS_access:
+      access_enter(pid, regs);
+      break;
+    default:
+      break;
+    }
   }
   return 0;
 }
@@ -314,9 +340,11 @@ static void do_ptrace_seccomp(pid_t pid)
 
   syscall = (int)regs.orig_rax;
   syscall_enter(pid, syscall, &regs);
-  log("seccomp trapped intercept syscall: %x\n", syscall);
-  
-  ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
+  log("seccomp trapped intercept syscall: %d\n", syscall);
+
+  /* this might fail when syscall is _exit
+   * not throwing error in that case */
+  ptrace(PTRACE_CONT, pid, 0, 0);
 }
 
 static void usage(const char* prog) {
@@ -346,8 +374,19 @@ static void load_syscall_pages(pid_t pid) {
   if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) { /* breakpoint hits */
     ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &regs));
     if ((long)regs.rax < 0) {
-      fprintf(stderr, "unable to inject syscall pages at 0x70000000, error: %s\n", strerror((long)-regs.rax));
-      exit(1);
+      if (regs.rax == -ENOSYS) {
+	ptrace(PTRACE_SYSCALL, pid, 0, 0);
+	Expect(waitpid(pid, &status, 0) == pid);
+	Expect(WIFSTOPPED(status) && WSTOPSIG(status) == 0x85);
+	ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &regs));
+	printf("rax = %llx, orig_rax = %llx\n",regs.rax, regs.orig_rax);
+	ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL, insn));
+	ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL + sizeof(insn), insn));
+	oldregs.rip = regs.rip-4; /* 0xcc, syscall, 0xcc = 4 bytes */
+	memcpy(&regs, &oldregs, sizeof(regs));
+	ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &regs));
+      } else
+      panic("unable to inject syscall pages at 0x70000000, error: %s\n", strerror((long)-regs.rax));
     } else {
       ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL, insn));
       ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL + sizeof(insn), insn));
@@ -405,7 +444,7 @@ static int run_tracer(pid_t pid) {
   if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGSTOP) { /* intial sigstop */
     ;
   } else {
-    fprintf(stderr, "expected SIGSTOP to be raised.\n");
+    fprintf(stderr, "expected SIGSTOP to be raised, but got: %x\n", status);
     return -1;
   }
 
@@ -413,7 +452,7 @@ static int run_tracer(pid_t pid) {
   assert(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
 
   while (1) {
-    assert(waitpid(pid, &status, 0) == pid);
+    if (waitpid(pid, &status, 0) != pid) break;
     /* wait for our expected PTRACE_EVENT_EXEC */
     if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP && (status >> 16 == PTRACE_EVENT_EXEC)) {
       do_ptrace_exec(pid);
@@ -434,8 +473,10 @@ static int run_tracer(pid_t pid) {
       return -1;
     }
   }
+  return -1;
 }
 
+extern void bpf_patch_all(void);
 static int run_app(int argc, char* argv[])
 {
   pid_t pid;
@@ -446,12 +487,12 @@ static int run_app(int argc, char* argv[])
   if (pid > 0) {
     ret = run_tracer(pid);
   } else if (pid == 0) {
-    struct rlimit lim = {-1, -1};
-    load_seccomp_rules();
+    //bpf_patch_syscall(SYS_openat);
+    //bpf_patch_syscall(SYS_access);
     ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
-    setrlimit(RLIMIT_CORE, &lim);
     assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
     raise(SIGSTOP);
+    bpf_patch_all();
     char* const envp[] = {
       "PATH=/bin:/usr/bin",
       "LD_PRELOAD=./libpreload.so",
