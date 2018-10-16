@@ -133,10 +133,6 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_c3_nop)
         callq __morestack
         /* The original instructions after the syscall are
            retq; nopl 0x0(%rax,%rax,1) */
-        /* We're not returning to the dynamically generated stub, so
-           we need to fix the stack pointer ourselves. */
-        pop %rdx
-        pop %rsp
         pop (stub_scratch_1)
         jmp _syscallbuf_final_exit_instruction
 

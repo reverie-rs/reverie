@@ -127,8 +127,9 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   unsigned long insn, insn2 = 0;
   int target, status;
   const int jmpInsnSize = 5; /* jmpq/callq +/- 2GB */
+  const int syscallInsnSize = 2;
 
-  unsigned long ip = regs->rip - 2;
+  unsigned long ip = regs->rip - syscallInsnSize;
   struct user_regs_struct newRegs;
 
   map = populate_memory_map(pid, &n);
@@ -136,7 +137,7 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   show_mappings(map, n);
 
   int bytes = (int)(p->next_instruction_length);
-  int remain = 2 + bytes - jmpInsnSize;
+  int remain = syscallInsnSize + bytes - jmpInsnSize;
   Expect(remain >= 0 && remain <= 8);
 
   jmpAddr = p->hook_address;
@@ -181,24 +182,31 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
     }
   }
 
-  /* set a breakpoint after patched bytes */
-  debug("set breakpoint at: %lx\n", ip+2+bytes);
-  struct watchpoint* w = set_watchpoint(pid, ip+2+bytes);
-  ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
-  /* should hit our watchpoint */
-  Expect(waitpid(pid, &status, 0) == pid);
-  Expect(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
-  ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &newRegs));
-  Expect(newRegs.rip - 1 == w->ip);
-  remove_watchpoint(pid, w->ip);
+  do { /* single step until we're safe to patch the syscall */
+    ThrowErrnoIfMinus(ptrace(PTRACE_SINGLESTEP, pid, 0, 0));
+    Expect(waitpid(pid, &status, 0) == pid);
+    //Expect(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
+    Expect(WIFSTOPPED(status));
+    switch(WSTOPSIG(status)) {
+    case SIGTRAP:
+      ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &newRegs));
+      break;
+    case SIGCHLD:
+      //waitpid(pid, &status, 0);
+      ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, SIGCHLD));
+      return false;
+      break;
+    default:
+      panic("unknown signal: %d\n", WSTOPSIG(status));
+      break;
+    }
+  } while (newRegs.rip >= ip && newRegs.rip < ip + syscallInsnSize + bytes);
+
   /* now patch our syscall */
   ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, ip, insn));
   /* patch second instruction word */
   if (remain > 3) ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, ip+sizeof(long), insn2));
-  /* rewind pc prior to our watchpoint */
-  newRegs.rip -= 1;
   dump_user_regs(pid);
-  ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &newRegs));
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip, 0);
   debug("after patching: %lx, resume from rip: %llx\n", insn, newRegs.rip);
   free_mmap_entry(map);
@@ -237,7 +245,7 @@ static bool ensureSyscallInsn(int pid, unsigned long rip)
   return ((insn &0xffffL) == 0x050f);
 }
 
-static bool patch_syscall(int pid, struct user_regs_struct* regs)
+static void may_patch_syscall(int pid, struct user_regs_struct* regs)
 {
   unsigned char bytes[17] = {0,};
   ensureSyscallInsn(pid, regs->rip - 2);
@@ -263,7 +271,6 @@ static bool patch_syscall(int pid, struct user_regs_struct* regs)
       log("found patchable syscall (%d) instruction at %lx, patch status: %d\n", regs->orig_rax, ip-2, rc);
     }
   }
-  return false;
 }
 
 static void openat_enter(int pid, struct user_regs_struct* regs)
@@ -301,7 +308,7 @@ static int syscall_enter(int pid, int syscall, struct user_regs_struct* regs)
    * through because the patched instruction only taken
    * effects on next run */
   if (hook != 0 && hook != -1UL){
-    patch_syscall(pid, regs);
+    may_patch_syscall(pid, regs);
   } else {
     switch(syscall) {
     case SYS_openat:
@@ -442,13 +449,15 @@ static int run_tracer(pid_t pid) {
       return WEXITSTATUS(status);
     } else {
       fprintf(stderr, "expect ptrace exec/seccomp event, but got: %x\n", status);
-      dump_user_regs(pid);
       if (WSTOPSIG(status) == SIGSEGV || WSTOPSIG(status) == SIGILL) {
 	siginfo_t info;
 	ThrowErrnoIfMinus(ptrace(PTRACE_GETSIGINFO, pid, 0, (void*)&info));
 	printf("tracee received sigsegv, signo: %d, errno: %d, code: %d, addr: %p\n", info.si_signo, info.si_errno, info.si_code, info.si_addr);
+	dump_user_regs(pid);
 	ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
 	sleep(1);
+      } else if (WSTOPSIG(status) == SIGCHLD) {
+	ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
       }
       return -1;
     }
@@ -467,8 +476,6 @@ static int run_app(int argc, char* argv[])
   if (pid > 0) {
     ret = run_tracer(pid);
   } else if (pid == 0) {
-    //bpf_patch_syscall(SYS_openat);
-    //bpf_patch_syscall(SYS_access);
     ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
     assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
     raise(SIGSTOP);
