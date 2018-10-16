@@ -374,18 +374,6 @@ static void load_syscall_pages(pid_t pid) {
   if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) { /* breakpoint hits */
     ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &regs));
     if ((long)regs.rax < 0) {
-      if (regs.rax == -ENOSYS) {
-	ptrace(PTRACE_SYSCALL, pid, 0, 0);
-	Expect(waitpid(pid, &status, 0) == pid);
-	Expect(WIFSTOPPED(status) && WSTOPSIG(status) == 0x85);
-	ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &regs));
-	printf("rax = %llx, orig_rax = %llx\n",regs.rax, regs.orig_rax);
-	ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL, insn));
-	ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL + sizeof(insn), insn));
-	oldregs.rip = regs.rip-4; /* 0xcc, syscall, 0xcc = 4 bytes */
-	memcpy(&regs, &oldregs, sizeof(regs));
-	ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &regs));
-      } else
       panic("unable to inject syscall pages at 0x70000000, error: %s\n", strerror((long)-regs.rax));
     } else {
       ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, 0x70000000UL, insn));
