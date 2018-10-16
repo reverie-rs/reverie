@@ -187,13 +187,7 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
   /* should hit our watchpoint */
   Expect(waitpid(pid, &status, 0) == pid);
-  if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP) {
-    ;
-  } else if (WIFEXITED(status)) {
-    return false;
-  } else {
-    panic("expect waitpid return SIGTRAP or EXITED, but got: %x\n", status);
-  }
+  Expect(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
   ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &newRegs));
   Expect(newRegs.rip - 1 == w->ip);
   remove_watchpoint(pid, w->ip);
@@ -342,9 +336,7 @@ static void do_ptrace_seccomp(pid_t pid)
   syscall_enter(pid, syscall, &regs);
   log("seccomp trapped intercept syscall: %d\n", syscall);
 
-  /* this might fail when syscall is _exit
-   * not throwing error in that case */
-  ptrace(PTRACE_CONT, pid, 0, 0);
+  ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
 }
 
 static void usage(const char* prog) {
