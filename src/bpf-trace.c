@@ -35,6 +35,7 @@
 #include "watchpoint.h"
 #include "syscallbuf.h"
 #include "symbols.h"
+#include "syscallT.h"
 #include "bpf.h"
 
 static void dump_user_regs(pid_t pid)
@@ -250,13 +251,14 @@ static void may_patch_syscall(int pid, struct user_regs_struct* regs)
   unsigned char bytes[17] = {0,};
   ensureSyscallInsn(pid, regs->rip - 2);
   unsigned long insn, ip = regs->rip;
-  int found;
+  int found, no;
 
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip, 0);
   memcpy(bytes, &insn, sizeof(insn));
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip+sizeof(insn), 0);
   memcpy(bytes+sizeof(insn), &insn, sizeof(insn));
 
+  no = regs->orig_rax;
   populate_syscall_patches(pid);
   for (int i = 0; i < nr_syscall_patch_hooks; i++) {
     found = true;
@@ -268,8 +270,12 @@ static void may_patch_syscall(int pid, struct user_regs_struct* regs)
     }
     if (found) {
       bool rc = patch_at(pid, regs, &syscall_patch_hooks[i]);
-      log("found patchable syscall (%d) instruction at %lx, patch status: %d\n", regs->orig_rax, ip-2, rc);
+      log("found patchable syscall (%s) instruction at %lx, patch status: %d\n", syscall_lookup(no), ip-2, rc);
+      return;
     }
+  }
+  if (!found) {
+    log("not able to patch syscall %s, pc = %llx\n", syscall_lookup(no), regs->rip);
   }
 }
 
@@ -301,7 +307,7 @@ static int syscall_enter(int pid, int syscall, struct user_regs_struct* regs)
 	  }
   }
 
-  debug("seccomp syscall enter: %d\n", syscall);
+  debug("seccomp syscall enter: %s\n", syscall_lookup(syscall));
   /* syscall hooks installed, patch syscall instruction, 
    * otherwise allow syscall go through seccomp
    * NB: even we patched syscall, we still allow it fall
@@ -341,7 +347,7 @@ static void do_ptrace_seccomp(pid_t pid)
 
   syscall = (int)regs.orig_rax;
   syscall_enter(pid, syscall, &regs);
-  log("seccomp trapped intercept syscall: %d\n", syscall);
+  log("seccomp trapped intercept syscall: %s\n", syscall_lookup(syscall));
 
   ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
 }
