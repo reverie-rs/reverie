@@ -346,8 +346,8 @@ static void do_ptrace_seccomp(pid_t pid)
   }
 
   syscall = (int)regs.orig_rax;
+  log("%u seccomp trapped intercept syscall: %s\n", pid, syscall_lookup(syscall));
   syscall_enter(pid, syscall, &regs);
-  log("seccomp trapped intercept syscall: %s\n", syscall_lookup(syscall));
 
   ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
 }
@@ -430,6 +430,39 @@ static void do_ptrace_exec(pid_t pid) {
   }
 }
 
+static void handle_ptrace_signal(pid_t pid, unsigned status)
+{
+  if (WSTOPSIG(status) == SIGSEGV || WSTOPSIG(status) == SIGILL) {
+    siginfo_t info;
+    ThrowErrnoIfMinus(ptrace(PTRACE_GETSIGINFO, pid, 0, (void*)&info));
+    printf("tracee received sigsegv, signo: %d, errno: %d, code: %d, addr: %p\n", info.si_signo, info.si_errno, info.si_code, info.si_addr);
+    dump_user_regs(pid);
+    ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
+    sleep(1);
+  } else if (WSTOPSIG(status) == SIGCHLD) {
+    log("%u got SIGCHLD\n", pid);
+    ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
+  } else {
+    ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
+  }
+}
+
+static void handle_ptrace_event(pid_t pid, unsigned event)
+{
+  switch(event) {
+  case PTRACE_EVENT_EXEC:
+    /* wait for our expected PTRACE_EVENT_EXEC */
+    do_ptrace_exec(pid);
+    break;
+  case PTRACE_EVENT_SECCOMP:
+    do_ptrace_seccomp(pid);
+    break;
+  default:
+    panic("%u unknown ptrace event: %u\n", pid, event);
+    break;
+  }
+}
+
 static int run_tracer(pid_t pid) {
   int status;
   
@@ -444,28 +477,25 @@ static int run_tracer(pid_t pid) {
   assert(ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL | PTRACE_O_TRACESECCOMP | PTRACE_O_TRACESYSGOOD ) == 0);
   assert(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
 
-  while (1) {
-    if (waitpid(pid, &status, 0) != pid) break;
-    /* wait for our expected PTRACE_EVENT_EXEC */
-    if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP && (status >> 16 == PTRACE_EVENT_EXEC)) {
-      do_ptrace_exec(pid);
-    } else if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP && (status >> 16 == PTRACE_EVENT_SECCOMP)) {
-      do_ptrace_seccomp(pid);
-    } else if (WIFEXITED(status)) {
+  while ((pid = waitpid(-1, &status, 0)) != -1) {
+    if (WIFEXITED(status)) {
       return WEXITSTATUS(status);
-    } else {
-      fprintf(stderr, "expect ptrace exec/seccomp event, but got: %x\n", status);
-      if (WSTOPSIG(status) == SIGSEGV || WSTOPSIG(status) == SIGILL) {
-	siginfo_t info;
-	ThrowErrnoIfMinus(ptrace(PTRACE_GETSIGINFO, pid, 0, (void*)&info));
-	printf("tracee received sigsegv, signo: %d, errno: %d, code: %d, addr: %p\n", info.si_signo, info.si_errno, info.si_code, info.si_addr);
-	dump_user_regs(pid);
-	ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
-	sleep(1);
-      } else if (WSTOPSIG(status) == SIGCHLD) {
-	ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
+    } else if (WIFSIGNALED(status)) {
+      log("signaled: status=%x\n", status);
+      continue;
+    } else if (WIFCONTINUED(status)) {
+      panic("continued: status=%x\n", status);
+    } else if (WIFSTOPPED(status)) {
+      switch(WSTOPSIG(status)) {
+      case SIGTRAP:
+	handle_ptrace_event(pid, status >> 16);
+	break;
+      default:
+	handle_ptrace_signal(pid, status);
+	break;
       }
-      return -1;
+    } else {
+      log("waitpid %u unknown status: %x\n", pid, status);
     }
   }
   return -1;

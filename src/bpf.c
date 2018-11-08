@@ -41,9 +41,13 @@ void bpf_patch_all(void)
 {
   struct sock_filter filter [] = {
     BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_mmap, 5, 0),
-    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_exit, 4, 0),
-    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_exit_group, 3, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_mmap, 9, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_exit, 8, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_exit_group, 7, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_wait4, 6, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_clone, 5, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_fork, 4, 0),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, SYS_vfork, 3, 0),
     BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
     BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0x70000002, 1, 0),
     BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),

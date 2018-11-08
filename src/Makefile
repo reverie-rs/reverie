@@ -23,7 +23,7 @@ syscallT.c: printSyscallT.hs
 	runghc $< > $@
 
 bpf-trace: bpf.o bpf-trace.o watchpoint.o utils.o symbols.o syscallT.o
-	$(CC) $^ -o $@ $(CFLAGS) -lrt -ldl
+	$(CC) $^ -o $@ $(CFLAGS) -lrt -ldl -rdynamic
 
 clean:
 	$(RM) $(OBJS) *.o *.so bpf-trace
