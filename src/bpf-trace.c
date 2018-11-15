@@ -2,6 +2,10 @@
  * a bpf tracer demonstrates how to ptrace with seccomp-bpf
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE 1
+#endif
+
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
@@ -349,7 +353,8 @@ static void do_ptrace_seccomp(pid_t pid)
   log("%u seccomp trapped intercept syscall: %s\n", pid, syscall_lookup(syscall));
   syscall_enter(pid, syscall, &regs);
 
-  ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
+  // ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
+  ptrace(PTRACE_CONT, pid, 0, 0);
 }
 
 static void usage(const char* prog) {
@@ -463,7 +468,26 @@ static void handle_ptrace_event(pid_t pid, unsigned event)
   }
 }
 
-static int run_tracer(pid_t pid) {
+extern void bpf_patch_all(void);
+
+
+static void run_tracee(int argc, char* argv[])
+{
+    ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
+    assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
+    raise(SIGSTOP);
+    bpf_patch_all();
+    char* const envp[] = {
+      "PATH=/bin:/usr/bin",
+      "LD_PRELOAD=./libpreload.so",
+      NULL,
+    };
+    execvpe(argv[0], argv, envp);
+    fprintf(stderr, "unable to run child: %s\n", argv[1]);
+    exit(1);
+}
+
+static int run_tracer_main(pid_t pid) {
   int status;
   
   assert(waitpid(pid, &status, 0) == pid);
@@ -479,12 +503,11 @@ static int run_tracer(pid_t pid) {
 
   while ((pid = waitpid(-1, &status, 0)) != -1) {
     if (WIFEXITED(status)) {
-      return WEXITSTATUS(status);
+      log("%u exited.\n", pid);
     } else if (WIFSIGNALED(status)) {
-      log("signaled: status=%x\n", status);
-      continue;
+      log("%u signaled %u.\n", pid, WSTOPSIG(status));
     } else if (WIFCONTINUED(status)) {
-      panic("continued: status=%x\n", status);
+      log("%u continued: status=%x\n", pid, status);
     } else if (WIFSTOPPED(status)) {
       switch(WSTOPSIG(status)) {
       case SIGTRAP:
@@ -501,29 +524,93 @@ static int run_tracer(pid_t pid) {
   return -1;
 }
 
-extern void bpf_patch_all(void);
+static void proc_setgroups_write(pid_t child_pid, const char *str){
+  char setgroups_path[PATH_MAX];
+  int fd;
+
+  snprintf(setgroups_path, PATH_MAX, "/proc/%ld/setgroups",
+           (long) child_pid);
+
+  fd = open(setgroups_path, O_WRONLY);
+  if (fd == -1) {
+    if (errno != ENOENT)
+      fprintf(stderr, "ERROR: open %s: %s\n", setgroups_path,
+              strerror(errno));
+    return;
+  }
+
+  if (write(fd, str, strlen(str)) == -1)
+    fprintf(stderr, "ERROR: write %s: %s\n", setgroups_path,
+            strerror(errno));
+
+  close(fd);
+}
+
+static void update_map(char *mapping, char *map_file){
+  int fd = open(map_file, O_WRONLY);
+  if (fd == -1) {
+    fprintf(stderr, "ERROR: open %s: %s\n", map_file,
+            strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+  ssize_t map_len = strlen(mapping);
+  if (write(fd, mapping, map_len) != map_len) {
+    fprintf(stderr, "ERROR: write %s: %s\n", map_file,
+            strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  close(fd);
+}
+
+static int run_tracer(pid_t starting_pid, uid_t starting_uid, gid_t starting_gid, int argc, char* argv[])
+{
+#define BUFF_SIZE 128
+  char path[BUFF_SIZE];
+  char buff[BUFF_SIZE];
+
+  snprintf(path, BUFF_SIZE, "/proc/%u/uid_map", starting_pid);
+  snprintf(buff, BUFF_SIZE, "0 %u 1", starting_uid);
+  update_map(buff, path);
+
+  proc_setgroups_write(starting_pid, "deny");
+
+  snprintf(path, BUFF_SIZE, "/proc/%u/gid_map", starting_pid);
+  snprintf(buff, BUFF_SIZE, "0 %u 1", starting_gid);
+  update_map(buff, path);
+#undef BUFF_SIZE
+  assert(getpid() == 1);
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    fprintf(stderr, "fork() failed: %s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  } else if(pid > 0) {
+    run_tracer_main(pid);
+  } else if (pid == 0) {
+    prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+    run_tracee(argc, argv);
+  }
+  return 0;
+}
+
 static int run_app(int argc, char* argv[])
 {
   pid_t pid;
   int ret = -1;
 
-  pid = fork();
+  pid_t starting_pid = getpid();
+  uid_t starting_uid = geteuid();
+  gid_t starting_gid = getegid();
+
+  Expect(unshare(CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS) == 0);
   
+  pid = fork();
   if (pid > 0) {
-    ret = run_tracer(pid);
+    int status;
+    Expect(waitpid(pid, &status, 0) >= 0);
   } else if (pid == 0) {
-    ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
-    assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
-    raise(SIGSTOP);
-    bpf_patch_all();
-    char* const envp[] = {
-      "PATH=/bin:/usr/bin",
-      "LD_PRELOAD=./libpreload.so",
-      NULL,
-    };
-    execvpe(argv[0], argv, envp);
-    fprintf(stderr, "unable to run child: %s\n", argv[1]);
-    exit(1);
+    ret = run_tracer(starting_pid, starting_uid, starting_gid, argc, argv);
   }
 
   return ret;
