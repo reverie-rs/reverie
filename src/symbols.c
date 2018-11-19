@@ -47,7 +47,11 @@ struct mmap_entry* populate_memory_map(pid_t pid, int* nmemb) {
   Expect(map != NULL);
   snprintf(proc, 64, "/proc/%u/maps", pid);
   fp = fopen(proc, "rb");
-  if (!fp) panic("unable to open file: %s, error: %s\n", proc, strerror(errno));
+  if (!fp) {
+    log("unable to open file: %s, error: %s\n", proc, strerror(errno));
+    return NULL;
+  }
+
 
   while(!feof(fp)) {
     if (i >= (allocated-1)) {

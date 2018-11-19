@@ -17,7 +17,7 @@ OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 	$(CXX) $< -c -o $@ $(CXXFLAGS)
 
 libpreload.so: trampoline.o syscallbuf.o raw_syscall.S
-	$(CC) $^ -o $@ $(CFLAGS) -shared -Wl,--no-as-needed -nostdlib
+	$(CC) $^ -o $@ $(CFLAGS) -shared -Wl,--no-as-needed
 
 syscallT.c: printSyscallT.hs
 	runghc $< > $@

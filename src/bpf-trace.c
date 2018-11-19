@@ -138,7 +138,8 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   struct user_regs_struct newRegs;
 
   map = populate_memory_map(pid, &n);
-  Expect(map != NULL);
+  if (!map) return false;
+
   show_mappings(map, n);
 
   int bytes = (int)(p->next_instruction_length);
@@ -452,12 +453,44 @@ static void handle_ptrace_signal(pid_t pid, unsigned status)
   }
 }
 
+void do_ptrace_fork(pid_t pid)
+{
+  pid_t child;
+
+  Expect(ptrace(PTRACE_GETEVENTMSG, pid, 0, &child) == 0);
+  log("%u child pid: %u\n", pid, child);
+  // Expect(waitpid(child, &status, 0) == child);
+  Expect(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
+}
+
+static void do_ptrace_exit(pid_t pid)
+{
+  log("%u ptrace exit.\n", pid);
+  Expect(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
+}
+
+static void do_ptrace_vfork_done(pid_t pid)
+{
+  Expect(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
+}
+
 static void handle_ptrace_event(pid_t pid, unsigned event)
 {
   switch(event) {
   case PTRACE_EVENT_EXEC:
     /* wait for our expected PTRACE_EVENT_EXEC */
     do_ptrace_exec(pid);
+    break;
+  case PTRACE_EVENT_VFORK:
+  case PTRACE_EVENT_FORK:
+  case PTRACE_EVENT_CLONE:
+    do_ptrace_fork(pid);
+    break;
+  case PTRACE_EVENT_VFORK_DONE:
+    do_ptrace_vfork_done(pid);
+    break;
+  case PTRACE_EVENT_EXIT:
+    do_ptrace_exit(pid);
     break;
   case PTRACE_EVENT_SECCOMP:
     do_ptrace_seccomp(pid);
@@ -498,7 +531,15 @@ static int run_tracer_main(pid_t pid) {
     return -1;
   }
 
-  assert(ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL | PTRACE_O_TRACESECCOMP | PTRACE_O_TRACESYSGOOD ) == 0);
+  long ptrace_opts = PTRACE_O_TRACEEXEC | PTRACE_O_EXITKILL
+    | PTRACE_O_TRACECLONE
+    | PTRACE_O_TRACEFORK
+    | PTRACE_O_TRACEVFORK
+    | PTRACE_O_TRACEVFORKDONE
+    | PTRACE_O_TRACEEXIT
+    | PTRACE_O_TRACESECCOMP
+    | PTRACE_O_TRACESYSGOOD;
+  assert(ptrace(PTRACE_SETOPTIONS, pid, NULL, ptrace_opts ) == 0);
   assert(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
 
   while ((pid = waitpid(-1, &status, 0)) != -1) {
@@ -521,6 +562,7 @@ static int run_tracer_main(pid_t pid) {
       log("waitpid %u unknown status: %x\n", pid, status);
     }
   }
+
   return -1;
 }
 
