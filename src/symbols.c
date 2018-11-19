@@ -52,7 +52,6 @@ struct mmap_entry* populate_memory_map(pid_t pid, int* nmemb) {
     return NULL;
   }
 
-
   while(!feof(fp)) {
     if (i >= (allocated-1)) {
       allocated += 128;

@@ -15,6 +15,7 @@
 #include <sys/prctl.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <sys/mount.h>
 #include <sys/personality.h>
 #include <linux/seccomp.h>
 #include <linux/filter.h>
@@ -622,6 +623,8 @@ static int run_tracer(pid_t starting_pid, uid_t starting_uid, gid_t starting_gid
   update_map(buff, path);
 #undef BUFF_SIZE
   assert(getpid() == 1);
+
+  Expect(mount("none", "/proc", "proc", 0, NULL) == 0);
 
   pid_t pid = fork();
   if (pid < 0) {
