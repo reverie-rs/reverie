@@ -31,3 +31,8 @@ forkExec: forkExec.o
 
 clean:
 	$(RM) $(OBJS) *.o openat1
+
+tests:
+	../src/bpf-trace ./openat1 || exit 1
+	../src/bpf-trace ./open-many || exit 1
+	../src/bpf-trace ./write-many || exit 1

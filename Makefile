@@ -11,3 +11,8 @@ all:
 clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C tests clean
+
+tests:
+	$(MAKE) -C tests tests
+
+.PHONY: all clean tests

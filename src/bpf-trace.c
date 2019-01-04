@@ -35,6 +35,7 @@
 #include <stddef.h>
 #include <inttypes.h>
 #include <dlfcn.h>
+#include <libgen.h>
 
 #include "utils.h"
 #include "watchpoint.h"
@@ -504,21 +505,31 @@ static void handle_ptrace_event(pid_t pid, unsigned event)
 
 extern void bpf_patch_all(void);
 
-
 static void run_tracee(int argc, char* argv[])
 {
-    ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
-    assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
-    raise(SIGSTOP);
-    bpf_patch_all();
-    char* const envp[] = {
-      "PATH=/bin:/usr/bin",
-      "LD_PRELOAD=./libpreload.so",
-      NULL,
-    };
-    execvpe(argv[0], argv, envp);
-    fprintf(stderr, "unable to run child: %s\n", argv[1]);
-    exit(1);
+#ifndef MAX_PATH
+#define MAX_PATH 1024
+  char exe[1 + MAX_PATH] = {0,};
+  char preload[1 + MAX_PATH];
+  ThrowErrnoIfMinus(readlink("/proc/self/exe", exe, MAX_PATH));
+  ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
+  assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
+  raise(SIGSTOP);
+  bpf_patch_all();
+  char* exe1 = strdupa(exe);
+  assert(realpath(exe1, exe));
+  char* exe_path = dirname(exe);
+  snprintf(preload, MAX_PATH, "LD_PRELOAD=%s/libpreload.so", exe_path);
+  char* const envp[] = {
+    "PATH=/bin:/usr/bin",
+    preload,
+    NULL,
+  };
+  execvpe(argv[0], argv, envp);
+  fprintf(stderr, "unable to run child: %s\n", argv[1]);
+  exit(1);
+#undef MAX_PATH
+#endif
 }
 
 static int run_tracer_main(pid_t pid) {
@@ -564,7 +575,7 @@ static int run_tracer_main(pid_t pid) {
     }
   }
 
-  return -1;
+  return 0;
 }
 
 static void proc_setgroups_write(pid_t child_pid, const char *str){
@@ -642,7 +653,7 @@ static int run_tracer(pid_t starting_pid, uid_t starting_uid, gid_t starting_gid
 static int run_app(int argc, char* argv[])
 {
   pid_t pid;
-  int ret = -1;
+  int ret = 0;
 
   pid_t starting_pid = getpid();
   uid_t starting_uid = geteuid();
