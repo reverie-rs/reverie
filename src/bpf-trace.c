@@ -519,9 +519,10 @@ static void run_tracee(int argc, char* argv[])
   char* exe1 = strdupa(exe);
   assert(realpath(exe1, exe));
   char* exe_path = dirname(exe);
-  snprintf(preload, MAX_PATH, "LD_PRELOAD=%s/libpreload.so", exe_path);
+  snprintf(preload, MAX_PATH, "LD_LIBRARY_PATH=%s", exe_path);
   char* const envp[] = {
     "PATH=/bin:/usr/bin",
+    "LD_PRELOAD=libpreload.so",
     preload,
     NULL,
   };
