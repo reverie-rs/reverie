@@ -1,3 +1,6 @@
+#!/usr/bin/env stack
+-- stack --resolver=lts-12.25 script --package parsec --package bytestring --package process --package mtl
+
 {-# LANGUAGE LambdaCase #-}
 
 module Main (main) where

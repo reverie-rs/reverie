@@ -20,7 +20,7 @@ libpreload.so: trampoline.o syscallbuf.o raw_syscall.S
 	$(CC) $^ -o $@ $(CFLAGS) -shared -Wl,--no-as-needed
 
 syscallT.c: printSyscallT.hs
-	runghc $< > $@
+	./$< > $@
 
 bpf-trace: bpf.o bpf-trace.o watchpoint.o utils.o symbols.o syscallT.o
 	$(CC) $^ -o $@ $(CFLAGS) -lrt -ldl -rdynamic
