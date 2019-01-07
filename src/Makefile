@@ -22,7 +22,7 @@ libpreload.so: trampoline.o syscallbuf.o raw_syscall.S
 syscallT.c: printSyscallT.hs
 	./$< > $@
 
-bpf-trace: bpf.o bpf-trace.o watchpoint.o utils.o symbols.o syscallT.o
+bpf-trace: bpf.o bpf-helper.o bpf-trace.o watchpoint.o utils.o symbols.o syscallT.o
 	$(CC) $^ -o $@ $(CFLAGS) -lrt -ldl -rdynamic
 
 clean:

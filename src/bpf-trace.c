@@ -503,7 +503,7 @@ static void handle_ptrace_event(pid_t pid, unsigned event)
   }
 }
 
-extern void bpf_patch_all(void);
+extern void bpf_install(void);
 
 static void run_tracee(int argc, char* argv[])
 {
@@ -515,7 +515,7 @@ static void run_tracee(int argc, char* argv[])
   ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
   assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
   raise(SIGSTOP);
-  bpf_patch_all();
+  bpf_install();
   char* exe1 = strdupa(exe);
   assert(realpath(exe1, exe));
   char* exe_path = dirname(exe);
