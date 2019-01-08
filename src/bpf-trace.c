@@ -443,10 +443,9 @@ static void handle_ptrace_signal(pid_t pid, unsigned status)
   if (WSTOPSIG(status) == SIGSEGV || WSTOPSIG(status) == SIGILL) {
     siginfo_t info;
     ThrowErrnoIfMinus(ptrace(PTRACE_GETSIGINFO, pid, 0, (void*)&info));
-    printf("tracee received sigsegv, signo: %d, errno: %d, code: %d, addr: %p\n", info.si_signo, info.si_errno, info.si_code, info.si_addr);
+    log("tracee received sigsegv, signo: %d, errno: %d, code: %d, addr: %p\n", info.si_signo, info.si_errno, info.si_code, info.si_addr);
     dump_user_regs(pid);
     ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
-    sleep(1);
   } else if (WSTOPSIG(status) == SIGCHLD) {
     log("%u got SIGCHLD\n", pid);
     ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)));
@@ -461,7 +460,6 @@ void do_ptrace_fork(pid_t pid)
 
   Expect(ptrace(PTRACE_GETEVENTMSG, pid, 0, &child) == 0);
   log("%u child pid: %u\n", pid, child);
-  // Expect(waitpid(child, &status, 0) == child);
   Expect(ptrace(PTRACE_CONT, pid, 0, 0) == 0);
 }
 
@@ -522,7 +520,7 @@ static void run_tracee(int argc, char* argv[])
   snprintf(preload, MAX_PATH, "LD_LIBRARY_PATH=%s", exe_path);
   char* const envp[] = {
     "PATH=/bin:/usr/bin",
-    "LD_PRELOAD=libpreload.so",
+    "LD_PRELOAD=libdet.so libsystrace.so",
     preload,
     NULL,
   };
@@ -558,8 +556,10 @@ static int run_tracer_main(pid_t pid) {
   while ((pid = waitpid(-1, &status, 0)) != -1) {
     if (WIFEXITED(status)) {
       log("%u exited.\n", pid);
+      return WEXITSTATUS(status);
     } else if (WIFSIGNALED(status)) {
-      log("%u signaled %u.\n", pid, WSTOPSIG(status));
+      log("%u signaled %u.\n", pid, WTERMSIG(status));
+      return WTERMSIG(status) | 0x80;
     } else if (WIFCONTINUED(status)) {
       log("%u continued: status=%x\n", pid, status);
     } else if (WIFSTOPPED(status)) {
@@ -643,7 +643,7 @@ static int run_tracer(pid_t starting_pid, uid_t starting_uid, gid_t starting_gid
     fprintf(stderr, "fork() failed: %s\n", strerror(errno));
     exit(EXIT_FAILURE);
   } else if(pid > 0) {
-    run_tracer_main(pid);
+    return run_tracer_main(pid);
   } else if (pid == 0) {
     prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
     run_tracee(argc, argv);
@@ -654,23 +654,31 @@ static int run_tracer(pid_t starting_pid, uid_t starting_uid, gid_t starting_gid
 static int run_app(int argc, char* argv[])
 {
   pid_t pid;
-  int ret = 0;
+  int ret = -1;
 
   pid_t starting_pid = getpid();
   uid_t starting_uid = geteuid();
   gid_t starting_gid = getegid();
 
   Expect(unshare(CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS) == 0);
-  
+
   pid = fork();
+
   if (pid > 0) {
     int status;
-    Expect(waitpid(pid, &status, 0) >= 0);
+    while(waitpid(pid, &status, 0) == pid) {
+      if (WIFEXITED(status)) {
+	return WEXITSTATUS(status);
+      }
+    }
+    return ret;
   } else if (pid == 0) {
     ret = run_tracer(starting_pid, starting_uid, starting_gid, argc, argv);
+    return ret;
+  } else {
+    perror ("fork");
+    return -1;
   }
-
-  return ret;
 }
 
 int main(int argc, char* argv[])

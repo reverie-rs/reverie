@@ -6,7 +6,7 @@ INCLUDE  = -I../include -I.
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC $(INCLUDE)
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC $(INCLUDE)
 
-all: libpreload.so bpf-trace
+all: libsystrace.so bpf-trace
 
 SRCS	 = $(shell ls *.c)
 OBJS	 = $(patsubst %.c, %.o, ${SRCS})
@@ -17,7 +17,7 @@ OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 .cc.o:
 	$(CXX) $< -c -o $@ $(CXXFLAGS)
 
-libpreload.so: trampoline.o syscallbuf.o raw_syscall.S
+libsystrace.so: trampoline.o syscallbuf.o raw_syscall.S
 	$(CC) $^ -o $@ $(CFLAGS) -shared -Wl,--no-as-needed
 
 syscallT.c: printSyscallT.hs

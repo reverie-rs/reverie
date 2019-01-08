@@ -1,0 +1,18 @@
+[package]
+name = "systrace"
+version = "0.1.0"
+authors = ["Baojun Wang <wangbj@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "det"
+crate-type = ["cdylib"]
+path = "src/libdet/mod.rs"
+
+[[bin]]
+name = "det"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2.0"
+nix = "0.12.0"
