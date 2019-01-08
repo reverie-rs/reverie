@@ -6,33 +6,7 @@
 #include <errno.h>
 
 #include "syscallbuf.h"
-
-#define untraced_syscall6(no, a0, a1, a2, a3, a4, a5)                          \
-  untraced_syscall(no, (uintptr_t)a0, (uintptr_t)a1, (uintptr_t)a2,            \
-		   (uintptr_t)a3, (uintptr_t)a4, (uintptr_t)a5)
-
-#define untraced_syscall5(no, a0, a1, a2, a3, a4)                              \
-  untraced_syscall6(no, a0, a1, a2, a3, a4, 0)
-#define untraced_syscall4(no, a0, a1, a2, a3)                                  \
-  untraced_syscall5(no, a0, a1, a2, a3, 0)
-#define untraced_syscall3(no, a0, a1, a2) untraced_syscall4(no, a0, a1, a2, 0)
-#define untraced_syscall2(no, a0, a1) untraced_syscall3(no, a0, a1, 0)
-#define untraced_syscall1(no, a0) untraced_syscall2(no, a0, 0)
-#define untraced_syscall0(no) untraced_syscall1(no, 0)
-
-#define traced_syscall6(no, a0, a1, a2, a3, a4, a5)                 \
-  traced_syscall(no, (uintptr_t)a0, (uintptr_t)a1, (uintptr_t)a2,   \
-		 (uintptr_t)a3, (uintptr_t)a4, (uintptr_t)a5)
-#define traced_syscall5(no, a0, a1, a2, a3, a4)                     \
-  traced_syscall6(no, a0, a1, a2, a3, a4, 0)
-#define traced_syscall4(no, a0, a1, a2, a3)                         \
-  traced_syscall5(no, a0, a1, a2, a3, 0)
-#define traced_syscall3(no, a0, a1, a2)                             \
-  traced_syscall4(no, a0, a1, a2, 0)
-#define traced_syscall2(no, a0, a1)                                 \
-  traced_syscall3(no, a0, a1, 0)
-#define traced_syscall1(no, a0) traced_syscall2(no, a0, 0)
-#define traced_syscall0(no) traced_syscall1(no, 0)
+#include "systrace.h"
 
 extern __attribute__((visibility("hidden")))
 long _raw_syscall(int syscallno, long a0, long a1, long a2,
@@ -40,68 +14,42 @@ long _raw_syscall(int syscallno, long a0, long a1, long a2,
 		  void* syscall_instruction,
 		  long stack_param_1, long stack_param_2);
 
-/**
- * Make a raw traced syscall using the params in |call|.
- */
-static long traced_raw_syscall(const struct syscall_info* call) {
-  /* FIXME: pass |call| to avoid pushing these on the stack
-   * again. */
-  return _raw_syscall(call->no, call->args[0], call->args[1], call->args[2],
-                      call->args[3], call->args[4], call->args[5],
-                      SYSCALL_TRACED, 0, 0);
-}
-
-static int traced_syscall(int syscallno, long a0, long a1, long a2,
-			  long a3, long a4, long a5) {
+long traced_syscall(int syscallno, long a0, long a1, long a2,
+		    long a3, long a4, long a5) {
   return _raw_syscall(syscallno, a0, a1, a2, a3, a4, a5,
                       SYSCALL_TRACED, 0, 0);
 }
 
 /**
- * Make a raw traced syscall using the params in |call|.
+ * start a syscall without being traced/filterd by seccomp
  */
-static long untraced_raw_syscall(const struct syscall_info* call) {
-  /* FIXME: pass |call| to avoid pushing these on the stack
-   * again. */
-  return _raw_syscall(call->no, call->args[0], call->args[1], call->args[2],
-                      call->args[3], call->args[4], call->args[5],
-                      SYSCALL_UNTRACED, 0, 0);
-}
-
-static int untraced_syscall(int syscallno, long a0, long a1, long a2,
-			    long a3, long a4, long a5) {
+long untraced_syscall(int syscallno, long a0, long a1, long a2,
+		      long a3, long a4, long a5) {
   return _raw_syscall(syscallno, a0, a1, a2, a3, a4, a5,
                       SYSCALL_UNTRACED, 0, 0);
 }
 
-typedef long (*untraced_syscall6_pfn) (unsigned long, unsigned long, unsigned long, unsigned long,
-				  unsigned long, unsigned long, unsigned long);
-__attribute__((visibility("hidden"))) void* _syscall_table[1 + SYSCALL_MAX];
+/**
+ * dispatch a captured syscall.
+ * the default behavior is to allow syscall going through
+ * please note even though the syscall captured was still patched
+ * *NOTE*: `captured_syscall` is defined as a weak symbol, as a result
+ * others could provide alternative implementations actually doing 
+ * something rather than allow the syscall silently going through.
+ * OTOH, `untraced_syscall` is guaranteed to going through (no filtered
+ * by seccomp).
+ */
+__attribute__((weak)) long _captured_syscall(int syscallno, long arg0, long arg1, long arg2,
+		       long arg3, long arg4, long arg5){
+  return untraced_syscall(syscallno, arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+long captured_syscall(int syscallno, long arg0, long arg1, long arg2,
+		      long arg3, long arg4, long arg5) __attribute__((weak, alias("_captured_syscall")));
+
 __attribute__((visibility("hidden"))) long syscall_hook(const struct syscall_info* syscall)
 {
-  if (_syscall_table[syscall->no] == 0) {
-    return -ENOSYS;
-  } else if ((unsigned long)_syscall_table[syscall->no] == DEFAULT_SYSCALL_HOOK) {
-    return untraced_syscall6(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
-  } else {
-    untraced_syscall6_pfn do_syscall6 = (untraced_syscall6_pfn)_syscall_table[syscall->no];
-    return do_syscall6(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
-  }
-}
-
-int register_syscall_hook(int syscall, void* pfn)
-{
-  if (!(syscall >= 0 && syscall < SYSCALL_MAX)) return -1;
-
-  if (_syscall_table[syscall]) {
-    if (pfn) return -1;
-  } else {
-    if (!pfn) return -1;
-  }
-
-  _syscall_table[syscall] = pfn;
-
-  return 0;
+  return captured_syscall(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
 }
 
 extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline(void);
@@ -197,8 +145,4 @@ __attribute__((constructor, visibility("hidden"))) void __preload_init(void)
   tls[0] = sizeof(syscall_patch_hooks) / sizeof(syscall_patch_hooks[0]);
   tls[1] = (unsigned long)syscall_patch_hooks;
   tls[2] = (unsigned long)syscall_hook;
-
-  for (int i = 0; i < SYSCALL_MAX; i++) {
-    _syscall_table[i] = (void*)DEFAULT_SYSCALL_HOOK;
-  }
 }

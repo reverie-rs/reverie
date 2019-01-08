@@ -2,8 +2,9 @@ CC	 = clang
 CXX	 = clang++
 LD	 = lld
 
-CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
-CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
+INCLUDE  = -I../include -I.
+CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC $(INCLUDE)
+CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC $(INCLUDE)
 
 all: libpreload.so bpf-trace
 

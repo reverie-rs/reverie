@@ -37,6 +37,4 @@ struct syscall_patch_hook {
 #define DEFAULT_SYSCALL_HOOK (-1UL)
 #define NULL_SYSCALL_HOOK    0UL
 
-int register_syscall_hook(int, void*);
-
 #endif
