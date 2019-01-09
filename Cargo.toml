@@ -7,7 +7,7 @@ edition = "2018"
 [lib]
 name = "det"
 crate-type = ["cdylib"]
-path = "src/libdet/mod.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "det"
