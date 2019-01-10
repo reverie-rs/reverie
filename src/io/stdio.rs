@@ -1,8 +1,6 @@
-use core::fmt;
 use core::fmt::*;
 use core::*;
-use crate::syscall::nr::*;
-use crate::syscall::raw::*;
+use crate::syscall::*;
 
 struct RawStdio {
     fileno: i32,
