@@ -1,11 +1,11 @@
 
-#![feature(lang_items, core_intrinsics)]
+#![feature(lang_items, core_intrinsics, format_args_nl, fixed_size_array)]
 #![no_std]
 
 #[macro_use]
-
 pub mod det;
 pub mod io;
+pub mod syscall;
 
 use core::intrinsics;
 use core::panic::PanicInfo;
