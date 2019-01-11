@@ -13,7 +13,10 @@ use core::intrinsics;
 use core::panic::PanicInfo;
 
 use core::alloc::{GlobalAlloc, Layout}; 
-use core::ptr::null_mut;
+use core::ptr::*;
+
+use crate::det::allocator::{MapAllocBuilder, MapAlloc};
+use core::alloc::{Alloc};
 
 #[lang = "eh_personality"] extern fn rust_eh_personality() {}
 #[lang = "panic_impl"] extern fn rust_begin_panic(panic_info: &PanicInfo) -> ! {
@@ -35,8 +38,19 @@ use core::ptr::null_mut;
 pub struct MyAllocator;
 
 unsafe impl GlobalAlloc for MyAllocator {
-    unsafe fn alloc(&self, _layout: Layout) -> *mut u8 { null_mut() }
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let mut alloc = MapAllocBuilder::default().build();
+        match <MapAlloc as Alloc>::alloc(&mut alloc, layout) {
+            Ok(ptr) => ptr.as_ptr(),
+            Err(_)  =>  panic!("MapAlloc::alloc failed for {:?}", layout),
+        }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if let Some(new_ptr) = NonNull::new(ptr) {
+            let mut alloc = MapAllocBuilder::default().build();
+            <MapAlloc as Alloc>::dealloc(&mut alloc, new_ptr, layout);
+        }
+    }
 }
 
 #[global_allocator]
@@ -45,4 +59,9 @@ pub static A: MyAllocator = MyAllocator;
 #[alloc_error_handler]
 fn alloc_failed(layout: core::alloc::Layout) -> ! {
     panic!("alloc failed: {:?}", layout);
+}
+
+#[no_mangle]
+extern "C" fn _Unwind_Resume() -> ! {
+    unsafe { intrinsics::abort() };
 }

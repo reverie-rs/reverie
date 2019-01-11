@@ -13,39 +13,47 @@
 #[cfg(not(any(target_os = "linux")))]
 compile_error!("mmap-alloc only supports Linux");
 
-#[no_std]
-// use self::alloc::alloc::{Alloc, AllocErr, CannotReallocInPlace, Excess, Layout};
 use core::alloc::{Alloc, AllocErr, CannotReallocInPlace, Excess, Layout};
 use core::ptr::{self, NonNull};
-use core::fmt::*;
-use alloc::format;
 
 use crate::det::objalloc::UntypedObjectAlloc;
 use crate::syscall::*;
 
-const PROT_READ: i32 = 0x1;
-const PROT_WRITE: i32 = 0x2;
-const PROT_EXEC: i32 = 0x4;
-const PROT_NONE: i32 = 0x0;
-
+#[allow(unused)]
 const MAP_SHARED: i32 = 0x1;
+#[allow(unused)]
 const MAP_PRIVATE: i32 = 0x2;
+#[allow(unused)]
 const MAP_ANONYMOUS: i32 = 0x20;
+#[allow(unused)]
 const MAP_DENYWRITE: i32 = 0x800;
+#[allow(unused)]
 const MAP_EXECUTABLE: i32 = 0x1000;
+#[allow(unused)]
 const MAP_LOCKED: i32 = 0x2000;
+#[allow(unused)]
 const MAP_NONRESERVE: i32 = 0x4000;
+#[allow(unused)]
 const MAP_POPULATE: i32 = 0x8000;
 
+#[allow(unused)]
 const MREMAP_MAYMOVE: i32 = 0x1;
+#[allow(unused)]
 const MREMAP_FIXED: i32 = 0x10;
 
+#[allow(unused)]
 const MADV_NORMAL:     i32 = 0x0;
+#[allow(unused)]
 const MADV_RANDOM:     i32 = 0x1;
+#[allow(unused)]
 const MADV_SEQUENTIAL: i32 = 0x2;
+#[allow(unused)]
 const MADV_WILLNEED:   i32 = 0x3;
+#[allow(unused)]
 const MADV_DONTNEED:   i32 = 0x4;
+#[allow(unused)]
 const MADV_FREE:       i32 = 0x8;
+#[allow(unused)]
 const MADV_REMOVE:     i32 = 0x9;
 
 #[cfg(any(target_os = "linux"))]
@@ -636,7 +644,7 @@ unsafe fn map(size: usize, perms: i32, commit: bool) -> Option<NonNull<u8>> {
         MAP_ANONYMOUS | MAP_PRIVATE | flags,
         -1,
         0,
-    ).expect(&format!("mmap failed with size {}", size));
+    ).expect("mmap failed with size");
 
         // On Linux, if the MAP_FIXED flag is not supplied, mmap will never return NULL. From the
         // Linux manpage: "The portable way to create a mapping is to specify addr as 0 (NULL), and
@@ -655,7 +663,7 @@ unsafe fn remap(
     in_place: bool,
 ) -> Option<NonNull<u8>> {
     let flags = if !in_place { MREMAP_MAYMOVE } else { 0 };
-    let result = __mremap(ptr as *mut _, old_size, new_size, flags).expect(&format!("mremap failed with size {}", new_size));
+    let result = __mremap(ptr as *mut _, old_size, new_size, flags).expect("mremap failed");
     assert_ne!(ptr, ptr::null_mut(), "mremap returned NULL");
     Some(NonNull::new_unchecked(result as *mut u8))
 }
@@ -683,14 +691,14 @@ unsafe fn protect(ptr: *mut u8, size: usize, perm: perms::Perm) {
 
 #[cfg(any(target_os = "linux"))]
 unsafe fn commit(ptr: *mut u8, size: usize) {
-    __madvise(ptr as *mut _, size, MADV_WILLNEED);
+    __madvise(ptr as *mut _, size, MADV_WILLNEED).expect("madvise failed");
 }
 
 #[cfg(target_os = "linux")]
 unsafe fn uncommit(ptr: *mut u8, size: usize) {
     // TODO: Other options such as MADV_FREE are available on newer versions of Linux. Is there
     // a way that we can use those when available? Is that even desirable?
-    __madvise(ptr as *mut _, size, MADV_DONTNEED);
+    __madvise(ptr as *mut _, size, MADV_DONTNEED).expect("madvise failed");
 }
 
 mod perms {
@@ -716,10 +724,10 @@ mod perms {
     mod unix {
         // NOTE: On some platforms, libc::PROT_WRITE may imply libc::PROT_READ, and libc::PROT_READ
         // may imply libc::PROT_EXEC.
-        pub const PROT_NONE: i32 = PROT_NONE;
-        pub const PROT_READ: i32 = PROT_READ;
-        pub const PROT_WRITE: i32 = PROT_WRITE;
-        pub const PROT_EXEC: i32 = PROT_EXEC;
+        pub const PROT_NONE: i32 = 0x0;
+        pub const PROT_READ: i32 = 0x1;
+        pub const PROT_WRITE: i32 = 0x2;
+        pub const PROT_EXEC: i32 = 0x4;
         pub const PROT_READ_WRITE: i32 = PROT_READ | PROT_WRITE;
         pub const PROT_READ_EXEC: i32 = PROT_READ | PROT_EXEC;
         pub const PROT_WRITE_EXEC: i32 = PROT_WRITE | PROT_EXEC;

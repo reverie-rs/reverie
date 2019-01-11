@@ -1,6 +1,7 @@
 
 use crate::syscall::nr::*;
 use crate::syscall::raw::*;
+use crate::*;
 
 fn syscall_ret(ret: i64) -> Result<i64, i64> {
     let t :i64 = -4096;
@@ -24,7 +25,7 @@ pub fn __munmap(ptr: *mut (), size: usize) -> Result<i32, i64> {
 }
 
 pub fn __mremap(old_addr: *mut (), old_size: usize, new_size: usize, flags: i32) -> Result<i32, i64> {
-    syscall(MREMAP as i32, old_addr as i64, old_size as i64, new_size as i64, flags as i64, 0, 0).map(|x| x as *mut ())
+    syscall(MREMAP as i32, old_addr as i64, old_size as i64, new_size as i64, flags as i64, 0, 0).map(|x| x as i32)
 }
 
 pub fn __mprotect(addr: *mut (), len: usize, prot: i32) -> Result<(), i64> {

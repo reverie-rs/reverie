@@ -1,4 +1,4 @@
-use core::fmt::*;
+use core::fmt::{Error, Write};
 use core::*;
 use crate::syscall::*;
 
@@ -7,7 +7,7 @@ struct RawStdio {
 }
 
 impl Write for RawStdio {
-    fn write_str(&mut self, s: &str) -> Result {
+    fn write_str(&mut self, s: &str) -> Result<(), Error> {
         let fd = self.fileno;
         let len = s.bytes().len();
         let buf: *const u8 = s.as_ptr();

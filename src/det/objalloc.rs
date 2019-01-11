@@ -5,10 +5,6 @@
 // the MIT license (the LICENSE-MIT file) at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-#![no_std]
-#![feature(alloc, allocator_api)]
-#![feature(core_intrinsics)]
-
 extern crate alloc;
 
 use alloc::alloc::Layout;
