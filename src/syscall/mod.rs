@@ -1,9 +1,11 @@
 
 pub use self::nr::*;
 pub use self::raw::*;
+pub use self::helper::*;
 
 pub mod nr;
 pub mod raw;
+pub mod helper;
 
 const SYSCALL_MAX_ARGS: usize = 6;
 

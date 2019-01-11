@@ -1,5 +1,5 @@
 
-#![feature(lang_items, core_intrinsics, alloc, alloc_error_handler, format_args_nl, fixed_size_array, uniform_paths, toowned_clone_into, panic_info_message)]
+#![feature(lang_items, core_intrinsics, alloc, allocator_api, alloc_error_handler, format_args_nl, fixed_size_array, uniform_paths, toowned_clone_into, panic_info_message)]
 #![no_std]
 #[macro_use]
 
@@ -26,15 +26,11 @@ use core::ptr::null_mut;
     println!("aborting ..");
     unsafe { intrinsics::abort() }
 }
+
 #[lang = "eh_unwind_resume"] extern fn rust_eh_unwind_resume() {}
 
 #[no_mangle] pub extern fn rust_eh_register_frames () {}
 #[no_mangle] pub extern fn rust_eh_unregister_frames () {}
-
-#[alloc_error_handler]
-fn alloc_failed(layout: core::alloc::Layout) -> ! {
-    panic!("alloc failed: {:?}", layout);
-}
 
 pub struct MyAllocator;
 
@@ -45,3 +41,8 @@ unsafe impl GlobalAlloc for MyAllocator {
 
 #[global_allocator]
 pub static A: MyAllocator = MyAllocator;
+
+#[alloc_error_handler]
+fn alloc_failed(layout: core::alloc::Layout) -> ! {
+    panic!("alloc failed: {:?}", layout);
+}
