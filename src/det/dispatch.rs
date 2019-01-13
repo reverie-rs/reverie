@@ -1,11 +1,12 @@
 
-use crate::*;
+use crate::io::*;
 use crate::syscall::*;
 use crate::det::ffi::*;
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(_no: i32, _a0: i64, _a1: i64, _a2: i64, _a3: i64, _a4: i64, _a5: i64) -> i64 {
     if _no == OPENAT as i32 {
+        // let s = unsafe { unsafe_pack_cstring(_a1 as *const i8) };
         let s = pack_cstring(_a1 as *const i8);
         println!("openat: {}", s);
     }

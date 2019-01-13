@@ -1,7 +1,7 @@
 
 use crate::syscall::nr::*;
 use crate::syscall::raw::*;
-use crate::*;
+use crate::io::*;
 
 fn syscall_ret(ret: i64) -> Result<i64, i64> {
     let t :i64 = -4096;
