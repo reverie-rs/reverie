@@ -139,6 +139,8 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   unsigned long ip = regs->rip - syscallInsnSize;
   struct user_regs_struct newRegs;
 
+  long no = regs->orig_rax;
+
   map = populate_memory_map(pid, &n);
   if (!map) return false;
 
@@ -190,35 +192,42 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
     }
   }
 
-  do { /* single step until we're safe to patch the syscall */
-    ThrowErrnoIfMinus(ptrace(PTRACE_SINGLESTEP, pid, 0, 0));
-    Expect(waitpid(pid, &status, 0) == pid);
-    //Expect(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
-    Expect(WIFSTOPPED(status));
-    switch(WSTOPSIG(status)) {
-    case SIGTRAP:
-      ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &newRegs));
-      break;
-    case SIGCHLD:
-      //waitpid(pid, &status, 0);
-      ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, SIGCHLD));
-      return false;
-      break;
-    default:
-      panic("unknown signal: %d\n", WSTOPSIG(status));
-      break;
-    }
-  } while (newRegs.rip >= ip && newRegs.rip < ip + syscallInsnSize + bytes);
+  memcpy(&newRegs, regs, sizeof(newRegs));
+  newRegs.orig_rax = -1;  // skip syscall, see `man seccomp` for details.
+  ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &newRegs));
+  ThrowErrnoIfMinus(ptrace(PTRACE_SYSCALL, pid, 0, 0)); // make sure syscall finished.
+  Expect(waitpid(pid, &status, 0) == pid);
+  Expect(WIFSTOPPED(status) && WSTOPSIG(status) == (0x80 | SIGTRAP));
 
-  /* now patch our syscall */
+  // patch the syscall sequence
   ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, ip, insn));
   /* patch second instruction word */
   if (remain > 3) ThrowErrnoIfMinus(ptrace(PTRACE_POKETEXT, pid, ip+sizeof(long), insn2));
-  dump_user_regs(pid);
+
   insn = ptrace(PTRACE_PEEKTEXT, pid, ip, 0);
   debug("after patching: %lx, resume from rip: %llx\n", insn, newRegs.rip);
   free_mmap_entry(map);
+  memcpy(&newRegs, regs, sizeof(newRegs));
+  newRegs.rax = no;
+  newRegs.rip = ip;
+  ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &newRegs));
 
+  // set a breakpoint at the begining of syscall sequence
+  // to make sure the icache realized the modification
+  // not sure if SINGLESTEP is sufficient, use breakpoint
+  // for the safe side.
+  set_watchpoint(pid, ip);
+  ThrowErrnoIfMinus(ptrace(PTRACE_CONT, pid, 0, 0));
+  Expect(waitpid(pid, &status, 0) == pid);
+  Expect(WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP);
+  remove_watchpoint(pid, ip);
+
+  ThrowErrnoIfMinus(ptrace(PTRACE_GETREGS, pid, 0, &newRegs));
+  newRegs.rip -= 1; // rewind pc because of bp
+  // syscallno is passed as rax instead of orig_rax in our
+  // trampoline.
+  newRegs.rax = no;
+  ThrowErrnoIfMinus(ptrace(PTRACE_SETREGS, pid, 0, &newRegs));
   return true;
 }
 

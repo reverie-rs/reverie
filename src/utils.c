@@ -23,7 +23,7 @@ void __attribute__((noreturn)) panic(const char* fmt, ...)
   va_end(ap);
 
   n = backtrace(buffer, BACKTRACE_MAX);
-  backtrace_symbols_fd(buffer, n, STDOUT_FILENO);
+  backtrace_symbols_fd(buffer, n, STDERR_FILENO);
   abort();
 }
 

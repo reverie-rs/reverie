@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 int segv(int sig, siginfo_t* info, void* u) {
   unsigned char* ip = info->si_addr;
@@ -30,10 +31,16 @@ int main(int argc, char* argv[])
   sigaction(SIGSEGV, &sa, &old_sa);
   
   fd = open(file, 0);
-  printf("openat1: %d\n", fd);
+  fprintf(stderr, "openat1: %d\n", fd);
+  if (fd < 0) {
+	  fprintf(stderr, "open %s, error: %s\n", file, strerror(errno));
+  }
 
   fd = open(file, 0);
-  printf("openat1: %d\n", fd);
+  fprintf(stderr, "openat1: %d\n", fd);
+  if (fd < 0) {
+	  fprintf(stderr, "open %s, error: %s\n", file, strerror(errno));
+  }
 
   return 0;
 }
