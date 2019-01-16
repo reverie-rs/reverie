@@ -1,5 +1,5 @@
 
-#![feature(lang_items, core_intrinsics, alloc, allocator_api, alloc_error_handler, format_args_nl, fixed_size_array, uniform_paths, toowned_clone_into, panic_info_message)]
+#![feature(lang_items, core_intrinsics, alloc, allocator_api, alloc_error_handler, format_args_nl, fixed_size_array, toowned_clone_into, panic_info_message)]
 #![no_std]
 #[macro_use]
 
