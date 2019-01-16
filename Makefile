@@ -9,10 +9,14 @@ all:
 	$(MAKE) -C src all
 	$(MAKE) -C tests all
 	@cargo build --release
-	@cp -v target/release/libdet.so src
+	@cargo build --release --manifest-path=libdet/Cargo.toml
+	@cp -v libdet/target/release/libdet.so src
 clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C tests clean
+	$(RM) src/libdet.so src/libsystrace.so
+	@cargo clean
+	@cargo clean --manifest-path=libdet/Cargo.toml
 
 tests:
 	$(MAKE) -C tests tests

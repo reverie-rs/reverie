@@ -8,11 +8,6 @@ edition = "2018"
 name = "systrace"
 path = "src/main.rs"
 
-[lib]
-name = "det"
-crate-type = ["cdylib"]
-path = "src/lib.rs"
-
 [dependencies]
 libc = { version = "0.2", default-features = false }
 nix = "0.12.0"
