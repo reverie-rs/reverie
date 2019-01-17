@@ -11,7 +11,7 @@ impl Write for RawStdio {
         let fd = self.fileno;
         let len = s.bytes().len();
         let buf: *const u8 = s.as_ptr();
-        untraced_syscall(WRITE as i32, fd as i64, buf as i64, len as i64, 0, 0, 0);
+        untraced_syscall(SYS_write as i32, fd as i64, buf as i64, len as i64, 0, 0, 0);
         Ok(())
     }
 }
