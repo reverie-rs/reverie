@@ -12,13 +12,13 @@ extern crate alloc;
 use core::intrinsics;
 use core::panic::PanicInfo;
 
-use core::alloc::{GlobalAlloc, Layout}; 
+use core::alloc::{Alloc, GlobalAlloc, Layout};
 use core::ptr::*;
 
 use crate::det::allocator::{MapAllocBuilder, MapAlloc};
-use core::alloc::{Alloc};
 
 #[lang = "eh_personality"] extern fn rust_eh_personality() {}
+
 #[lang = "panic_impl"] extern fn rust_begin_panic(panic_info: &PanicInfo) -> ! {
     if let Some(loc) = panic_info.location() {
         println!("panic detected at: {:?}", loc);
