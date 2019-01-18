@@ -5,7 +5,9 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-all: openat1 open-many getpid write-many forkExec
+TARGET  := openat1 open-many getpid write-many forkExec clock-nanosleep
+
+all: $(TARGET)
 
 SRCS	 = $(shell ls *.c)
 OBJS	 = $(patsubst %.c, %.o, ${SRCS})
@@ -29,10 +31,16 @@ write-many: write-many.o
 forkExec: forkExec.o
 	$(CC) $^ -o $@ $(CFLAGS)
 
+clock-nanosleep: clock-nanosleep.o
+	$(CC) $^ -o $@ $(CFLAGS) -lrt -lpthread
+
 clean:
-	$(RM) $(OBJS) *.o openat1
+	$(RM) $(OBJS) *.o
+	$(RM) $(TARGET)
 
 tests:
 	../src/bpf-trace ./openat1 || exit 1
 	../src/bpf-trace ./open-many || exit 1
 	../src/bpf-trace ./write-many || exit 1
+
+.PHONY: all tests clean

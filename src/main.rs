@@ -1,3 +1,8 @@
+
+mod hooks;
+
 fn main() {
-    println!("Hello, world!");
+    for hook in hooks::SYSCALL_HOOKS {
+        println!("hook {}, len = {}", hook.symbol, hook.instructions.len());
+    }
 }
