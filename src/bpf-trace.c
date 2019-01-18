@@ -178,7 +178,7 @@ static bool patch_at(pid_t pid, struct user_regs_struct* regs, struct syscall_pa
   case 3: default: insn &=~ (0xffffffL << 40); insn |= 0x001f0fL << 40; break;
   }
 
-  debug("ip = %p, instruction length: %d, before/after patching: %lx/%lx, jmp addr: %x\n", (void*)ip, bytes, insn2, insn, target);
+  debug("pathching %d(%s), ip = %p, instruction length: %d, before/after patching: %lx/%lx, jmp addr: %x\n", no, syscall_lookup(no), (void*)ip, bytes, insn2, insn, target);
 
   if (remain > 3) {
     insn2 = ptrace(PTRACE_PEEKTEXT, pid, ip+sizeof(long), 0);
