@@ -1,6 +1,42 @@
 
+use goblin::elf::sym::*;
+use goblin::elf::Elf;
+
+use std::fs::File;
+use std::io::{Read, Result, Error, ErrorKind};
+
 #[derive(Debug)]
-pub struct SyscallPatchHook<'a> {
+pub struct SyscallHook {
+    pub name: String,
+    pub offset: u64,
+    pub instructions: Vec<u8>,
+    pub is_multi: bool,
+}
+
+/// resolve syscall hooks from (LD) preload library
+/// @preload should be `libsystrace.so`
+/// which has symbols for syscall hooks
+pub fn resolve_syscall_hooks_from(preload: &str) -> Result<Vec<SyscallHook>> {
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut file = File::open(preload)?;
+    let mut res: Vec<SyscallHook> = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let strtab = elf.strtab;
+    for sym in elf.syms.iter() {
+        for hook in SYSCALL_HOOKS {
+            if hook.symbol == &strtab[sym.st_name] {
+                res.push(SyscallHook{ name: String::from(hook.symbol),
+                                      offset: sym.st_value,
+                                      instructions: Vec::from(hook.instructions),
+                                      is_multi: hook.is_multi});
+            }
+        }
+    }
+    Ok(res)
+}
+
+struct SyscallPatchHook<'a> {
     // NB: if the patched sequence contains multiple
     // instructions, it is possible in the same function
     // there is a jmp @label within the very function,
@@ -9,12 +45,12 @@ pub struct SyscallPatchHook<'a> {
     // jumps to the middle of our patched sequence, which is
     // likely cause undefined behavior.
     // one example is `clock_nanosleep` in glibc.
-    pub is_multi: bool,
-    pub instructions: &'a [u8],
-    pub symbol: &'a str,
+    is_multi: bool,
+    instructions: &'a [u8],
+    symbol: &'a str,
 }
 
-pub static SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
+static SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
     /* Many glibc syscall wrappers (e.g. read) have 'syscall' followed by
      * cmp $-4095,%rax */
     SyscallPatchHook {

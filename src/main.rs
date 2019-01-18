@@ -2,7 +2,8 @@
 mod hooks;
 
 fn main() {
-    for hook in hooks::SYSCALL_HOOKS {
-        println!("hook {}, len = {}", hook.symbol, hook.instructions.len());
+    let hooks = hooks::resolve_syscall_hooks_from("src/libsystrace.so").unwrap();
+    for hook in hooks {
+        println!("{:?}", hook);
     }
 }
