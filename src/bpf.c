@@ -44,6 +44,5 @@ void bpf_install(void)
 
   bpf_resolve_jumps(&l, filter, sizeof(filter)/sizeof(*filter));
 
-  ThrowErrnoIfMinus(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0));
   ThrowErrnoIfMinus(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog));
 }

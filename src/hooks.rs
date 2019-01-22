@@ -1,9 +1,8 @@
-
-use goblin::elf::sym::*;
-use goblin::elf::Elf;
-
 use std::fs::File;
 use std::io::{Read, Result, Error, ErrorKind};
+use std::path::{PathBuf};
+
+use goblin::elf::Elf;
 
 #[derive(Debug)]
 pub struct SyscallHook {
@@ -16,7 +15,7 @@ pub struct SyscallHook {
 /// resolve syscall hooks from (LD) preload library
 /// @preload should be `libsystrace.so`
 /// which has symbols for syscall hooks
-pub fn resolve_syscall_hooks_from(preload: &str) -> Result<Vec<SyscallHook>> {
+pub fn resolve_syscall_hooks_from(preload: PathBuf) -> Result<Vec<SyscallHook>> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut file = File::open(preload)?;
     let mut res: Vec<SyscallHook> = Vec::new();
@@ -50,7 +49,7 @@ struct SyscallPatchHook<'a> {
     symbol: &'a str,
 }
 
-static SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
+const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
     /* Many glibc syscall wrappers (e.g. read) have 'syscall' followed by
      * cmp $-4095,%rax */
     SyscallPatchHook {
