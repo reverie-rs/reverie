@@ -14,6 +14,7 @@ top=`pwd`
 
 # This testing mode assumes that nix/docker integration is OFF by default:
 export STACKARGS="--no-system-ghc"
+export PATH="$HOME/.cargo/bin:$HOME/.cabal/bin:$PATH"
 
 rustup update
 make && make tests
