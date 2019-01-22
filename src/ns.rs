@@ -1,4 +1,4 @@
-use nix::unistd;
+use nix::{unistd, mount};
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::{Write, Result};
@@ -27,5 +27,11 @@ fn update_map(starting_pid: unistd::Pid, starting_uid: unistd::Uid, starting_gid
 pub fn init_ns(starting_pid: unistd::Pid, starting_uid: unistd::Uid, starting_gid: unistd::Gid) -> Result<()> {
     proc_setpgroups_write(starting_pid)?;
     update_map(starting_pid, starting_uid, starting_gid)?;
+    let source: Option<&PathBuf> = None;
+    let target: PathBuf = PathBuf::from("/proc");
+    let fstype: &str = "proc";
+    let flags = mount::MsFlags::MS_MGC_VAL;
+    let data: Option<&PathBuf> = None;
+    mount::mount(source, &target, Some(fstype), flags, data).unwrap();
     Ok(())
 }

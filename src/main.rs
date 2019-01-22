@@ -1,3 +1,5 @@
+#![feature(async_await, futures_api)]
+
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
@@ -58,7 +60,7 @@ fn do_ptrace_fork(pid: unistd::Pid) -> Result<()> {
 }
 
 fn do_ptrace_seccomp(pid: unistd::Pid) -> Result<()> {
-    Ok(())
+    just_continue(pid, None)
 }
 
 fn handle_ptrace_event(pid: unistd::Pid, raw_event: i32) -> Result<()>{
@@ -105,7 +107,6 @@ fn run_tracer_main(pid: unistd::Pid) -> Result<i32> {
                        | ptrace::Options::PTRACE_O_TRACESECCOMP
                        | ptrace::Options::PTRACE_O_TRACESYSGOOD).map_err(|e|Error::new(ErrorKind::Other, e))?;
     ptrace::cont(pid, None).map_err(|e|Error::new(ErrorKind::Other, e))?;
-
     loop {
         match wait::waitpid(None, None) {
             Err(failure) => {
@@ -122,7 +123,9 @@ fn run_tracer_main(pid: unistd::Pid) -> Result<i32> {
                 handle_ptrace_event(pid, event)?,
             Ok(WaitStatus::PtraceSyscall(pid)) =>
                 handle_ptrace_syscall(pid)?,
-
+            Ok(WaitStatus::Stopped(pid, sig)) => {
+                just_continue(pid, Some(sig))?;
+            }
             otherwise => panic!("unknown status: {:?}", otherwise),
         }
     }
@@ -142,22 +145,28 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .and_then(|_|signal::raise(signal::SIGSTOP))
         .map_err(|e| from_nix_error(e))?;
 
+    // println!("launching program: {} {:?}", &argv.program, &argv.program_args);
+
     // install seccomp-bpf filters
+    // NB: the only syscall beyond this point should be
+    // execvpe only.
     unsafe { bpf_install() };
 
-    let envp = vec![ "PATH=/bin/:/usr/bin",
-    ];
+    let envp = vec![ "PATH=/bin/:/usr/bin" ];
 
     let program = CString::new(argv.program)?;
-    let args: Vec<CString> = argv.program_args.clone().into_iter().map(|s|CString::new(s).unwrap()).collect();
+    let mut args: Vec<CString> = Vec::new();
+    CString::new(argv.program).map(|s|args.push(s))?;
+    for v in argv.program_args.clone() {
+        CString::new(v).map(|s|args.push(s))?;
+    }
     let envp: Vec<CString> = (vec![ "PATH=/bin:/usr/bin" ]).into_iter().map(|s|CString::new(s).unwrap()).collect();
-    println!("launching program: {} {:?}", &argv.program, &argv.program_args);
+
     unistd::execvpe(&program,
                     args.as_slice(),
                     envp.as_slice())
         .map_err(|e| from_nix_error(e))?;
     unreachable!("exec failed: {} {:?}", &argv.program, &argv.program_args);
-    Ok(0)
 }
 
 fn run_tracer(starting_pid: unistd::Pid, starting_uid: unistd::Uid, starting_gid: unistd::Gid, argv: &Arguments) -> Result<i32> {
