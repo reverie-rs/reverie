@@ -12,7 +12,8 @@ pipeline {
   stages {
     stage('Build') {
       steps {
-        sh 'srun -N1 -t 1:00:00 --exclusive "./.jenkins_script.sh"'
+        // Warning: this has global side effects.  Cannot run twice on one machine:
+        source .jenkins_script.sh
       }
     }
   }
