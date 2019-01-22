@@ -12,8 +12,7 @@ pipeline {
   stages {
     stage('Build') {
       steps {
-        // Warning: this has global side effects.  Cannot run twice on one machine:
-        source .jenkins_script.sh
+        sh './.jenkins_script.sh'
       }
     }
   }
