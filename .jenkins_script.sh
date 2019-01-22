@@ -15,8 +15,5 @@ top=`pwd`
 # This testing mode assumes that nix/docker integration is OFF by default:
 export STACKARGS="--no-system-ghc"
 
-if [ "$DOCKER" == "1" ]; then
-elif [ "$USE_NIX" == "1" ]; then
-else
-    make && make tests
-fi
+rustup update
+make && make tests
