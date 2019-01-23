@@ -143,3 +143,17 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         symbol: "_syscall_hook_trampoline_c3_nop",
     },
 ];
+
+#[test]
+fn syscall_patch_hooks_sanity_check() {
+    for hook in SYSCALL_HOOKS {
+        assert!(hook.instructions.len() >= 3);
+        assert!(hook.instructions.len() < 2 * std::mem::size_of::<u64>());
+        // maximum nop bytes is 9 bytes
+        // 12 comes from: max_nop_bytes + jmp_insn_size(5) - syscall_insn_size
+        // see: https://reverseengineering.stackexchange.com/questions/11971/nop-with-argument-in-x86-64
+        // it is possible to support larger instructions
+        // by adding more nops, for now we think 12 is sufficient.
+        assert!(hook.instructions.len() <= 12);
+    }
+}

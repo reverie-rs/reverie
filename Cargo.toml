@@ -14,6 +14,8 @@ nix = "0.13"
 goblin = "0.0"
 procfs = "0.4"
 clap = "2.32"
+combine = "3.6"
+lazy_static = "1.2"
 
 [build-dependencies]
 cc = "1.0.28"

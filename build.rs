@@ -10,7 +10,7 @@ fn gen_syscall_nrs() -> Result<()>{
     let dest_path = Path::new("src").join("nr.rs");
     let mut f = File::create(&dest_path)?;
     writeln!(f, "#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n")?;
-    writeln!(f, "use self::SyscallNo::*;")?;
+    writeln!(f, "pub use self::SyscallNo::*;")?;
 
     writeln!(f, "#[derive(Debug, Clone)]")?;
     writeln!(f, "pub enum SyscallNo {{")?;

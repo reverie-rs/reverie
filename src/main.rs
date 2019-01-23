@@ -6,11 +6,15 @@
 #![allow(unreachable_code)]
 #![allow(unused_variables)]
 
+#[macro_use]
+extern crate lazy_static;
+
 use std::env::{current_exe};
 use clap::{Arg, App, SubCommand};
 use std::io::{Result, Error, ErrorKind};
 use std::path::PathBuf;
 use std::ffi::CString;
+use std::collections::HashMap;
 use nix::unistd::{ForkResult};
 use nix::unistd;
 use nix::sys::{wait, signal, ptrace};
@@ -19,20 +23,33 @@ use libc;
 mod hooks;
 mod nr;
 mod ns;
+mod patch;
+mod consts;
 
 // install seccomp-bpf filters
 extern {
     fn bpf_install();
 }
 
-const SYSTRACE_SO: &'static str = "libsystrace.so";
-const DET_SO: &'static str = "libdet.so";
-
 #[test]
 fn can_resolve_syscall_hooks () -> Result<()>{
-    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from("src").join(SYSTRACE_SO))?;
+    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO))?;
     assert_ne!(parsed.len(), 0);
     Ok(())
+}
+
+#[test]
+fn libsystrace_trampoline_within_first_page() -> Result<()> {
+    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO))?;
+    let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x1000).collect();
+    assert_eq!(parsed.len(), filtered.len());
+    Ok(())
+}
+
+lazy_static! {
+    static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
+        hooks::resolve_syscall_hooks_from(PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO)).unwrap()
+    };
 }
 
 struct Arguments<'a> {
@@ -46,7 +63,7 @@ fn from_nix_error(err: nix::Error) -> Error {
 }
 
 fn just_continue(pid: unistd::Pid, sig: Option<signal::Signal>) -> Result<()> {
-    ptrace::cont(pid, sig).map_err(|e| from_nix_error(e))
+    ptrace::cont(pid, sig).map_err(from_nix_error)
 }
 
 fn do_ptrace_vfork_done(pid: unistd::Pid) -> Result<()> {
@@ -54,13 +71,87 @@ fn do_ptrace_vfork_done(pid: unistd::Pid) -> Result<()> {
 }
 
 fn do_ptrace_fork(pid: unistd::Pid) -> Result<()> {
-    let child = ptrace::getevent(pid).map_err(|e| from_nix_error(e))?;
+    let child = ptrace::getevent(pid).map_err(from_nix_error)?;
     println!("{} has a new child {}", pid, child);
     just_continue(pid, None)
 }
 
+fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
+    match ptrace::read(pid, consts::DET_TLS_SYSCALL_TRAMPOLINE as ptrace::AddressType) {
+        Ok(addr) if addr != 0 => Some(addr as u64 & !0xfff),
+        _otherwise => None,
+    }
+}
+
 fn do_ptrace_seccomp(pid: unistd::Pid) -> Result<()> {
-    just_continue(pid, None)
+    let ev = ptrace::getevent(pid).map_err(from_nix_error)?;
+    let regs = ptrace::getregs(pid).map_err(from_nix_error)?;
+    let syscall = nr::SyscallNo::from(regs.orig_rax as i32);
+    if ev == 0x7fff {
+        panic!("unfiltered syscall: {:?}", syscall);
+    }
+    match libsystrace_load_address(pid) {
+        None => just_continue(pid, None),
+        Some(la) => {
+            patch::may_patch_syscall_from(pid, syscall, regs , &SYSCALL_HOOKS, la)?;
+            just_continue(pid, None)
+        },
+    }
+}
+
+fn tracee_preinit(pid: unistd::Pid) -> nix::Result<()> {
+    let mut regs = ptrace::getregs(pid)?;
+    let mut saved_regs = regs.clone();
+    let page_addr = consts::DET_PAGE_OFFSET;
+    let page_size = consts::DET_PAGE_SIZE;
+
+    regs.orig_rax = nr::SYS_mmap as u64;
+    regs.rax      = nr::SYS_mmap as u64;
+    regs.rdi      = page_addr;
+    regs.rsi      = page_size;
+    regs.rdx      = (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u64;
+    regs.r10      = (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u64;
+    regs.r8       = -1 as i64 as u64;
+    regs.r9       = 0 as u64;
+
+    ptrace::setregs(pid, regs)?;
+    ptrace::cont(pid, None)?;
+
+    // second breakpoint after syscall hit
+    assert!(wait::waitpid(pid, None) == Ok(wait::WaitStatus::Stopped(pid, signal::SIGTRAP)));
+    let regs = ptrace::getregs(pid)
+        .and_then(|r| {
+            if (r.rax as i64) < 0 {
+                let errno = -(r.rax as i64) as i32;
+                Err(nix::Error::from_errno(nix::errno::from_i32(errno)))
+            } else {
+                Ok(r)
+            }
+        })?;
+
+    let syscall_stub: u64 = 0x90c3050f90c3050f;
+    ptrace::write(pid, page_addr as ptrace::AddressType, syscall_stub as *mut libc::c_void)?;
+    ptrace::write(pid, (page_addr as usize + std::mem::size_of::<u64>()) as ptrace::AddressType, syscall_stub as *mut libc::c_void)?;
+
+    saved_regs.rip = saved_regs.rip - 1; // bp size
+    ptrace::setregs(pid, saved_regs)?;
+
+    Ok(())
+}
+
+fn do_ptrace_exec(pid: unistd::Pid) -> nix::Result<()> {
+    let bp_syscall_bp: i64 = 0xcc050fcc;
+    let regs = ptrace::getregs(pid)?;
+    assert!(regs.rip & 7 == 0);
+    let saved: i64 = ptrace::read(pid, regs.rip as ptrace::AddressType)?;
+    ptrace::write(pid, regs.rip as ptrace::AddressType, ((saved & !(0xffffffff as i64)) | bp_syscall_bp) as *mut libc::c_void)?;
+    ptrace::cont(pid, None)?;
+    let wait_status = wait::waitpid(pid, None)?;
+    assert!(wait_status == wait::WaitStatus::Stopped(pid, signal::SIGTRAP));
+    tracee_preinit(pid)?;
+    ptrace::write(pid, regs.rip as ptrace::AddressType, saved as *mut libc::c_void)?;
+    ptrace::cont(pid, None)?;
+    Ok(())
 }
 
 fn handle_ptrace_event(pid: unistd::Pid, raw_event: i32) -> Result<()>{
@@ -69,7 +160,7 @@ fn handle_ptrace_event(pid: unistd::Pid, raw_event: i32) -> Result<()>{
         || raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
             do_ptrace_fork(pid)?;
         } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
-            just_continue(pid, None)?;
+            do_ptrace_exec(pid).map_err(from_nix_error)?;
         } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
             do_ptrace_vfork_done(pid)?;
         } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
@@ -143,7 +234,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
 
     ptrace::traceme()
         .and_then(|_|signal::raise(signal::SIGSTOP))
-        .map_err(|e| from_nix_error(e))?;
+        .map_err(from_nix_error)?;
 
     // println!("launching program: {} {:?}", &argv.program, &argv.program_args);
 
@@ -152,7 +243,10 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     // execvpe only.
     unsafe { bpf_install() };
 
-    let envp = vec![ "PATH=/bin/:/usr/bin" ];
+    let envs = vec![ "PATH=/bin/:/usr/bin",
+                      "LD_PRELOAD=libdet.so libsystrace.so",
+                      "LD_LIBRARY_PATH=lib",
+    ];
 
     let program = CString::new(argv.program)?;
     let mut args: Vec<CString> = Vec::new();
@@ -160,12 +254,12 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     for v in argv.program_args.clone() {
         CString::new(v).map(|s|args.push(s))?;
     }
-    let envp: Vec<CString> = (vec![ "PATH=/bin:/usr/bin" ]).into_iter().map(|s|CString::new(s).unwrap()).collect();
+    let envp: Vec<CString> = (envs).into_iter().map(|s|CString::new(s).unwrap()).collect();
 
     unistd::execvpe(&program,
                     args.as_slice(),
                     envp.as_slice())
-        .map_err(|e| from_nix_error(e))?;
+        .map_err(from_nix_error)?;
     unreachable!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
 
