@@ -516,21 +516,14 @@ static void run_tracee(int argc, char* argv[])
 {
 #ifndef MAX_PATH
 #define MAX_PATH 1024
-  char exe[1 + MAX_PATH] = {0,};
-  char preload[1 + MAX_PATH];
-  ThrowErrnoIfMinus(readlink("/proc/self/exe", exe, MAX_PATH));
   ThrowErrnoIfMinus(personality(ADDR_NO_RANDOMIZE));
   assert(ptrace(PTRACE_TRACEME, 0, NULL, NULL) == 0);
   raise(SIGSTOP);
   bpf_install();
-  char* exe1 = strdupa(exe);
-  assert(realpath(exe1, exe));
-  char* exe_path = dirname(exe);
-  snprintf(preload, MAX_PATH, "LD_LIBRARY_PATH=%s", exe_path);
   char* const envp[] = {
     "PATH=/bin:/usr/bin",
     "LD_PRELOAD=libdet.so libsystrace.so",
-    preload,
+    "LD_LIBRARY_PATH=lib",
     NULL,
   };
   execvpe(argv[0], argv, envp);

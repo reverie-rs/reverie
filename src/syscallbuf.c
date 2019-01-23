@@ -145,4 +145,5 @@ __attribute__((constructor, visibility("hidden"))) void __preload_init(void)
   tls[0] = sizeof(syscall_patch_hooks) / sizeof(syscall_patch_hooks[0]);
   tls[1] = (unsigned long)syscall_patch_hooks;
   tls[2] = (unsigned long)syscall_hook;
+  tls[3] = (unsigned long)_syscall_hook_trampoline;
 }
