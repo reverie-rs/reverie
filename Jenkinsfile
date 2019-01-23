@@ -1,7 +1,7 @@
 pipeline {
   // This is designed to run on Cutter @ IU
   agent {
-    label 'acghaswellcat16-label'
+    label 'slurm'
   }
 
   triggers {
@@ -12,7 +12,7 @@ pipeline {
   stages {
     stage('Build') {
       steps {
-        sh './.jenkins_script.sh'
+        sh 'srun -N1 -t 1:00:00 --exclusive "./.jenkins_script.sh"'
       }
     }
   }
