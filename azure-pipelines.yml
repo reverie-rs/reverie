@@ -13,5 +13,5 @@ steps:
 - script: |
     make
   displayName: 'Build'
-  | make tests
+    make tests
   displayName: 'Run Tests'
