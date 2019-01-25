@@ -1,7 +1,7 @@
 pipeline {
   // This is designed to run on Cutter @ IU
   agent {
-    label 'slurm'
+    label 'acghaswellcat16-label'
   }
 
   triggers {
