@@ -16,5 +16,6 @@ top=`pwd`
 export STACKARGS="--no-system-ghc"
 export PATH="$HOME/.cargo/bin:$HOME/.cabal/bin:$PATH"
 
+cabal new-update
 rustup update
 make && make tests
