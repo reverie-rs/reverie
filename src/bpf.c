@@ -10,7 +10,7 @@
 
 #include "bpf-helper.h"
 
-#include "syscallbuf.h"
+#include "scinfo.h"
 #include "utils.h"
 
 void bpf_install(void)
