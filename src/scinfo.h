@@ -1,5 +1,5 @@
-#ifndef _MY_SYSCALLBUF_H
-#define _MY_SYSCALLBUF_H
+#ifndef _MY_SCINFO_H
+#define _MY_SCINFO_H
 
 #include <sys/types.h>
 #include <inttypes.h>

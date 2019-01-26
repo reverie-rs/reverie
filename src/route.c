@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#include "syscallbuf.h"
+#include "scinfo.h"
 #include "systrace.h"
 
 extern __attribute__((visibility("hidden")))

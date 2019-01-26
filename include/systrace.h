@@ -1,7 +1,7 @@
 #ifndef _MY_SYSTRACE_H
 #define _MY_SYSTRACE_H
 
-#include "syscallbuf.h"
+#include "scinfo.h"
 
 /* syscall dispatcher, weak symbol, so that others can overrides */
 extern long captured_syscall(int syscallno, long arg0, long arg1, long arg2, long arg3, long arg4, long arg5);

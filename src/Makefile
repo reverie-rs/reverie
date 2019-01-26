@@ -19,7 +19,7 @@ OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 .cc.o:
 	$(CXX) $< -c -o $@ $(CXXFLAGS)
 
-libsystrace.so: trampoline.o syscallbuf.o raw_syscall.o
+libsystrace.so: trampoline.o route.o raw_syscall.o
 	$(CC) $^ -o $@ $(CFLAGS) -nostdlib -shared -Wl,--no-as-needed
 
 syscallT.c: printSyscallT.hs
