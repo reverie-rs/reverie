@@ -9,6 +9,8 @@ TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec 
 
 all: $(TARGET)
 
+build-tests: $(TARGET)
+
 SRCS	 = $(shell ls *.c)
 OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 
@@ -44,7 +46,7 @@ clean:
 	$(RM) $(OBJS) *.o
 	$(RM) $(TARGET)
 
-tests:
+tests: build-tests
 	cd .. && ./tests/x64-save-return-address || exit 1
 	cd .. && ./bin/systrace ./tests/openat1 || exit 1
 	cd .. && ./bin/systrace ./tests/open-many > /dev/null || exit 1

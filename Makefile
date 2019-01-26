@@ -23,7 +23,7 @@ clean:
 	@cargo clean
 	@cargo clean --manifest-path=libdet/Cargo.toml
 
-tests:
+tests: all
 	cargo test --release -- --nocapture
 	$(MAKE) -C tests tests
 
