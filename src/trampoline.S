@@ -1,3 +1,55 @@
+/*
+ * Copyright (c) 2013 Mozilla Foundation
+ * Copyright 2015 VMware, Inc
+ * Copyright 2015 Google Inc.
+ *
+ * Contributors: Albert Noll <noll.albert@gmail.com>, Thomas Anderegg <thomas@tanderegg.com>, Nimrod Partush <nimrodpar@gmail.com>
+ *               Andrew Walton <awalton@vmware.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
+
+/*
+ * Copyright 2002 Niels Provos <provos@citi.umich.edu>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #define stub_scratch_1 0x70001010
 
 	.text
@@ -41,11 +93,6 @@ _syscall_hook_trampoline:
         pop %rdx
         pop %r10
         pop %r8
-/*
-        mov (alt_stack_nesting_level),%r9d
-        lea -1(%r9),%r9
-        mov %r9d,(alt_stack_nesting_level)
-*/
         pop %r9
 
         pop %rbx
@@ -58,7 +105,7 @@ _syscall_hook_trampoline:
 	.hidden _syscallbuf_final_exit_instruction;
 	.type _syscallbuf_final_exit_instruction, @function;
 _syscallbuf_final_exit_instruction:
-        jmp *(stub_scratch_1)
+        ret
 
 /**
  * On syscallhook entry, the stack has been switched to the end of per-task
@@ -71,7 +118,6 @@ _syscallbuf_final_exit_instruction:
 name:                              
 
 #define SYSCALLHOOK_END(name)                                   \
-        pop (stub_scratch_1);                                   \
         jmp _syscallbuf_final_exit_instruction;                 \
         .size name, .-name
 
@@ -133,9 +179,7 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_c3_nop)
         /* The original instructions after the syscall are
            retq; nopl 0x0(%rax,%rax,1) */
         pop (stub_scratch_1)
-        ret
-
-        .size _syscall_hook_trampoline_c3_nop, .-_syscall_hook_trampoline_c3_nop
+SYSCALLHOOK_END(_syscall_hook_trampoline_c3_nop)
 
 .global __morestack
 .hidden __morestack
