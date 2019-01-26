@@ -5,7 +5,7 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-TARGET  := openat1 open-many getpid write-many forkExec clock-nanosleep threads1
+TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1
 
 all: $(TARGET)
 
@@ -17,6 +17,9 @@ OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 
 .cc.o:
 	$(CXX) $< -c -o $@ $(CXXFLAGS)
+
+x64-save-return-address: x64-save-return-address.o
+	$(CC) $^ -o $@ $(CFLAGS)
 
 openat1: openat1.o
 	$(CC) $^ -o $@ $(CFLAGS)
@@ -42,9 +45,11 @@ clean:
 	$(RM) $(TARGET)
 
 tests:
-	../src/bpf-trace ./openat1 || exit 1
-	../src/bpf-trace ./open-many || exit 1
-	../src/bpf-trace ./write-many || exit 1
-	../src/bpf-trace ./clock-nanosleep || exit 1
+	cd .. && ./tests/x64-save-return-address || exit 1
+	cd .. && ./bin/systrace ./tests/openat1 || exit 1
+	cd .. && ./bin/systrace ./tests/open-many > /dev/null || exit 1
+	cd .. && ./bin/systrace ./tests/write-many || exit 1
+	cd .. && ./bin/systrace ./tests/getpid || exit 1
+	cd .. && ./bin/systrace ./tests/clock-nanosleep || exit 1
 
 .PHONY: all tests clean

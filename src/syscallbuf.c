@@ -44,12 +44,20 @@ __attribute__((weak)) long _captured_syscall(int syscallno, long arg0, long arg1
   return untraced_syscall(syscallno, arg0, arg1, arg2, arg3, arg4, arg5);
 }
 
+typedef long (*syscall_pfn)(int, long, long, long, long, long, long);
+
 long captured_syscall(int syscallno, long arg0, long arg1, long arg2,
 		      long arg3, long arg4, long arg5) __attribute__((weak, alias("_captured_syscall")));
 
 __attribute__((visibility("hidden"))) long syscall_hook(const struct syscall_info* syscall)
 {
-  return captured_syscall(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
+  unsigned long *det_hook = (unsigned long*)0x70001028UL;
+  if (*det_hook) {
+    syscall_pfn hook = (syscall_pfn)*det_hook;
+    return hook(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
+  } else {
+    return captured_syscall(syscall->no, syscall->args[0], syscall->args[1], syscall->args[2], syscall->args[3], syscall->args[4], syscall->args[5]);
+  }
 }
 
 extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline(void);
@@ -144,6 +152,5 @@ __attribute__((constructor, visibility("hidden"))) void __preload_init(void)
   unsigned long* tls = (unsigned long*)PRELOAD_THREAD_LOCALS_ADDR;
   tls[0] = sizeof(syscall_patch_hooks) / sizeof(syscall_patch_hooks[0]);
   tls[1] = (unsigned long)syscall_patch_hooks;
-  tls[2] = (unsigned long)syscall_hook;
-  tls[3] = (unsigned long)_syscall_hook_trampoline;
+  tls[4] = (unsigned long)_syscall_hook_trampoline;
 }

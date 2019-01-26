@@ -505,7 +505,10 @@ static void handle_ptrace_event(pid_t pid, unsigned event)
     do_ptrace_seccomp(pid);
     break;
   default:
-    panic("%u unknown ptrace event: %u\n", pid, event);
+    dump_user_regs(pid);
+    assert(ptrace(PTRACE_CONT, pid, 0, SIGSEGV) == 0);
+    sleep(1);
+    crit("%u unknown ptrace event: %u, kill tracee..\n", pid, event);
     break;
   }
 }

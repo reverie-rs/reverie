@@ -5,6 +5,5 @@
 
 int main(int argc, char* argv[])
 {
-  printf("my pid = %u\n", getpid());
-  printf("my pid = %u\n", getpid());
+  printf("my pid = %d\n", getpid());
 }
