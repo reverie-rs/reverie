@@ -39,7 +39,7 @@
 
 #include "utils.h"
 #include "watchpoint.h"
-#include "syscallbuf.h"
+#include "scinfo.h"
 #include "symbols.h"
 #include "syscallT.h"
 #include "bpf.h"
