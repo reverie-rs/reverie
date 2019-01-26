@@ -1,5 +1,4 @@
-#define stub_scratch_1 0x70000100
-#define syscall_hook   0x70001010
+#define stub_scratch_1 0x70001010
 
 	.text
 
@@ -26,7 +25,7 @@ _syscall_hook_trampoline:
 
         /* Call our hook. */
         mov %rbx,%rdi
-        callq *(syscall_hook)
+        callq syscall_hook
 
         mov %rbx,%rsp
 
@@ -134,7 +133,7 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_c3_nop)
         /* The original instructions after the syscall are
            retq; nopl 0x0(%rax,%rax,1) */
         pop (stub_scratch_1)
-        jmp _syscallbuf_final_exit_instruction
+        ret
 
         .size _syscall_hook_trampoline_c3_nop, .-_syscall_hook_trampoline_c3_nop
 

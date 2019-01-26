@@ -11,13 +11,15 @@ all: libsystrace.so bpf-trace
 SRCS	 = $(shell ls *.c)
 OBJS	 = $(patsubst %.c, %.o, ${SRCS})
 
+.S.o:
+	$(CC) $< -c -o $@ $(CFLAGS)
 .c.o:
 	$(CC) $< -c -o $@ $(CFLAGS)
 
 .cc.o:
 	$(CXX) $< -c -o $@ $(CXXFLAGS)
 
-libsystrace.so: trampoline.o syscallbuf.o raw_syscall.S
+libsystrace.so: trampoline.o syscallbuf.o raw_syscall.o
 	$(CC) $^ -o $@ $(CFLAGS) -nostdlib -shared -Wl,--no-as-needed
 
 syscallT.c: printSyscallT.hs
