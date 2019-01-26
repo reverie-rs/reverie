@@ -11,6 +11,7 @@ use combine::stream::state::State;
 use combine::parser::char::{digit, hex_digit, letter, char, spaces};
 
 use nix::unistd;
+use nix::unistd::Pid;
 use nix::sys::{wait, signal, ptrace};
 use libc;
 
@@ -21,7 +22,7 @@ use crate::nr;
 const SYSCALL_INSN_SIZE: usize = 2;
 
 #[derive(Debug, Clone)]
-struct ProcMapsEntry {
+pub struct ProcMapsEntry {
     base: u64,
     size: u64,
     prot: i32,
@@ -76,7 +77,7 @@ where
       choice([char('-'), char('r')]),
       choice([char('-'), char('w')]),
       choice([char('-'), char('x')]),
-      choice([char('-'), char('p')]),
+      choice([char('-'), char('s'), char('p')]),
     ).map(|(_, r, w, x, p)| {
         let mut prot: i32 = 0;
         let mut flags: i32 = 0;
@@ -89,8 +90,10 @@ where
         if x == 'x' {
             prot |= libc::PROT_EXEC;
         }
-        if p == '[' {
+        if p == 'p' {
             flags |= libc::MAP_PRIVATE;
+        } else if p == 's' {
+            flags |= libc::MAP_SHARED;
         }
         (prot, flags)
     })
@@ -143,7 +146,7 @@ where
     })
 }
 
-fn decode_proc_maps(pid: unistd::Pid) -> Result<Vec<ProcMapsEntry>> {
+pub fn decode_proc_maps(pid: unistd::Pid) -> Result<Vec<ProcMapsEntry>> {
     let filepath = PathBuf::from("/proc").join(&format!("{}", pid)).join(PathBuf::from("maps"));
     let mut file = File::open(filepath)?;
     let mut contents = String::new();
@@ -317,3 +320,71 @@ fn patch_at(pid: unistd::Pid, regs: libc::user_regs_struct, hook: &hooks::Syscal
     Ok(())
 }
 
+// search for spare page(s) which can be allocated (mmap) within the
+// range of @addr_hint +/- 2GB.
+pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
+    let mappings = decode_proc_maps(pid)?;
+    let page_size: u64 = 0x1000;
+    let one_mb: u64 = 0x100000;
+    let almost_2gb: u64 = 2u64.wrapping_shl(30) - 0x100000;
+    let mut ranges_from: Vec<(u64, u64)> = Vec::new();
+    let mut ranges_to:Vec<(u64, u64)> = Vec::new();
+
+    ranges_from.push((one_mb - page_size, one_mb));
+    mappings.iter().for_each(|e|ranges_from.push((e.base, e.base+e.size)));
+    mappings.iter().for_each(|e|ranges_to.push((e.base, e.base+e.size)));
+    ranges_to.push((0xffffffff_ffff_8000u64, 0xffffffff_ffff_f000u64));
+    debug_assert_eq!(ranges_from.len(), ranges_to.len());
+
+    let res: Vec<u64> = ranges_from.iter().zip(ranges_to).filter_map(| ((x1, y1), (x2, y2)) | {
+        let space = x2 - y1;
+        let start_from = *y1;
+        if space >= (pages as u64 * page_size) {
+            if start_from <= addr_hint && start_from + almost_2gb >= addr_hint {
+                Some(start_from)
+            } else if start_from >= addr_hint && start_from - addr_hint <= almost_2gb - (pages as u64 * page_size) {
+                Some(start_from)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }).collect();
+
+    match res.iter().next() {
+        None => Err(Error::new(ErrorKind::Other, format!("cannot allocate stub page for {:x}", addr_hint))),
+        Some(addr) => Ok(*addr),
+    }
+}
+
+#[test]
+fn can_find_stub_page() {
+    let pid = unistd::getpid();
+    let ranges: Vec<(u64, u64)> = decode_proc_maps(pid).unwrap().iter().map(|e|(e.base, e.base+e.size)).collect();
+    let addr_hints: Vec<u64> = decode_proc_maps(pid).unwrap().iter().map(|e|e.base+0x234).collect();
+    let two_gb = 2u64.wrapping_shl(30);
+    for hint in addr_hints {
+        let ret_ = search_stub_page(pid, hint, 1);
+        assert!(ret_.is_ok());
+        let ret = ret_.unwrap();
+        println!("searching {:x} returned {:x}", hint, ret);
+        if ret <= hint {
+            assert!(hint - ret <= two_gb);
+        } else {
+            assert!(ret - hint <= two_gb);
+        }
+        let has_collision = ranges.iter().fold(false, | acc, (start, end) | {
+            if acc {
+                acc
+            } else {
+                ret >= *start && ret < *end
+            }
+        });
+        assert!(!has_collision);
+    }
+}
+
+pub fn allocate_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
+    Ok(0)
+}
