@@ -12,7 +12,7 @@ fn gen_syscall_nrs() -> Result<()>{
     writeln!(f, "#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n")?;
     writeln!(f, "pub use self::SyscallNo::*;")?;
 
-    writeln!(f, "#[derive(Debug, Clone)]")?;
+    writeln!(f, "#[derive(Debug, PartialEq, Eq, Clone)]")?;
     writeln!(f, "pub enum SyscallNo {{")?;
     let syscalls = gen_syscalls().unwrap();
     for (name, nr) in &syscalls {
