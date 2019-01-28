@@ -136,11 +136,27 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
     },
     /* liblsan internal_dup2 has 'syscall' followed by
      * 'retq;
-     *  xchg %ax,%ax */
+     *  xchg %ax,%ax' */
     SyscallPatchHook {
         is_multi: true,
         instructions: &[ 0xc3, 0x66, 0x90 ],
         symbol: "_syscall_hook_trampoline_c3_nop",
+    },
+    /* ld-linux.so SYS_access has 'syscall' followed by
+     * 'test %eax, %eax
+     *  sete dl' */
+    SyscallPatchHook {
+        is_multi: true,
+        instructions: &[ 0x85, 0xc0, 0x0f, 0x94, 0xc2 ],
+        symbol: "_syscall_hook_trampoline_85_c0_0f_94_c2",
+    },
+    /* ubuntu 18.04 libc-2.27.so, `syscall` followed by
+     * nopl   0x0(%rax)
+     */
+    SyscallPatchHook {
+        is_multi: false,
+        instructions: &[ 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00 ],
+        symbol: "_syscall_hook_trampoline_90_90_90",
     },
 ];
 

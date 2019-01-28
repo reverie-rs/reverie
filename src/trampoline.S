@@ -181,6 +181,12 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_c3_nop)
         pop (stub_scratch_1)
 SYSCALLHOOK_END(_syscall_hook_trampoline_c3_nop)
 
+SYSCALLHOOK_START(_syscall_hook_trampoline_85_c0_0f_94_c2)
+	callq __morestack
+	test %eax, %eax
+	sete %dl
+SYSCALLHOOK_END(_syscall_hook_trampoline_85_c0_0f_94_c2)
+
 .global __morestack
 .hidden __morestack
 .type __morestack, @function

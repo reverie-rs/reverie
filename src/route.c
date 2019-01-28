@@ -70,6 +70,7 @@ extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline_90_90
 extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline_ba_01_00_00_00(void);
 extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline_89_c1_31_d2(void);
 extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline_c3_nop(void);
+extern __attribute__((visibility("hidden"))) void _syscall_hook_trampoline_85_c0_0f_94_c2(void);
 
 static struct syscall_patch_hook syscall_patch_hooks[] = {
     /* Many glibc syscall wrappers (e.g. read) have 'syscall' followed
@@ -145,6 +146,14 @@ static struct syscall_patch_hook syscall_patch_hooks[] = {
       3,
       { 0xc3, 0x66, 0x90 },
       (uintptr_t)_syscall_hook_trampoline_c3_nop },
+    { 1,
+      5,
+      { 0x85, 0xc0, 0x0f, 0x94, 0xc2 },
+      (uintptr_t)_syscall_hook_trampoline_85_c0_0f_94_c2 },
+    { 1,
+      7,
+      { 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00 },
+      (uintptr_t)_syscall_hook_trampoline_90_90_90 },
   };
 
 __attribute__((constructor, visibility("hidden"))) void __preload_init(void)
