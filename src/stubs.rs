@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use nix::unistd;
 use nix::unistd::Pid;
 
-use crate::patch;
 use crate::hooks;
 use crate::consts;
 

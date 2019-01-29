@@ -20,14 +20,15 @@ use nix::unistd;
 use nix::sys::{wait, signal, ptrace};
 use nix::sys::wait::{WaitStatus};
 use libc;
+
 mod hooks;
 mod nr;
 mod ns;
-mod patch;
 mod consts;
 mod stubs;
 mod remote;
 mod tasks;
+mod proc;
 
 use remote::*;
 
@@ -65,13 +66,12 @@ fn just_continue(pid: unistd::Pid, sig: Option<signal::Signal>) -> Result<()> {
     ptrace::cont(pid, sig).map_err(from_nix_error)
 }
 
-fn do_ptrace_vfork_done(pid: unistd::Pid) -> Result<()> {
-    just_continue(pid, None)
+fn do_ptrace_vfork_done(task: &mut TracedTask) -> Result<()> {
+    task.cont()
 }
 
 fn do_ptrace_fork(task: &mut TracedTask) -> Result<unistd::Pid> {
     let child = ptrace::getevent(task.pid).map_err(from_nix_error)?;
-    println!("{} has a new child {}", task.pid, child);
     just_continue(task.pid, None)?;
     Ok(unistd::Pid::from_raw(child as libc::pid_t))
 }
@@ -83,8 +83,11 @@ fn do_ptrace_seccomp(task: &mut TracedTask) -> Result<()> {
     if ev == 0x7fff {
         panic!("unfiltered syscall: {:?}", syscall);
     }
+    // println!("seccomp syscall {:?}", syscall);
     match task.patch_syscall(regs.rip) {
-        Ok(_) => just_continue(task.pid, None),
+        Ok(_) => {
+            just_continue(task.pid, None)
+        },
         _ => just_continue(task.pid, None),
     }
 }
@@ -112,7 +115,7 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
             Ok(wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP)));
     let regs = ptrace::getregs(task.pid)
         .and_then(|r| {
-            if (r.rax as i64) < 0 {
+            if r.rax > (-4096i64 as u64) {
                 let errno = -(r.rax as i64) as i32;
                 Err(nix::Error::from_errno(nix::errno::from_i32(errno)))
             } else {
@@ -120,7 +123,7 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
             }
         })?;
 
-    patch::gen_syscall_sequences_at(task.pid, page_addr)?;
+    remote::gen_syscall_sequences_at(task.pid, page_addr)?;
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
     ptrace::setregs(task.pid, saved_regs)?;
@@ -140,29 +143,35 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     tracee_preinit(task)?;
     ptrace::write(task.pid, regs.rip as ptrace::AddressType, saved as *mut libc::c_void)?;
     ptrace::cont(task.pid, None)?;
+    task.reset();
     Ok(())
 }
 
 fn handle_ptrace_event(tasks: &mut tasks::TracedTasks, pid: unistd::Pid, raw_event: i32) -> Result<()>{
     let mut task = tasks.get_mut(pid);
-    if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i32
-        || raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i32
-        || raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
-            let _child = do_ptrace_fork(&mut task)?;
-            //let mut new_task = task.forked(child);
-            //tasks.add(&mut new_task.clone())?;
-            // XXX: re-design tasks
-        } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
-            do_ptrace_exec(&mut task).map_err(from_nix_error)?;
-        } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
-            do_ptrace_vfork_done(pid)?;
-        } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
-            just_continue(pid, None)?;
-        } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
-            do_ptrace_seccomp(&mut task)?;
-        } else {
-            panic!("unknown ptrace event: {:x}", raw_event);
-        }
+    if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i32 {
+        let child = do_ptrace_fork(&mut task)?;
+        let new_task = task.vforked(child);
+        tasks.add(new_task)?;
+    } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i32 {
+        let child = do_ptrace_fork(&mut task)?;
+        let new_task = task.forked(child);
+        tasks.add(new_task)?;
+    } else if raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
+        let child = do_ptrace_fork(&mut task)?;
+        let new_task = task.cloned();
+        tasks.add(new_task)?;
+    } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
+        do_ptrace_exec(&mut task).map_err(from_nix_error)?;
+    } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
+        do_ptrace_vfork_done(&mut task)?;
+    } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
+        task.cont()?;
+    } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
+        do_ptrace_seccomp(&mut task)?;
+    } else {
+        panic!("unknown ptrace event: {:x}", raw_event);
+    }
     Ok(())
 }
 
@@ -178,19 +187,7 @@ fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
     }
 }
 
-fn run_tracer_main(tasks: &mut tasks::TracedTasks, pid: unistd::Pid) -> Result<i32> {
-    // wait for sigstop
-    wait_sigstop(pid)?;
-    ptrace::setoptions(pid, ptrace::Options::PTRACE_O_TRACEEXEC
-                       | ptrace::Options::PTRACE_O_EXITKILL
-                       | ptrace::Options::PTRACE_O_TRACECLONE
-                       | ptrace::Options::PTRACE_O_TRACEFORK
-                       | ptrace::Options::PTRACE_O_TRACEVFORK
-                       | ptrace::Options::PTRACE_O_TRACEVFORKDONE
-                       | ptrace::Options::PTRACE_O_TRACEEXIT
-                       | ptrace::Options::PTRACE_O_TRACESECCOMP
-                       | ptrace::Options::PTRACE_O_TRACESYSGOOD).map_err(|e|Error::new(ErrorKind::Other, e))?;
-    ptrace::cont(pid, None).map_err(|e|Error::new(ErrorKind::Other, e))?;
+fn run_tracer_main(tasks: &mut tasks::TracedTasks) -> Result<i32> {
     loop {
         match wait::waitpid(None, None) {
             Err(failure) => {
@@ -208,7 +205,9 @@ fn run_tracer_main(tasks: &mut tasks::TracedTasks, pid: unistd::Pid) -> Result<i
             Ok(WaitStatus::PtraceSyscall(pid)) =>
                 handle_ptrace_syscall(pid)?,
             Ok(WaitStatus::Stopped(pid, sig)) => {
-                just_continue(pid, Some(sig))?;
+                let mut task = tasks.get_mut(pid);
+                task.signal_to_deliver = Some(sig);
+                task.cont()?;
             }
             otherwise => panic!("unknown status: {:?}", otherwise),
         }
@@ -267,10 +266,23 @@ fn run_tracer(starting_pid: unistd::Pid, starting_uid: unistd::Uid, starting_gid
             return run_tracee(argv);
         },
         ForkResult::Parent{child} => {
-            let mut tracee = remote::TracedTask::new(child);
+            // wait for sigstop
+            wait_sigstop(child)?;
+            ptrace::setoptions(child, ptrace::Options::PTRACE_O_TRACEEXEC
+                               | ptrace::Options::PTRACE_O_EXITKILL
+                               | ptrace::Options::PTRACE_O_TRACECLONE
+                               | ptrace::Options::PTRACE_O_TRACEFORK
+                               | ptrace::Options::PTRACE_O_TRACEVFORK
+                               | ptrace::Options::PTRACE_O_TRACEVFORKDONE
+                               | ptrace::Options::PTRACE_O_TRACEEXIT
+                               | ptrace::Options::PTRACE_O_TRACESECCOMP
+                               | ptrace::Options::PTRACE_O_TRACESYSGOOD)
+                .map_err(|e|Error::new(ErrorKind::Other, e))?;
+            ptrace::cont(child, None).map_err(|e|Error::new(ErrorKind::Other, e))?;
+            let tracee = remote::TracedTask::new(child);
             let mut tasks = tasks::TracedTasks::new();
-            tasks.add(&mut tracee)?;
-            run_tracer_main(&mut tasks,child)
+            tasks.add(tracee)?;
+            run_tracer_main(&mut tasks)
         },
     }
 }

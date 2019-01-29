@@ -5,23 +5,15 @@ use nix::unistd::Pid;
 
 use crate::remote::*;
 
-/*
-lazy_static! {
-    static ref TRACED_TASKS: HashMap<Pid, TracedTask<'static>> = {
-        HashMap::new()
-    };
-}
-*/
-
-pub struct TracedTasks<'a>{
-    tasks: HashMap<Pid, &'a mut TracedTask>,
+pub struct TracedTasks{
+    tasks: HashMap<Pid, TracedTask>,
 }
 
-impl <'a> TracedTasks<'a>{
+impl TracedTasks{
     pub fn new() -> Self {
         TracedTasks{tasks: HashMap::new()}
     }
-    pub fn add(&mut self, task: &'a mut TracedTask) -> Result<()> {
+    pub fn add(&mut self, task: TracedTask) -> Result<()> {
         self.tasks.insert(task.pid, task);
         Ok(())
     }
