@@ -192,36 +192,6 @@ pub fn pretty_show_maps(pid: unistd::Pid) -> String {
     res
 }
 
-pub fn may_patch_syscall_from(pid: unistd::Pid, syscall: nr::SyscallNo, regs: libc::user_regs_struct, hooks: &Vec<hooks::SyscallHook>, la: u64) -> Result<()> {
-    ensure_syscall(pid, regs.rip - SYSCALL_INSN_SIZE as u64)?;
-
-    let mut bytes: Vec<u8> = Vec::new();
-
-    for i in 0..=1 {
-        let u64_size = std::mem::size_of::<u64>();
-        let u: u64 = ptrace::read(pid, (regs.rip + i * u64_size as u64) as ptrace::AddressType).expect("ptrace peek failed") as u64;
-        let raw: [u8; std::mem::size_of::<u64>()]  = unsafe { std::mem::transmute(u) };
-        raw.iter().for_each(|c| bytes.push(*c));
-    }
-
-    let mut it = hooks.iter().filter(|hook| {
-        let sequence: &[u8] = &bytes[0..hook.instructions.len()];
-        sequence == hook.instructions.as_slice()
-    });
-    match it.next() {
-        None        => {
-            // print!("{}", pretty_show_maps(pid));
-            println!("unpatchable syscall {:?} at {:x}, instructions: {:x?}", syscall, regs.rip, bytes);
-            Ok(())
-            //Err(Error::new(ErrorKind::Other, format!("unpatchable syscall {:?} at {:x}, instructions: {:x?}", syscall, regs.rip, bytes)))
-        },
-        Some(found) => {
-            let jump_target = found.offset + la;
-            patch_at(pid, regs, found, jump_target)
-        },
-    }
-}
-
 // so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
 // do the syscall, without our patch. we change to syscall number to -1, so that
 // kernel would simply skip the syscall, so that we can jump to our patched syscall
@@ -247,7 +217,7 @@ fn synchronize_from(pid: unistd::Pid, rip: u64){
     ptrace::setregs(pid, regs).expect("ptrace setregs");
 }
 
-fn patch_at(pid: unistd::Pid, regs: libc::user_regs_struct, hook: &hooks::SyscallHook, target: u64) -> Result<()> {
+pub fn patch_at(pid: unistd::Pid, regs: libc::user_regs_struct, hook: &hooks::SyscallHook, target: u64) -> Result<()> {
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let jmp_insn_size = 5;
     let ip = resume_from;
@@ -385,6 +355,32 @@ fn can_find_stub_page() {
     }
 }
 
-pub fn allocate_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
-    Ok(0)
+pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> {
+    /* the syscall sequences used here:
+     * 0:   0f 05                   syscall 
+     * 2:   c3                      retq                     // not filered by seccomp, untraced_syscall
+     * 3:   90                      nop
+     * 4:   0f 05                   syscall                  // traced syscall
+     * 6:   c3                      retq   
+     * 7:   90                      nop
+     * 8:   e8 f3 ff ff ff          callq  0 <_do_syscall>   // untraced syscall, then breakpoint.
+     * d:   cc                      int3   
+     * e:   66 90                   xchg   %ax,%ax
+     * 10:   e8 ef ff ff ff          callq  4 <_do_syscall+0x4> // traced syscall, then breakpoint
+     * 15:   cc                      int3   
+     * 16:   66 90                   xchg   %ax,%ax
+     */
+    let syscall_stub: &[u64] = &[ 0x90c3050f90c3050f,
+                                  0xe8f7ffffffcc6690,
+                                  0xe8efffffffcc6690
+    ];
+    // please note we force each `ptrace::write` to be exactly ptrace_poke (8 bytes a time)
+    // instead of using `process_vm_writev`, because this function can be called in
+    // PTRACE_EXEC_EVENT, the process seems not fully loaded by ld-linux.so
+    // call process_vm_{readv, writev} would 100% fail.
+    for (k, s) in syscall_stub.iter().enumerate() {
+        let offset = k * std::mem::size_of::<u64>() + page_address as usize;
+        ptrace::write(pid, offset as ptrace::AddressType, *s as *mut libc::c_void)?;
+    }
+    Ok(())
 }

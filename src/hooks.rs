@@ -4,7 +4,7 @@ use std::path::{PathBuf};
 
 use goblin::elf::Elf;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SyscallHook {
     pub name: String,
     pub offset: u64,

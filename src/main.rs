@@ -25,6 +25,11 @@ mod nr;
 mod ns;
 mod patch;
 mod consts;
+mod stubs;
+mod remote;
+mod tasks;
+
+use remote::*;
 
 // install seccomp-bpf filters
 extern {
@@ -46,12 +51,6 @@ fn libsystrace_trampoline_within_first_page() -> Result<()> {
     Ok(())
 }
 
-lazy_static! {
-    static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        hooks::resolve_syscall_hooks_from(PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO)).unwrap()
-    };
-}
-
 struct Arguments<'a> {
     debug_level: i32,
     program: &'a str,
@@ -70,37 +69,28 @@ fn do_ptrace_vfork_done(pid: unistd::Pid) -> Result<()> {
     just_continue(pid, None)
 }
 
-fn do_ptrace_fork(pid: unistd::Pid) -> Result<()> {
-    let child = ptrace::getevent(pid).map_err(from_nix_error)?;
-    println!("{} has a new child {}", pid, child);
-    just_continue(pid, None)
+fn do_ptrace_fork(task: &mut TracedTask) -> Result<unistd::Pid> {
+    let child = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+    println!("{} has a new child {}", task.pid, child);
+    just_continue(task.pid, None)?;
+    Ok(unistd::Pid::from_raw(child as libc::pid_t))
 }
 
-fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
-    match ptrace::read(pid, consts::DET_TLS_SYSCALL_TRAMPOLINE as ptrace::AddressType) {
-        Ok(addr) if addr != 0 => Some(addr as u64 & !0xfff),
-        _otherwise => None,
-    }
-}
-
-fn do_ptrace_seccomp(pid: unistd::Pid) -> Result<()> {
-    let ev = ptrace::getevent(pid).map_err(from_nix_error)?;
-    let regs = ptrace::getregs(pid).map_err(from_nix_error)?;
+fn do_ptrace_seccomp(task: &mut TracedTask) -> Result<()> {
+    let ev = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+    let regs = ptrace::getregs(task.pid).map_err(from_nix_error)?;
     let syscall = nr::SyscallNo::from(regs.orig_rax as i32);
     if ev == 0x7fff {
         panic!("unfiltered syscall: {:?}", syscall);
     }
-    match libsystrace_load_address(pid) {
-        None => just_continue(pid, None),
-        Some(la) => {
-            patch::may_patch_syscall_from(pid, syscall, regs , &SYSCALL_HOOKS, la)?;
-            just_continue(pid, None)
-        },
+    match task.patch_syscall(regs.rip) {
+        Ok(_) => just_continue(task.pid, None),
+        _ => just_continue(task.pid, None),
     }
 }
 
-fn tracee_preinit(pid: unistd::Pid) -> nix::Result<()> {
-    let mut regs = ptrace::getregs(pid)?;
+fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
+    let mut regs = ptrace::getregs(task.pid)?;
     let mut saved_regs = regs.clone();
     let page_addr = consts::DET_PAGE_OFFSET;
     let page_size = consts::DET_PAGE_SIZE;
@@ -114,12 +104,13 @@ fn tracee_preinit(pid: unistd::Pid) -> nix::Result<()> {
     regs.r8       = -1 as i64 as u64;
     regs.r9       = 0 as u64;
 
-    ptrace::setregs(pid, regs)?;
-    ptrace::cont(pid, None)?;
+    ptrace::setregs(task.pid, regs)?;
+    ptrace::cont(task.pid, None)?;
 
     // second breakpoint after syscall hit
-    assert!(wait::waitpid(pid, None) == Ok(wait::WaitStatus::Stopped(pid, signal::SIGTRAP)));
-    let regs = ptrace::getregs(pid)
+    assert!(wait::waitpid(task.pid, None) ==
+            Ok(wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP)));
+    let regs = ptrace::getregs(task.pid)
         .and_then(|r| {
             if (r.rax as i64) < 0 {
                 let errno = -(r.rax as i64) as i32;
@@ -129,44 +120,46 @@ fn tracee_preinit(pid: unistd::Pid) -> nix::Result<()> {
             }
         })?;
 
-    let syscall_stub: u64 = 0x90c3050f90c3050f;
-    ptrace::write(pid, page_addr as ptrace::AddressType, syscall_stub as *mut libc::c_void)?;
-    ptrace::write(pid, (page_addr as usize + std::mem::size_of::<u64>()) as ptrace::AddressType, syscall_stub as *mut libc::c_void)?;
+    patch::gen_syscall_sequences_at(task.pid, page_addr)?;
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
-    ptrace::setregs(pid, saved_regs)?;
+    ptrace::setregs(task.pid, saved_regs)?;
 
     Ok(())
 }
 
-fn do_ptrace_exec(pid: unistd::Pid) -> nix::Result<()> {
+fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     let bp_syscall_bp: i64 = 0xcc050fcc;
-    let regs = ptrace::getregs(pid)?;
+    let regs = ptrace::getregs(task.pid)?;
     assert!(regs.rip & 7 == 0);
-    let saved: i64 = ptrace::read(pid, regs.rip as ptrace::AddressType)?;
-    ptrace::write(pid, regs.rip as ptrace::AddressType, ((saved & !(0xffffffff as i64)) | bp_syscall_bp) as *mut libc::c_void)?;
-    ptrace::cont(pid, None)?;
-    let wait_status = wait::waitpid(pid, None)?;
-    assert!(wait_status == wait::WaitStatus::Stopped(pid, signal::SIGTRAP));
-    tracee_preinit(pid)?;
-    ptrace::write(pid, regs.rip as ptrace::AddressType, saved as *mut libc::c_void)?;
-    ptrace::cont(pid, None)?;
+    let saved: i64 = ptrace::read(task.pid, regs.rip as ptrace::AddressType)?;
+    ptrace::write(task.pid, regs.rip as ptrace::AddressType, ((saved & !(0xffffffff as i64)) | bp_syscall_bp) as *mut libc::c_void)?;
+    ptrace::cont(task.pid, None)?;
+    let wait_status = wait::waitpid(task.pid, None)?;
+    assert!(wait_status == wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP));
+    tracee_preinit(task)?;
+    ptrace::write(task.pid, regs.rip as ptrace::AddressType, saved as *mut libc::c_void)?;
+    ptrace::cont(task.pid, None)?;
     Ok(())
 }
 
-fn handle_ptrace_event(pid: unistd::Pid, raw_event: i32) -> Result<()>{
+fn handle_ptrace_event(tasks: &mut tasks::TracedTasks, pid: unistd::Pid, raw_event: i32) -> Result<()>{
+    let mut task = tasks.get_mut(pid);
     if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i32
         || raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i32
         || raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
-            do_ptrace_fork(pid)?;
+            let _child = do_ptrace_fork(&mut task)?;
+            //let mut new_task = task.forked(child);
+            //tasks.add(&mut new_task.clone())?;
+            // XXX: re-design tasks
         } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
-            do_ptrace_exec(pid).map_err(from_nix_error)?;
+            do_ptrace_exec(&mut task).map_err(from_nix_error)?;
         } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
             do_ptrace_vfork_done(pid)?;
         } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
             just_continue(pid, None)?;
         } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
-            do_ptrace_seccomp(pid)?;
+            do_ptrace_seccomp(&mut task)?;
         } else {
             panic!("unknown ptrace event: {:x}", raw_event);
         }
@@ -185,7 +178,7 @@ fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
     }
 }
 
-fn run_tracer_main(pid: unistd::Pid) -> Result<i32> {
+fn run_tracer_main(tasks: &mut tasks::TracedTasks, pid: unistd::Pid) -> Result<i32> {
     // wait for sigstop
     wait_sigstop(pid)?;
     ptrace::setoptions(pid, ptrace::Options::PTRACE_O_TRACEEXEC
@@ -211,7 +204,7 @@ fn run_tracer_main(pid: unistd::Pid) -> Result<i32> {
             },
             Ok(WaitStatus::Continued(_newpid)) => (),
             Ok(WaitStatus::PtraceEvent(pid, signal, event)) if signal == signal::SIGTRAP =>
-                handle_ptrace_event(pid, event)?,
+                handle_ptrace_event(tasks, pid, event)?,
             Ok(WaitStatus::PtraceSyscall(pid)) =>
                 handle_ptrace_syscall(pid)?,
             Ok(WaitStatus::Stopped(pid, sig)) => {
@@ -273,7 +266,12 @@ fn run_tracer(starting_pid: unistd::Pid, starting_uid: unistd::Uid, starting_gid
         ForkResult::Child => {
             return run_tracee(argv);
         },
-        ForkResult::Parent{child} => run_tracer_main(child),
+        ForkResult::Parent{child} => {
+            let mut tracee = remote::TracedTask::new(child);
+            let mut tasks = tasks::TracedTasks::new();
+            tasks.add(&mut tracee)?;
+            run_tracer_main(&mut tasks,child)
+        },
     }
 }
 
@@ -291,6 +289,8 @@ fn run_app(argv: &Arguments) -> Result<i32> {
             match wait::waitpid(Some(child), None) {
                 Ok(wait::WaitStatus::Exited(_, exit_code)) =>
                     Ok(exit_code),
+                Ok(wait::WaitStatus::Signaled(_, sig, _)) =>
+                    Ok(0x80 | sig as i32),
                 otherwise => panic!("unexpected status from waitpid: {:?}",
                                     otherwise),
             }
