@@ -56,6 +56,5 @@ fn main() {
     cc::Build::new()
         .file("src/bpf.c")
         .file("src/bpf-helper.c")
-        .file("src/utils.c")
         .compile("my-asm-lib");
 }

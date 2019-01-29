@@ -13,12 +13,10 @@ all:
 	@cp -v src/libsystrace.so lib
 	@cp -v libdet/target/release/libdet.so lib
 	@cp -v target/release/systrace bin
-	@cp -v src/bpf-trace bin
 clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C tests clean
 	$(RM) lib/libdet.so lib/libsystrace.so
-	$(RM) bin/bpf-trace
 	$(RM) bin/systrace
 	@cargo clean
 	@cargo clean --manifest-path=libdet/Cargo.toml

@@ -7,11 +7,11 @@
 #include <linux/audit.h>
 #include <unistd.h>
 #include <stddef.h>
+#include <assert.h>
 
 #include "bpf-helper.h"
 
 #include "scinfo.h"
-#include "utils.h"
 
 void bpf_install(void)
 {
@@ -44,5 +44,5 @@ void bpf_install(void)
 
   bpf_resolve_jumps(&l, filter, sizeof(filter)/sizeof(*filter));
 
-  ThrowErrnoIfMinus(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog));
+  assert(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog) == 0);
 }
