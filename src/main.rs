@@ -70,10 +70,28 @@ fn do_ptrace_vfork_done(task: &mut TracedTask) -> Result<()> {
     task.cont()
 }
 
-fn do_ptrace_fork(task: &mut TracedTask) -> Result<unistd::Pid> {
-    let child = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+fn do_ptrace_clone(task: &mut TracedTask) -> Result<TracedTask> {
+    let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     just_continue(task.pid, None)?;
-    Ok(unistd::Pid::from_raw(child as libc::pid_t))
+    let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
+    let new_task = task.cloned();
+    Ok(new_task)
+}
+
+fn do_ptrace_fork(task: &mut TracedTask) -> Result<TracedTask> {
+    let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+    just_continue(task.pid, None)?;
+    let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
+    let new_task = task.forked(child);
+    Ok(new_task)
+}
+
+fn do_ptrace_vfork(task: &mut TracedTask) -> Result<TracedTask> {
+    let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+    just_continue(task.pid, None)?;
+    let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
+    let new_task = task.vforked(child);
+    Ok(new_task)
 }
 
 fn do_ptrace_seccomp(task: &mut TracedTask) -> Result<()> {
@@ -147,36 +165,45 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     Ok(())
 }
 
-fn handle_ptrace_event(tasks: &mut tasks::TracedTasks, pid: unistd::Pid, raw_event: i32) -> Result<()>{
+fn handle_ptrace_signal(task: &mut TracedTask) -> Result<()> {
+    task.cont()
+}
+
+fn handle_ptrace_event(tasks: &mut tasks::TracedTasks, pid: unistd::Pid, raw_event: i32) -> Result<(bool, i64)>{
     let mut task = tasks.get_mut(pid);
     if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i32 {
         let child = do_ptrace_fork(&mut task)?;
-        let new_task = task.vforked(child);
-        tasks.add(new_task)?;
+        tasks.add(child)?;
     } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i32 {
-        let child = do_ptrace_fork(&mut task)?;
-        let new_task = task.forked(child);
-        tasks.add(new_task)?;
+        let child = do_ptrace_vfork(&mut task)?;
+        tasks.add(child)?;
     } else if raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
-        let child = do_ptrace_fork(&mut task)?;
-        let new_task = task.cloned();
-        tasks.add(new_task)?;
+        let child = do_ptrace_clone(&mut task)?;
+        tasks.add(child)?;
     } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
         do_ptrace_exec(&mut task).map_err(from_nix_error)?;
     } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
         do_ptrace_vfork_done(&mut task)?;
     } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
-        task.cont()?;
+        let sig = task.signal_to_deliver;
+        task.reset();
+        tasks.remove(pid)?;
+        let retval = ptrace::getevent(pid).expect("ptrace getevent");
+        ptrace::step(pid, sig).expect("ptrace cont");
+        assert_eq!(wait::waitpid(Some(pid), None), Ok(WaitStatus::Exited(pid, 0)));
+        if tasks.len() == 0 {
+            return Ok((true, retval as i64));
+        }
     } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
         do_ptrace_seccomp(&mut task)?;
     } else {
         panic!("unknown ptrace event: {:x}", raw_event);
     }
-    Ok(())
+    Ok((false, 0))
 }
 
-fn handle_ptrace_syscall(pid: unistd::Pid) -> Result<()>{
-    panic!("handle_ptrace_syscall, pid: {}", pid);
+fn handle_ptrace_syscall(task: &mut TracedTask) -> Result<()>{
+    panic!("handle_ptrace_syscall, pid: {}", task.pid);
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -200,15 +227,23 @@ fn run_tracer_main(tasks: &mut tasks::TracedTasks) -> Result<i32> {
                 return Ok(0x80 | signal as i32);
             },
             Ok(WaitStatus::Continued(_newpid)) => (),
-            Ok(WaitStatus::PtraceEvent(pid, signal, event)) if signal == signal::SIGTRAP =>
-                handle_ptrace_event(tasks, pid, event)?,
+            Ok(WaitStatus::PtraceEvent(pid, signal, event)) if signal == signal::SIGTRAP => {
+                let (exit_loop, exit_code) = handle_ptrace_event(tasks, pid, event)?;
+                if exit_loop {
+                    return Ok(exit_code as i32);
+                }
+            },
             Ok(WaitStatus::PtraceSyscall(pid)) =>
-                handle_ptrace_syscall(pid)?,
+                handle_ptrace_syscall(tasks.get_mut(pid))?,
             Ok(WaitStatus::Stopped(pid, sig)) => {
                 let mut task = tasks.get_mut(pid);
-                task.signal_to_deliver = Some(sig);
-                task.cont()?;
-            }
+                if sig == signal::SIGSTOP {
+                    task.cont()?;
+                } else {
+                    task.signal_to_deliver = Some(sig);
+                    handle_ptrace_signal(&mut task)?;
+                }
+            },
             otherwise => panic!("unknown status: {:?}", otherwise),
         }
     }

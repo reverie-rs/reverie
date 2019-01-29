@@ -27,4 +27,7 @@ impl TracedTasks{
     pub fn get_mut(&mut self, pid: Pid) -> &mut TracedTask {
         self.tasks.get_mut(&pid).unwrap()
     }
+    pub fn len(&self) -> usize {
+        self.tasks.len()
+    }
 }

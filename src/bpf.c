@@ -33,6 +33,7 @@ void bpf_install(void)
     SYSCALL(__NR_fork, ALLOW),
     SYSCALL(__NR_vfork, ALLOW),
     SYSCALL(__NR_execve, ALLOW),
+    SYSCALL(__NR_rt_sigreturn, ALLOW),
     LOAD_SYSCALL_IP,
     IP(0x70000002, ALLOW),
     TRACE,
