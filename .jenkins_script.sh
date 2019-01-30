@@ -13,9 +13,7 @@ echo "Git commit depth: "
 top=`pwd`
 
 # This testing mode assumes that nix/docker integration is OFF by default:
-export STACKARGS="--no-system-ghc"
 export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 
-cabal new-update
 rustup update
 make && make tests
