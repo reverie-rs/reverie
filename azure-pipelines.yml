@@ -16,8 +16,6 @@ jobs:
     vmImage: ubuntu-16.04
   strategy:
     matrix:
-      stable:
-        rustup_toolchain: stable
       nightly:
         rustup_toolchain: nightly
   steps:
