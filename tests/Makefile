@@ -5,7 +5,7 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1
+TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 getpid-pie
 
 all: $(TARGET)
 
@@ -31,6 +31,10 @@ open-many: open-many.o
 
 getpid: getpid.o
 	$(CC) $^ -o $@ $(CFLAGS)
+
+getpid-pie: getpid-pie.c
+	$(CC) $^ -o $@ $(CFLAGS) -pie -fPIE -Wno-return-type
+
 write-many: write-many.o
 	$(CC) $^ -o $@ $(CFLAGS)
 forkExec: forkExec.o
@@ -53,5 +57,7 @@ tests: build-tests
 	cd .. && ./bin/systrace ./tests/write-many || exit 1
 	cd .. && ./bin/systrace ./tests/getpid || exit 1
 	cd .. && ./bin/systrace ./tests/clock-nanosleep || exit 1
+	cd .. && ./bin/systrace ./tests/getpid-pie || exit 1
+	cd .. && ./bin/systrace ./tests/test1.sh || exit 1
 
 .PHONY: all tests clean

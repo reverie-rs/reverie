@@ -282,23 +282,21 @@ impl TracedTask {
     pub fn extended_jump_from_to(&mut self, rip: u64) -> Result<u64> {
         let hook = self.find_syscall_hook(rip)?;
         let two_gb = 2u64.wrapping_shl(30);
-
-        let page_address = match self.stub_pages.iter().find(|SyscallStubPage{address, size, allocated}|{
-            let (start, end) = (*address, *address + *size as u64);
-            if end <= rip {
-                rip - start <= two_gb
-            } else if start >= rip {
-                start + stubs::extended_jump_pages() as u64 * 0x1000 - rip <= two_gb
-            } else {
-                false
-            }
-        }) {
-            None => self.allocate_extended_jumps(rip)?,
-            Some(hook) => {
-                hook.address
-            },
-        };
-
+        let page_address = match self.stub_pages
+            .iter()
+            .find(|page| {
+                let (start, end) = (page.address, page.address + page.size as u64);
+                if end <= rip {
+                    rip - start <= two_gb
+                } else if start >= rip {
+                    start + stubs::extended_jump_pages() as u64 * 0x1000 - rip <= two_gb
+                } else {
+                    false
+                }
+            }) {
+                None => self.allocate_extended_jumps(rip)?,
+                Some(stub) => stub.address,
+            };
         let offset = self.extended_jump_offset_from_stub_page(hook)?;
         Ok(page_address + offset as u64)
     }
