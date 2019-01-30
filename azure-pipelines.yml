@@ -10,9 +10,6 @@ jobs:
         $HOME/.cargo/bin/rustup toolchain add nightly
         $HOME/.cargo/bin/rustup component add rustfmt
       displayName: Install nightly Rust
-    - script: |
-        $HOME/.cargo/bin/cargo fmt -- --check
-      displayName: Run rustfmt
 
 - job: Linux
   pool:
