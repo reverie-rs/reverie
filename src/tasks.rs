@@ -22,10 +22,10 @@ impl TracedTasks{
         Ok(())
     }
     pub fn get(&self, pid: Pid) -> &TracedTask {
-        self.tasks.get(&pid).unwrap()
+        self.tasks.get(&pid).expect(&format!("unknown pid {}", pid))
     }
     pub fn get_mut(&mut self, pid: Pid) -> &mut TracedTask {
-        self.tasks.get_mut(&pid).unwrap()
+        self.tasks.get_mut(&pid).expect(&format!("unknown pid {}", pid))
     }
     pub fn len(&self) -> usize {
         self.tasks.len()

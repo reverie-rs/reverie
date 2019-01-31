@@ -107,7 +107,7 @@ where
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
-    many1::<String, _>(hex_digit()).map(|s| u64::from_str_radix(&s, 16).unwrap())
+    many1::<String, _>(hex_digit()).map(|s| u64::from_str_radix(&s, 16).unwrap_or(0))
 }
 
 fn dec_value<I>() -> impl Parser<Input = I, Output = u64>
@@ -116,7 +116,7 @@ where
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
-    many1::<String, _>(hex_digit()).map(|s| s.parse::<u64>().unwrap())
+    many1::<String, _>(hex_digit()).map(|s| s.parse::<u64>().unwrap_or(0))
 }
 
 fn dev<I>() -> impl Parser<Input = I, Output = i32>
@@ -130,8 +130,8 @@ where
       char(':'),
       count::<String,_>(2,hex_digit()),
     ).map(|(_, major, _, minor)| {
-        i32::from_str_radix(&major, 16).unwrap() * 256
-            + i32::from_str_radix(&minor, 16).unwrap()
+        i32::from_str_radix(&major, 16).unwrap_or(0) * 256
+            + i32::from_str_radix(&minor, 16).unwrap_or(0)
     })
 }
 

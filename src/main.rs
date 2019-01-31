@@ -74,7 +74,7 @@ fn do_ptrace_clone(task: &mut TracedTask) -> Result<TracedTask> {
     let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     just_continue(task.pid, None)?;
     let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
-    let new_task = task.cloned();
+    let new_task = task.cloned(child);
     Ok(new_task)
 }
 
@@ -101,7 +101,7 @@ fn do_ptrace_seccomp(task: &mut TracedTask) -> Result<()> {
     if ev == 0x7fff {
         panic!("unfiltered syscall: {:?}", syscall);
     }
-    // println!("seccomp syscall {:?}", syscall);
+    //println!("seccomp syscall {:?}", syscall);
     match task.patch_syscall(regs.rip) {
         Ok(_) => {
             just_continue(task.pid, None)
@@ -273,6 +273,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     let envs = vec![ "PATH=/bin/:/usr/bin",
                       "LD_PRELOAD=libdet.so libsystrace.so",
                       "LD_LIBRARY_PATH=lib",
+                      "TERM=linux",
     ];
 
     let program = CString::new(argv.program)?;
