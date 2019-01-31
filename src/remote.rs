@@ -14,26 +14,13 @@ use crate::hooks;
 use crate::consts;
 use crate::consts::*;
 use crate::proc::*;
+use crate::task::{Task};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyscallStubPage {
     pub address: u64,
     pub size: usize,
     pub allocated: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct TracedTask{
-    pub pid: Pid,
-    pub parent: Pid,
-    pub tid: Pid,
-    pub memory_map: Vec<ProcMapsEntry>,
-    pub stub_pages: Vec<SyscallStubPage>,
-    pub trampoline_hooks: &'static Vec<hooks::SyscallHook>,
-    pub ldpreload_address: Option<u64>,
-    pub injected_mmap_page: Option<u64>,
-    pub signal_to_deliver: Option<signal::Signal>,
-    pub unpatchable_syscalls: Vec<u64>,
 }
 
 #[derive(Debug)]
@@ -47,6 +34,12 @@ where T: Sized
     pub fn new(not_null: NonNull<T>) -> Self {
         RemotePtr{ptr: not_null}
     }
+    pub fn as_ptr(self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+    pub fn cast<U>(self) -> RemotePtr<U> {
+        RemotePtr{ptr: self.ptr.cast::<U>()}
+    }
 }
 
 impl <T> Clone for RemotePtr<T> {
@@ -55,331 +48,41 @@ impl <T> Clone for RemotePtr<T> {
     }
 }
 
-pub fn cast_remote_ptr<U, T>(from_ptr: RemotePtr<U>) -> RemotePtr<T> {
-    let raw_ptr = from_ptr.ptr.as_ptr() as *mut T;
-    RemotePtr::new(NonNull::new(raw_ptr).expect("casting null pointer"))
+pub trait RemoteSyscall {
+    fn untraced_syscall(&mut self, nr: nr::SyscallNo, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> Result<i64>;
 }
 
-fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
-    match ptrace::read(pid, consts::DET_TLS_SYSCALL_TRAMPOLINE as ptrace::AddressType) {
-        Ok(addr) if addr != 0 => Some(addr as u64 & !0xfff),
-        _otherwise => None,
-    }
-}
-
-lazy_static! {
-    static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        hooks::resolve_syscall_hooks_from(PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO))
-            .expect(&format!("unable to load {}", consts::SYSTRACE_SO))
-    };
-}
-
-impl TracedTask {
-    pub fn new(pid: unistd::Pid) -> Self {
-        TracedTask {
-            pid,
-            parent:pid,
-            tid: pid,
-            memory_map: decode_proc_maps(pid).unwrap_or(Vec::new()),
-            stub_pages: Vec::new(),
-            trampoline_hooks: &SYSCALL_HOOKS,
-            ldpreload_address: libsystrace_load_address(pid),
-            injected_mmap_page: None,
-            signal_to_deliver: None,
-            unpatchable_syscalls: Vec::new(),
-        }
-    }
-
-    pub fn forked(&self, child: unistd::Pid) -> Self {
-        TracedTask {
-            pid: child,
-            parent: self.pid,
-            tid: child,
-            memory_map: self.memory_map.clone(),
-            stub_pages: self.stub_pages.clone(),
-            trampoline_hooks: self.trampoline_hooks,
-            ldpreload_address: self.ldpreload_address.clone(),
-            injected_mmap_page: self.injected_mmap_page.clone(),
-            signal_to_deliver: None,
-            unpatchable_syscalls: self.unpatchable_syscalls.clone(),
-        }
-    }
-
-    // vforked process usually calls exec*
-    // the process life spam is expected to be short
-    pub fn vforked(&self, child: unistd::Pid) -> Self {
-        TracedTask {
-            pid: child,
-            parent: self.pid,
-            tid: child,
-            memory_map: Vec::new(),
-            stub_pages: Vec::new(),
-            trampoline_hooks: self.trampoline_hooks,
-            ldpreload_address: None,
-            injected_mmap_page: None,
-            signal_to_deliver: None,
-            unpatchable_syscalls: Vec::new(),
-        }
-    }
-
-    pub fn cloned(&self, child: Pid) -> Self {
-        TracedTask {
-            pid: child,
-            parent: self.pid,
-            tid: child,
-            memory_map: self.memory_map.clone(),
-            stub_pages: self.stub_pages.clone(),
-            trampoline_hooks: self.trampoline_hooks,
-            ldpreload_address: self.ldpreload_address.clone(),
-            injected_mmap_page: self.injected_mmap_page.clone(),
-            signal_to_deliver: None,
-            unpatchable_syscalls: self.unpatchable_syscalls.clone(),
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.memory_map = Vec::new();
-        self.stub_pages = Vec::new();
-        self.ldpreload_address = None;
-        self.injected_mmap_page = Some(0x7000_0000);
-        self.signal_to_deliver = None;
-        self.unpatchable_syscalls = Vec::new();
-    }
-
-    pub fn getpid(self) -> Pid {
-        self.pid
-    }
-
-    pub fn getppid(self) -> Pid {
-        self.parent
-    }
-
-    pub fn gettid(self) -> Pid {
-        self.tid
-    }
-
-    pub fn update_memory_map(&mut self) {
-        self.memory_map = decode_proc_maps(self.pid).unwrap_or(Vec::new());
-    }
-
-    fn peek_bytes(&self, addr: &RemotePtr<u8>, size: usize) -> Result<Vec<u8>> {
-        if size <= std::mem::size_of::<u64>() {
-            let raw_ptr = addr.ptr.as_ptr();
-            let x = ptrace::read(self.pid, raw_ptr as ptrace::AddressType).expect("ptrace peek");
-            let bytes: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(x) };
-            Ok(bytes.iter().take(size).map(|c|*c).collect())
-        } else {
-            let raw_ptr = addr.ptr.as_ptr();
-            let remote_iov = &[uio::RemoteIoVec{base: raw_ptr as usize, len: size}];
-            let mut res = vec![0; size];
-            let local_iov = &[ uio::IoVec::from_mut_slice(res.as_mut_slice())];
-            uio::process_vm_readv(self.pid, local_iov, remote_iov).expect("process_vm_readv");
-            Ok(res)
-        }
-    }
-
-    fn poke_bytes(&self, addr: &RemotePtr<u8>, bytes: &[u8]) -> Result<()> {
-        let size = bytes.len();
-        if size <= std::mem::size_of::<u64>() {
-            let raw_ptr = addr.ptr.as_ptr();
-            let mut val: u64 = 0;
-            let val_ptr: *mut u64 = &mut val;
-            let vall: u64 = unsafe { std::mem::transmute(bytes.as_ptr()) };
-            let x = ptrace::write(self.pid, raw_ptr as ptrace::AddressType, val as *mut libc::c_void).expect("ptrace peek");
-            return Ok(())
-        } else {
-            let raw_ptr = addr.ptr.as_ptr();
-            let remote_iov = &[uio::RemoteIoVec{base: raw_ptr as usize, len: size}];
-            let local_iov = &[uio::IoVec::from_slice(bytes)];
-            uio::process_vm_writev(self.pid, local_iov, remote_iov).expect("process_vm_readv");
-            return Ok(())
-        }
-    }
-
-    pub fn peek<T>(&self, ref addr: RemotePtr<T>) -> Result<T>
+pub trait Remote {
+    fn peek_bytes(&self, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>>;
+    fn poke_bytes(&self, addr: RemotePtr<u8>, bytes: &[u8]) -> Result<()>;
+    fn peek<T>(&self, addr: RemotePtr<T>) -> Result<T>
         where T: Sized
     {
-        let new_ptr = NonNull::new(addr.ptr.as_ptr() as *mut u8).expect("peek null pointer");
-        let bytes: Vec<u8> = TracedTask::peek_bytes(self, &RemotePtr::new(new_ptr), std::mem::size_of::<T>())?;
+        let new_ptr = addr.cast::<u8>();
+        let size = std::mem::size_of::<T>();
+        let bytes: Vec<u8> = self.peek_bytes(new_ptr, size)?;
         // to be initialized by copy_nonoverlapping.
         let mut res: T = unsafe { std::mem::uninitialized() };
         let ret_ptr: *mut T = &mut res;
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const T, ret_ptr, std::mem::size_of::<T>()) };
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const T, ret_ptr, size) };
         Ok(res)
     }
-    pub fn poke<T>(&self, ref addr: RemotePtr<T>, value: &T) -> Result<()>
+    fn poke<T>(&self, addr: RemotePtr<T>, value: &T) -> Result<()>
         where T: Sized
     {
         let value_ptr: *const T = value;
-        let new_ptr = NonNull::new(addr.ptr.as_ptr() as *mut u8).expect("poke null pointer");
+        let size = std::mem::size_of::<T>();
+        let new_ptr = addr.cast::<u8>();
         let bytes: &[u8] = unsafe {
             let raw_bytes = std::mem::transmute(value_ptr as *const u8);
-            std::slice::from_raw_parts(raw_bytes, std::mem::size_of::<T>())
+            std::slice::from_raw_parts(raw_bytes, size)
         };
-        TracedTask::poke_bytes(self, &RemotePtr::new(new_ptr), bytes)?;
+        self.poke_bytes(new_ptr, bytes)?;
         Ok(())
     }
-
-    pub fn getregs(&self) -> Result<libc::user_regs_struct> {
-        let regs = ptrace::getregs(self.pid).expect(&format!("pid {}: ptrace getregs", self.pid));
-        Ok(regs)
-    }
-
-    pub fn setregs(&self, regs: libc::user_regs_struct) -> Result<()> {
-        ptrace::setregs(self.pid, regs).expect(&format!("pid {}: ptrace getregs", self.pid));
-        Ok(())
-    }
-
-    pub fn cont(&mut self) -> Result<()> {
-        ptrace::cont(self.pid, self.signal_to_deliver).expect("pid {}: ptrace cont");
-        self.signal_to_deliver = None;
-        Ok(())
-    }
-
-    pub fn find_syscall_hook(&mut self, rip: u64) -> Result<&'static hooks::SyscallHook> {
-        let mut bytes: Vec<u8> = Vec::new();
-
-        for i in 0..=1 {
-            let u64_size = std::mem::size_of::<u64>();
-            let remote_ptr = RemotePtr::new(
-                NonNull::new(
-                    (rip + i * std::mem::size_of::<u64>() as u64) as *mut u64).expect("null pointer"));
-            let u: u64 = self.peek(remote_ptr)?;
-            let raw: [u8; std::mem::size_of::<u64>()]  = unsafe { std::mem::transmute(u) };
-            raw.iter().for_each(|c| bytes.push(*c));
-        }
-
-        let mut it = self.trampoline_hooks.iter().filter(|hook| {
-            let sequence: &[u8] = &bytes[0..hook.instructions.len()];
-            sequence == hook.instructions.as_slice()
-        });
-        match it.next() {
-            None        => {
-                Err(Error::new(ErrorKind::Other, format!("unpatchable syscall at {:x}, instructions: {:x?}", rip, bytes)))
-            },
-            Some(found) => {
-                Ok(found)
-            },
-        }
-    }
-
-    pub fn patch_syscall(&mut self, rip: u64) -> Result<()> {
-        if self.ldpreload_address.is_none() {
-            self.ldpreload_address = libsystrace_load_address(self.pid);
-        }
-        self.ldpreload_address.ok_or(Error::new(ErrorKind::Other, format!("libsystrace not loaded")))?;
-        if self.unpatchable_syscalls.iter().find(|&&pc| pc == rip).is_some() {
-            return Err(Error::new(ErrorKind::Other, format!("process {} syscall at {} is not patchable", self.pid, rip)));
-        };
-        let hook_found = self.find_syscall_hook(rip)?;
-        let indirect_jump_address = self.extended_jump_from_to(rip)?;
-        let regs = ptrace::getregs(self.pid).expect("ptrace getregs");
-        patch_at(self, regs, hook_found, indirect_jump_address)
-            .map_err(|e| {
-                self.unpatchable_syscalls.push(rip);
-                e
-            })
-    }
-
-    fn hook_index(&mut self, curr: &hooks::SyscallHook) -> Result<usize> {
-        for (k, hook) in self.trampoline_hooks.iter().enumerate() {
-            if hook == curr {
-                return Ok(k);
-            }
-        }
-        Err(Error::new(ErrorKind::Other, format!("cannot find syscall hook: {:?}", curr)))
-    }
-
-    fn extended_jump_offset_from_stub_page(&mut self, curr: &hooks::SyscallHook) -> Result<usize> {
-        let k = self.hook_index(curr)?;
-        Ok(k * stubs::extended_jump_size())
-    }
-
-    pub fn extended_jump_from_to(&mut self, rip: u64) -> Result<u64> {
-        let hook = self.find_syscall_hook(rip)?;
-        let two_gb = 2u64.wrapping_shl(30);
-        let page_address = match self.stub_pages
-            .iter()
-            .find(|page| {
-                let (start, end) = (page.address, page.address + page.size as u64);
-                if end <= rip {
-                    rip - start <= two_gb
-                } else if start >= rip {
-                    start + stubs::extended_jump_pages() as u64 * 0x1000 - rip <= two_gb
-                } else {
-                    false
-                }
-            }) {
-                None => self.allocate_extended_jumps(rip)?,
-                Some(stub) => stub.address,
-            };
-        let offset = self.extended_jump_offset_from_stub_page(hook)?;
-        Ok(page_address + offset as u64)
-    }
-    
-    fn allocate_extended_jumps (&mut self, rip: u64) -> Result<u64> {
-        let size = (stubs::extended_jump_pages() * 0x1000) as u64;
-        let at = search_stub_page(self.pid, rip, size as usize)? as u64;
-        let allocated_at = remote_do_untraced_syscall(
-            self.pid, nr::SYS_mmap, at, size,
-            (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u64,
-            (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u64,
-            -1i64 as u64, 0)?;
-        assert!(at == allocated_at as u64);
-
-        let preload_address = self.ldpreload_address.ok_or(Error::new(ErrorKind::Other, format!("{} not loaded", consts::SYSTRACE_SO)))?;
-        let stubs = stubs::gen_extended_jump_stubs(self.trampoline_hooks, preload_address);
-        self.stub_pages.push(SyscallStubPage{address:at, size: size as usize, allocated: stubs.len()});
-        let remote_ptr = RemotePtr::new(
-            NonNull::new(at as *mut u8).expect("null pointer"));
-        self.poke_bytes(&remote_ptr, stubs.as_slice())?;
-
-        remote_do_untraced_syscall(self.pid, nr::SYS_mprotect, allocated_at as u64, size,
-                                   (libc::PROT_READ | libc::PROT_EXEC) as u64, 0, 0, 0)?;
-
-        self.update_memory_map();
-
-        Ok(allocated_at as u64)
-    }
-}
-
-// inject syscall for given tracee
-// NB: limitations:
-// - tracee must be in stopped state.
-// - the tracee must have returned from PTRACE_EXEC_EVENT
-pub fn remote_do_untraced_syscall(pid: Pid, nr: nr::SyscallNo, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> Result<i64>{
-    let mut regs = ptrace::getregs(pid).expect("ptrace getregs");
-    let oldregs = regs.clone();
-
-    let no = nr as u64;
-    regs.orig_rax = no;
-    regs.rax      = no;
-    regs.rdi      = a0 as u64;
-    regs.rsi      = a1 as u64;
-    regs.rdx      = a2 as u64;
-    regs.r10      = a3 as u64;
-    regs.r8       = a4 as u64;
-    regs.r9       = a5 as u64;
-
-    // instruction at 0x7000_0008 must be
-    // callq 0x70000000 (5-bytes)
-    // .byte 0xcc
-    regs.rip = 0x7000_0008u64;
-
-    ptrace::setregs(pid, regs).expect("ptrace setregs");
-    ptrace::cont(pid, None).expect("ptrace cont");
-    match wait::waitpid(pid, None) {
-        Ok(WaitStatus::Stopped(pid, signal::SIGTRAP)) => (),
-        Ok(WaitStatus::Stopped(pid, signal::SIGCHLD)) => (), // XXX: deliver SIGCHLD?
-        otherwise => panic!("waitpid {} returned unknown status: {:x?}", pid, otherwise),
-    };
-    let newregs = ptrace::getregs(pid).expect("ptrace getregs");
-    ptrace::setregs(pid, oldregs).expect("ptrace setregs");
-    if newregs.rax as u64 > (-4096i64) as u64 {
-        Err(Error::from_raw_os_error(-(newregs.rax as i64) as i32))
-    } else {
-        Ok(newregs.rax as i64)
-    }
+    fn getregs(&self) -> Result<libc::user_regs_struct>;
+    fn setregs(&self, regs: libc::user_regs_struct) -> Result<()>;
+    fn cont(&mut self) -> Result<()>;
 }
 
 fn ensure_syscall(pid: unistd::Pid, rip: u64) -> Result<()> {
@@ -403,7 +106,7 @@ fn skip_seccomp_syscall(pid: unistd::Pid, regs: &libc::user_regs_struct) -> Resu
     Ok(())
 }
 
-fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
+fn synchronize_from(task: &mut Task, rip: u64) -> Result<()> {
     let pid = task.pid;
     let saved_insn = ptrace::read(pid, rip as ptrace::AddressType).expect("ptrace peek");
     let new_insn = (saved_insn & !0xff) | 0xcc;
@@ -423,7 +126,7 @@ fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn patch_at(task: &mut TracedTask, regs: libc::user_regs_struct, hook: &hooks::SyscallHook, target: u64) -> Result<()> {
+pub fn patch_at(task: &mut Task, regs: libc::user_regs_struct, hook: &hooks::SyscallHook, target: u64) -> Result<()> {
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let jmp_insn_size = 5;
     let ip = resume_from;

@@ -29,8 +29,10 @@ mod stubs;
 mod remote;
 mod tasks;
 mod proc;
+mod task;
 
 use remote::*;
+use task::{Task};
 
 // install seccomp-bpf filters
 extern {
@@ -66,11 +68,11 @@ fn just_continue(pid: unistd::Pid, sig: Option<signal::Signal>) -> Result<()> {
     ptrace::cont(pid, sig).map_err(from_nix_error)
 }
 
-fn do_ptrace_vfork_done(task: &mut TracedTask) -> Result<()> {
+fn do_ptrace_vfork_done(task: &mut Task) -> Result<()> {
     task.cont()
 }
 
-fn do_ptrace_clone(task: &mut TracedTask) -> Result<TracedTask> {
+fn do_ptrace_clone(task: &mut Task) -> Result<Task> {
     let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     just_continue(task.pid, None)?;
     let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
@@ -78,7 +80,7 @@ fn do_ptrace_clone(task: &mut TracedTask) -> Result<TracedTask> {
     Ok(new_task)
 }
 
-fn do_ptrace_fork(task: &mut TracedTask) -> Result<TracedTask> {
+fn do_ptrace_fork(task: &mut Task) -> Result<Task> {
     let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     just_continue(task.pid, None)?;
     let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
@@ -86,7 +88,7 @@ fn do_ptrace_fork(task: &mut TracedTask) -> Result<TracedTask> {
     Ok(new_task)
 }
 
-fn do_ptrace_vfork(task: &mut TracedTask) -> Result<TracedTask> {
+fn do_ptrace_vfork(task: &mut Task) -> Result<Task> {
     let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     just_continue(task.pid, None)?;
     let child = unistd::Pid::from_raw(pid_raw as libc::pid_t);
@@ -94,7 +96,7 @@ fn do_ptrace_vfork(task: &mut TracedTask) -> Result<TracedTask> {
     Ok(new_task)
 }
 
-fn do_ptrace_seccomp(task: &mut TracedTask) -> Result<()> {
+fn do_ptrace_seccomp(task: &mut Task) -> Result<()> {
     let ev = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     let regs = ptrace::getregs(task.pid).map_err(from_nix_error)?;
     let syscall = nr::SyscallNo::from(regs.orig_rax as i32);
@@ -110,7 +112,7 @@ fn do_ptrace_seccomp(task: &mut TracedTask) -> Result<()> {
     }
 }
 
-fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
+fn tracee_preinit(task: &mut Task) -> nix::Result<()> {
     let mut regs = ptrace::getregs(task.pid)?;
     let mut saved_regs = regs.clone();
     let page_addr = consts::DET_PAGE_OFFSET;
@@ -149,7 +151,7 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     Ok(())
 }
 
-fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
+fn do_ptrace_exec(task: &mut Task) -> nix::Result<()> {
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let regs = ptrace::getregs(task.pid)?;
     assert!(regs.rip & 7 == 0);
@@ -165,7 +167,7 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     Ok(())
 }
 
-fn handle_ptrace_signal(task: &mut TracedTask) -> Result<()> {
+fn handle_ptrace_signal(task: &mut Task) -> Result<()> {
     task.cont()
 }
 
@@ -191,7 +193,7 @@ fn handle_ptrace_event(tasks: &mut tasks::TracedTasks, pid: unistd::Pid, raw_eve
         let retval = ptrace::getevent(pid).expect("ptrace getevent");
         ptrace::step(pid, sig).expect("ptrace cont");
         assert_eq!(wait::waitpid(Some(pid), None), Ok(WaitStatus::Exited(pid, 0)));
-        if tasks.len() == 0 {
+        if tasks.size() == 0 {
             return Ok((true, retval as i64));
         }
     } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
@@ -202,7 +204,7 @@ fn handle_ptrace_event(tasks: &mut tasks::TracedTasks, pid: unistd::Pid, raw_eve
     Ok((false, 0))
 }
 
-fn handle_ptrace_syscall(task: &mut TracedTask) -> Result<()>{
+fn handle_ptrace_syscall(task: &mut Task) -> Result<()>{
     panic!("handle_ptrace_syscall, pid: {}", task.pid);
 }
 
@@ -315,7 +317,7 @@ fn run_tracer(starting_pid: unistd::Pid, starting_uid: unistd::Uid, starting_gid
                                | ptrace::Options::PTRACE_O_TRACESYSGOOD)
                 .map_err(|e|Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None).map_err(|e|Error::new(ErrorKind::Other, e))?;
-            let tracee = remote::TracedTask::new(child);
+            let tracee = task::Task::new(child);
             let mut tasks = tasks::TracedTasks::new();
             tasks.add(tracee)?;
             run_tracer_main(&mut tasks)
