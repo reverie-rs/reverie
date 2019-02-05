@@ -15,6 +15,7 @@ use crate::consts;
 use crate::consts::*;
 use crate::proc::*;
 use crate::task::{Task};
+use crate::traced_task::TracedTask;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyscallStubPage {
@@ -82,7 +83,8 @@ pub trait Remote {
     }
     fn getregs(&self) -> Result<libc::user_regs_struct>;
     fn setregs(&self, regs: libc::user_regs_struct) -> Result<()>;
-    fn cont(&mut self) -> Result<()>;
+    fn getevent(&self) -> Result<i64>;
+    fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
 }
 
 fn ensure_syscall(pid: unistd::Pid, rip: u64) -> Result<()> {
@@ -106,8 +108,8 @@ fn skip_seccomp_syscall(pid: unistd::Pid, regs: &libc::user_regs_struct) -> Resu
     Ok(())
 }
 
-fn synchronize_from(task: &mut Task, rip: u64) -> Result<()> {
-    let pid = task.pid;
+fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
+    let pid = task.getpid();
     let saved_insn = ptrace::read(pid, rip as ptrace::AddressType).expect("ptrace peek");
     let new_insn = (saved_insn & !0xff) | 0xcc;
     ptrace::write(pid, rip as ptrace::AddressType, new_insn as *mut libc::c_void).expect("ptrace poke");
@@ -126,7 +128,7 @@ fn synchronize_from(task: &mut Task, rip: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn patch_at(task: &mut Task, regs: libc::user_regs_struct, hook: &hooks::SyscallHook, target: u64) -> Result<()> {
+pub fn patch_at(task: &mut TracedTask, regs: libc::user_regs_struct, hook: &hooks::SyscallHook, target: u64) -> Result<()> {
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let jmp_insn_size = 5;
     let ip = resume_from;
