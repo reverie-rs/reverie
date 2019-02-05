@@ -13,6 +13,6 @@ pub trait Scheduler<Task> {
     fn new() -> Self where Self: Sized;
     fn add(&mut self, task: Task);
     fn remove(&mut self, task: &mut Task);
-    fn next(&mut self) -> Option<&mut Task>;
+    fn next(&mut self) -> Option<Task>;
     fn size(&self) -> usize;
 }

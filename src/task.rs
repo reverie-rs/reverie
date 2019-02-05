@@ -16,7 +16,7 @@ use crate::remote::*;
 use crate::stubs;
 use crate::sched::Scheduler;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TaskState {
     Running,
     Stopped(Option<signal::Signal>),
@@ -25,14 +25,19 @@ pub enum TaskState {
     Exited(i32),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RunTask<Task> {
+    Exited(i32),
+    Runnable(Task),
+    Forked(Task, Task),
+}
+
 pub trait Task {
     fn new(pid: Pid) -> Self where Self: Sized;
-    fn reset(&mut self);
     fn getpid(&self) -> Pid;
     fn getppid(&self) -> Pid;
     fn gettid(&self) -> Pid;
-    fn forked(&self, child: Pid) -> Self;
-    fn cloned(&self, child: Pid) -> Self;
     fn exited(&self) -> Option<i32>;
-    fn run(&mut self) -> Result<Option<Self>> where Self: Sized;
+    /// take ownership of `self`
+    fn run(self) -> Result<RunTask<Self>> where Self: Sized;
 }

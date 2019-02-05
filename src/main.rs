@@ -34,7 +34,7 @@ mod traced_task;
 mod sched_wait;
 
 use remote::*;
-use task::{Task};
+use task::{Task, RunTask};
 use traced_task::{TracedTask};
 use sched_wait::SchedWait;
 use sched::Scheduler;
@@ -67,17 +67,14 @@ struct Arguments<'a> {
 
 fn run_tracer_main(sched: &mut SchedWait) -> Result<i32> {
     let mut exit_code = 0i32;
-    loop {
-        match sched.next() {
-            None => break,
-            Some(task) => {
-                match task.run()? {
-                    None => match task.exited() {
-                        None => (),
-                        Some(_code) => exit_code = _code,
-                    },
-                    Some(child) => sched.add(child),
-                }
+    while let Some(task) = sched.next() {
+        let run_result = task.run()?;
+        match run_result {
+            RunTask::Exited(_code) => exit_code = _code,
+            RunTask::Runnable(task1) => sched.add(task1),
+            RunTask::Forked(run_first, run_second) => {
+                sched.add(run_first);
+                sched.add(run_second);
             },
         }
     };
