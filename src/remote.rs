@@ -109,22 +109,6 @@ fn skip_seccomp_syscall(pid: unistd::Pid, regs: &libc::user_regs_struct) -> Resu
 }
 
 fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
-    let pid = task.getpid();
-    let saved_insn = ptrace::read(pid, rip as ptrace::AddressType).expect("ptrace peek");
-    let new_insn = (saved_insn & !0xff) | 0xcc;
-    ptrace::write(pid, rip as ptrace::AddressType, new_insn as *mut libc::c_void).expect("ptrace poke");
-    ptrace::cont(pid, None).expect("ptrace cont");
-    match wait::waitpid(Some(pid), None) {
-        Ok(WaitStatus::Stopped(pid, signal::SIGTRAP)) => (),
-        Ok(WaitStatus::Stopped(pid, signal::SIGCHLD)) => {
-            task.signal_to_deliver = Some(signal::SIGCHLD)
-        },
-        otherwise => panic!("waitpid ({}) returend unknown status {:x?}", pid, otherwise)
-    };
-    let mut regs = ptrace::getregs(pid).expect("ptrace getregs");
-    regs.rip -= 1;
-    ptrace::write(pid, rip as ptrace::AddressType, saved_insn as *mut libc::c_void).expect("ptrace poke");
-    ptrace::setregs(pid, regs).expect("ptrace setregs");
     Ok(())
 }
 

@@ -340,7 +340,7 @@ impl Remote for TracedTask {
     }
 
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()> {
-        ptrace::cont(self.pid, sig).expect("pid {}: ptrace cont");
+        ptrace::cont(self.pid, sig).expect(&format!("pid {}: ptrace cont", self.pid));
         Ok(())
     }
 

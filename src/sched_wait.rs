@@ -41,7 +41,6 @@ fn ptracer_get_next (tasks: &mut SchedWait) -> Option<TracedTask> {
     while let Some(status) = wait::waitpid(None, None).ok() {
         match status {
             WaitStatus::Exited(pid, exit_code) => {
-                println!("removing {} because it has exited", pid);
                 tasks.tasks.entry(pid).and_modify(|t|t.state = TaskState::Exited(exit_code));
                 tasks.tasks.remove(&pid);
             },
