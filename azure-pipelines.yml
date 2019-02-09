@@ -28,5 +28,8 @@ jobs:
         rustc -Vv
         cargo -V
       displayName: Query rust and cargo versions
+    - script: |
+        uname -a
+      displayName: Check kernel version
     - script: make && make tests
       displayName: Build and run tests
