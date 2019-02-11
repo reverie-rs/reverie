@@ -1,8 +1,4 @@
 
-use alloc::string::String;
-use alloc::prelude::*;
-use core::{slice, str};
-
 extern "C" {
     fn c_strlen(s: *const i8) -> usize;
 }
@@ -14,8 +10,8 @@ fn strlen(s: *const i8) -> usize {
 pub unsafe fn unsafe_pack_cstring<'a>(z: *const i8) -> &'a str {
     let p = z as *const u8;
     let n = strlen(z);
-    let slice = slice::from_raw_parts(p, n);
-    str::from_utf8_unchecked(slice)
+    let slice = std::slice::from_raw_parts(p, n);
+    std::str::from_utf8_unchecked(slice)
 }
 
 pub fn pack_cstring(z: *const i8) -> String {

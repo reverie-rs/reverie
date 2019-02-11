@@ -1,6 +1,6 @@
 
-pub mod stdio;
 #[macro_use]
+pub mod stdio;
 pub mod macros;
 
 // export macros, macros appear in top level

@@ -16,11 +16,11 @@ impl Write for RawStdio {
     }
 }
 
-pub fn _print(args: fmt::Arguments) {
+pub fn _raw_print(args: fmt::Arguments) {
     print_to(args, &mut RawStdio{fileno:1}, "stdout");
 }
 
-pub fn _eprint(args: fmt::Arguments) {
+pub fn _raw_eprint(args: fmt::Arguments) {
     print_to(args, &mut RawStdio{fileno:2}, "stderr");
 }
 

@@ -10,7 +10,6 @@ fn gen_syscall_nrs() -> Result<()>{
     let dest_path = Path::new("src/syscall").join("nr.rs");
     let mut f = File::create(&dest_path)?;
     writeln!(f, "#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n")?;
-    writeln!(f, "use ::alloc::string::*;\n")?;
     writeln!(f, "use self::SyscallNo::*;")?;
 
     writeln!(f, "#[derive(Debug, Eq, PartialEq, Clone)]")?;
