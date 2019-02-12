@@ -8,7 +8,6 @@ jobs:
     - script: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         $HOME/.cargo/bin/rustup toolchain add nightly
-        $HOME/.cargo/bin/rustup component add rustfmt
       displayName: Install nightly Rust
 - job: Linux
   pool:
@@ -33,6 +32,7 @@ jobs:
     - script: make
       displayName: Build
     - script: |
+        $HOME/.cargo/bin/rustup component add rustfmt
         $HOME/.cargo/bin/cargo fmt -- --check
       displayName: Run rustfmt
       continueOnError: true
