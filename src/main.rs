@@ -43,18 +43,14 @@ extern "C" {
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
-    let parsed = hooks::resolve_syscall_hooks_from(
-        PathBuf::from("lib").join(consts::SYSTRACE_SO),
-    )?;
+    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from("lib").join(consts::SYSTRACE_SO))?;
     assert_ne!(parsed.len(), 0);
     Ok(())
 }
 
 #[test]
 fn libsystrace_trampoline_within_first_page() -> Result<()> {
-    let parsed = hooks::resolve_syscall_hooks_from(
-        PathBuf::from("lib").join(consts::SYSTRACE_SO),
-    )?;
+    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from("lib").join(consts::SYSTRACE_SO))?;
     let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x1000).collect();
     assert_eq!(parsed.len(), filtered.len());
     Ok(())
@@ -104,13 +100,14 @@ const ADDR_NO_RANDOMIZE: u64 = 0x0040000;
 fn run_tracee(argv: &Arguments) -> Result<i32> {
     let libs: Result<Vec<PathBuf>> = ["libdet.so", "libsystrace.so"]
         .iter()
-        .map(|so| argv.library_path.join(so).canonicalize()).collect();
-    let ldpreload = String::from("LD_PRELOAD=") + &libs?
-        .iter()
-        .map(|p| p
-             .to_str()
-             .unwrap())
-        .collect::<Vec<_>>().join(":");
+        .map(|so| argv.library_path.join(so).canonicalize())
+        .collect();
+    let ldpreload = String::from("LD_PRELOAD=")
+        + &libs?
+            .iter()
+            .map(|p| p.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(":");
 
     unsafe {
         assert!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
@@ -145,7 +142,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
             envs.push(format!("{}={}", k, v));
         }
     });
-    
+
     envs.push(ldpreload);
     let program = CString::new(argv.program)?;
     let mut args: Vec<CString> = Vec::new();
@@ -278,10 +275,9 @@ fn main() {
         library_path: matches
             .value_of("library-path")
             .and_then(|p| PathBuf::from(p).canonicalize().ok())
-            .or_else(||PathBuf::from("lib").canonicalize().ok())
+            .or_else(|| PathBuf::from("lib").canonicalize().ok())
             .unwrap(),
-        env_all: matches
-            .is_present("env-all"),
+        env_all: matches.is_present("env-all"),
         envs: matches
             .values_of("env")
             .unwrap_or_default()
@@ -289,7 +285,8 @@ fn main() {
                 let t: Vec<&str> = s.clone().split('=').collect();
                 debug_assert!(t.len() > 0);
                 (t[0].to_string(), t[1..].join("="))
-            }).collect(),
+            })
+            .collect(),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")

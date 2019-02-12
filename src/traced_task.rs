@@ -33,8 +33,10 @@ fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
 lazy_static! {
     static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
         let systrace_lib_path = std::env::var(consts::SYSTRACE_LIBRARY_PATH).unwrap();
-        hooks::resolve_syscall_hooks_from(PathBuf::from(systrace_lib_path).join(consts::SYSTRACE_SO))
-            .expect(&format!("unable to load {}", consts::SYSTRACE_SO))
+        hooks::resolve_syscall_hooks_from(
+            PathBuf::from(systrace_lib_path).join(consts::SYSTRACE_SO),
+        )
+        .expect(&format!("unable to load {}", consts::SYSTRACE_SO))
     };
 }
 
