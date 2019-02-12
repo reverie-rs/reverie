@@ -10,11 +10,6 @@ jobs:
         $HOME/.cargo/bin/rustup toolchain add nightly
         $HOME/.cargo/bin/rustup component add rustfmt
       displayName: Install nightly Rust
-    - script: |
-        $HOME/.cargo/bin/cargo fmt -- --check
-      displayName: Run rustfmt
-      continueOnError: true
-      
 - job: Linux
   pool:
     vmImage: ubuntu-16.04
@@ -37,5 +32,9 @@ jobs:
       displayName: Check kernel version
     - script: make
       displayName: Build
+    - script: |
+        $HOME/.cargo/bin/cargo fmt -- --check
+      displayName: Run rustfmt
+      continueOnError: true
     - script: make tests
       displayName: Run tests
