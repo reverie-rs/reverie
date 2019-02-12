@@ -1,22 +1,21 @@
-
-use std::io::{Error, ErrorKind, Result, Read};
-use std::result;
 use std::fs::File;
+use std::io::{Error, ErrorKind, Read, Result};
 use std::path::PathBuf;
+use std::result;
 
 use combine::error::ParseError;
-use combine::Parser;
-use combine::{many, many1, any, optional, none_of, choice, Stream, count};
+use combine::parser::char::{char, digit, hex_digit, letter, spaces};
 use combine::stream::state::State;
-use combine::parser::char::{digit, hex_digit, letter, char, spaces};
+use combine::Parser;
+use combine::{any, choice, count, many, many1, none_of, optional, Stream};
 
+use libc;
+use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
 use nix::unistd::Pid;
-use nix::sys::{wait, signal, ptrace};
-use libc;
 
-use crate::hooks;
 use crate::consts::*;
+use crate::hooks;
 use crate::nr;
 
 #[derive(Clone)]
@@ -66,7 +65,7 @@ fn format_prot_flags(prot: i32, flags: i32) -> String {
     } else {
         res.push('-');
     }
-    if prot & libc::PROT_EXEC != 0{
+    if prot & libc::PROT_EXEC != 0 {
         res.push('x');
     } else {
         res.push('-');
@@ -86,16 +85,21 @@ impl std::fmt::Debug for ProcMapsEntry {
         let mut res = String::new();
 
         let fp = match &self.file {
-                Some(path) => String::from(path.to_str().unwrap_or("")),
-                None => String::from(""),
+            Some(path) => String::from(path.to_str().unwrap_or("")),
+            None => String::from(""),
         };
-        let s = format!("{:x}-{:x} {} {:08x} {:02x}:{:02x} {}",
-                        self.base, self.base+self.size,
-                        &format_prot_flags(self.prot, self.flags),
-                        self.offset, self.dev.wrapping_shr(8),
-                        self.dev & 0xff, self.inode);
+        let s = format!(
+            "{:x}-{:x} {} {:08x} {:02x}:{:02x} {}",
+            self.base,
+            self.base + self.size,
+            &format_prot_flags(self.prot, self.flags),
+            self.offset,
+            self.dev.wrapping_shr(8),
+            self.dev & 0xff,
+            self.inode
+        );
         res.push_str(&s);
-        (0..=72-s.len()).for_each(|_| res.push(' '));
+        (0..=72 - s.len()).for_each(|_| res.push(' '));
         res.push_str(&fp);
         write!(f, "{}", res)
     }
@@ -125,14 +129,16 @@ where
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
-    ( spaces(),
-      count::<String,_>(2,hex_digit()),
-      char(':'),
-      count::<String,_>(2,hex_digit()),
-    ).map(|(_, major, _, minor)| {
-        i32::from_str_radix(&major, 16).unwrap_or(0) * 256
-            + i32::from_str_radix(&minor, 16).unwrap_or(0)
-    })
+    (
+        spaces(),
+        count::<String, _>(2, hex_digit()),
+        char(':'),
+        count::<String, _>(2, hex_digit()),
+    )
+        .map(|(_, major, _, minor)| {
+            i32::from_str_radix(&major, 16).unwrap_or(0) * 256
+                + i32::from_str_radix(&minor, 16).unwrap_or(0)
+        })
 }
 
 fn prot<I>() -> impl Parser<Input = I, Output = (i32, i32)>
@@ -141,30 +147,32 @@ where
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
-    ( spaces(),
-      choice([char('-'), char('r')]),
-      choice([char('-'), char('w')]),
-      choice([char('-'), char('x')]),
-      choice([char('-'), char('s'), char('p')]),
-    ).map(|(_, r, w, x, p)| {
-        let mut prot: i32 = 0;
-        let mut flags: i32 = 0;
-        if r == 'r' {
-            prot |= libc::PROT_READ;
-        }
-        if w == 'w' {
-            prot |= libc::PROT_WRITE;
-        }
-        if x == 'x' {
-            prot |= libc::PROT_EXEC;
-        }
-        if p == 'p' {
-            flags |= libc::MAP_PRIVATE;
-        } else if p == 's' {
-            flags |= libc::MAP_SHARED;
-        }
-        (prot, flags)
-    })
+    (
+        spaces(),
+        choice([char('-'), char('r')]),
+        choice([char('-'), char('w')]),
+        choice([char('-'), char('x')]),
+        choice([char('-'), char('s'), char('p')]),
+    )
+        .map(|(_, r, w, x, p)| {
+            let mut prot: i32 = 0;
+            let mut flags: i32 = 0;
+            if r == 'r' {
+                prot |= libc::PROT_READ;
+            }
+            if w == 'w' {
+                prot |= libc::PROT_WRITE;
+            }
+            if x == 'x' {
+                prot |= libc::PROT_EXEC;
+            }
+            if p == 'p' {
+                flags |= libc::MAP_PRIVATE;
+            } else if p == 's' {
+                flags |= libc::MAP_SHARED;
+            }
+            (prot, flags)
+        })
 }
 
 fn filepath<I>() -> impl Parser<Input = I, Output = Option<PathBuf>>
@@ -173,15 +181,20 @@ where
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
-    ( spaces(),
-      optional(many1::<String,_>(none_of("\r\n".chars().into_iter())))
-    ).map(|(_, path)| path.map(|s| PathBuf::from(s)))
+    (
+        spaces(),
+        optional(many1::<String, _>(none_of("\r\n".chars().into_iter()))),
+    )
+        .map(|(_, path)| path.map(|s| PathBuf::from(s)))
 }
 
 fn parse_proc_maps_entry(line: &str) -> Result<ProcMapsEntry> {
     match parser().easy_parse(line) {
         Ok((result, _)) => Ok(result),
-        Err(parse_error) => Err(Error::new(ErrorKind::Other, format!("parse error: {}", parse_error))),
+        Err(parse_error) => Err(Error::new(
+            ErrorKind::Other,
+            format!("parse error: {}", parse_error),
+        )),
     }
 }
 
@@ -191,35 +204,45 @@ where
     // Necessary due to rust-lang/rust#24159
     I::Error: ParseError<I::Item, I::Range, I::Position>,
 {
-    ( hex_value(),
-      char('-'),
-      hex_value(),
-      prot(),
-      spaces(),
-      hex_value(),
-      dev(),
-      spaces(),
-      dec_value(),
-      filepath()
-    ).map(|(from, _, to, (prot_val, flags_val), _, offset, devno, _, inode, path)| {
-        ProcMapsEntry{
-            base: from,
-            size: to - from,
-            prot: prot_val,
-            flags: flags_val,
-            offset,
-            dev: devno,
-            inode,
-            file: path}
-    })
+    (
+        hex_value(),
+        char('-'),
+        hex_value(),
+        prot(),
+        spaces(),
+        hex_value(),
+        dev(),
+        spaces(),
+        dec_value(),
+        filepath(),
+    )
+        .map(
+            |(from, _, to, (prot_val, flags_val), _, offset, devno, _, inode, path)| {
+                ProcMapsEntry {
+                    base: from,
+                    size: to - from,
+                    prot: prot_val,
+                    flags: flags_val,
+                    offset,
+                    dev: devno,
+                    inode,
+                    file: path,
+                }
+            },
+        )
 }
 
 pub fn decode_proc_maps(pid: unistd::Pid) -> Result<Vec<ProcMapsEntry>> {
-    let filepath = PathBuf::from("/proc").join(&format!("{}", pid)).join(PathBuf::from("maps"));
+    let filepath = PathBuf::from("/proc")
+        .join(&format!("{}", pid))
+        .join(PathBuf::from("maps"));
     let mut file = File::open(filepath)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
-    let ents: Vec<Result<_>> = contents.lines().map(|line| parse_proc_maps_entry(line)).collect();
+    let ents: Vec<Result<_>> = contents
+        .lines()
+        .map(|line| parse_proc_maps_entry(line))
+        .collect();
     ents.into_iter().collect()
 }
 

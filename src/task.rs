@@ -13,8 +13,8 @@ use crate::hooks;
 use crate::nr;
 use crate::proc::*;
 use crate::remote::*;
-use crate::stubs;
 use crate::sched::Scheduler;
+use crate::stubs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskState {
@@ -33,11 +33,15 @@ pub enum RunTask<Task> {
 }
 
 pub trait Task {
-    fn new(pid: Pid) -> Self where Self: Sized;
+    fn new(pid: Pid) -> Self
+    where
+        Self: Sized;
     fn getpid(&self) -> Pid;
     fn getppid(&self) -> Pid;
     fn gettid(&self) -> Pid;
     fn exited(&self) -> Option<i32>;
     /// take ownership of `self`
-    fn run(self) -> Result<RunTask<Self>> where Self: Sized;
+    fn run(self) -> Result<RunTask<Self>>
+    where
+        Self: Sized;
 }

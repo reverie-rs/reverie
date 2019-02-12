@@ -1,7 +1,7 @@
 jobs:
 
 - job: check_formatting
-  displayName: Check formatting
+  displayName: Check formatting (allow failure)
   pool:
     vmImage: ubuntu-16.04
   steps:
@@ -10,7 +10,11 @@ jobs:
         $HOME/.cargo/bin/rustup toolchain add nightly
         $HOME/.cargo/bin/rustup component add rustfmt
       displayName: Install nightly Rust
-
+    - script: |
+        $HOME/.cargo/bin/cargo fmt -- --check
+      displayName: Run rustfmt
+      continueOnError: true
+      
 - job: Linux
   pool:
     vmImage: ubuntu-16.04
@@ -31,5 +35,7 @@ jobs:
     - script: |
         uname -a
       displayName: Check kernel version
-    - script: make && make tests
-      displayName: Build and run tests
+    - script: make
+      displayName: Build
+    - script: make tests
+      displayName: Run tests
