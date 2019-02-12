@@ -1,5 +1,3 @@
-#![feature(async_await, futures_api)]
-
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
