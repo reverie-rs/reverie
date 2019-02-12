@@ -44,7 +44,7 @@ extern "C" {
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
     let parsed = hooks::resolve_syscall_hooks_from(
-        PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO),
+        PathBuf::from("lib").join(consts::SYSTRACE_SO),
     )?;
     assert_ne!(parsed.len(), 0);
     Ok(())
@@ -53,7 +53,7 @@ fn can_resolve_syscall_hooks() -> Result<()> {
 #[test]
 fn libsystrace_trampoline_within_first_page() -> Result<()> {
     let parsed = hooks::resolve_syscall_hooks_from(
-        PathBuf::from(consts::LIB_PATH).join(consts::SYSTRACE_SO),
+        PathBuf::from("lib").join(consts::SYSTRACE_SO),
     )?;
     let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x1000).collect();
     assert_eq!(parsed.len(), filtered.len());
@@ -62,6 +62,9 @@ fn libsystrace_trampoline_within_first_page() -> Result<()> {
 
 struct Arguments<'a> {
     debug_level: i32,
+    library_path: PathBuf,
+    env_all: bool,
+    envs: HashMap<String, String>,
     program: &'a str,
     program_args: Vec<&'a str>,
 }
@@ -99,6 +102,16 @@ fn from_nix_error(err: nix::Error) -> Error {
 const ADDR_NO_RANDOMIZE: u64 = 0x0040000;
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
+    let libs: Result<Vec<PathBuf>> = ["libdet.so", "libsystrace.so"]
+        .iter()
+        .map(|so| argv.library_path.join(so).canonicalize()).collect();
+    let ldpreload = String::from("LD_PRELOAD=") + &libs?
+        .iter()
+        .map(|p| p
+             .to_str()
+             .unwrap())
+        .collect::<Vec<_>>().join(":");
+
     unsafe {
         assert!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
         assert!(libc::personality(ADDR_NO_RANDOMIZE) == 0);
@@ -115,26 +128,37 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     // execvpe only.
     unsafe { bpf_install() };
 
-    let envs = vec![
-        "PATH=/bin/:/usr/bin",
-        "LD_PRELOAD=libdet.so libsystrace.so",
-        "LD_LIBRARY_PATH=lib",
-        "TERM=linux",
-    ];
+    let mut envs: Vec<String> = Vec::new();
 
+    if argv.env_all {
+        std::env::vars().for_each(|(k, v)| {
+            envs.push(format!("{}={}", k, v));
+        });
+    } else {
+        envs.push(String::from("PATH=/bin/:/usr/bin"));
+    }
+
+    argv.envs.iter().for_each(|(k, v)| {
+        if v.len() == 0 {
+            envs.push(k.to_string())
+        } else {
+            envs.push(format!("{}={}", k, v));
+        }
+    });
+    
+    envs.push(ldpreload);
     let program = CString::new(argv.program)?;
     let mut args: Vec<CString> = Vec::new();
     CString::new(argv.program).map(|s| args.push(s))?;
     for v in argv.program_args.clone() {
         CString::new(v).map(|s| args.push(s))?;
     }
-    let envp: Vec<CString> = (envs)
+    let envp: Vec<CString> = envs
         .into_iter()
-        .map(|s| CString::new(s).unwrap())
+        .map(|s| CString::new(s.as_bytes()).unwrap())
         .collect();
-
     unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
-    unreachable!("exec failed: {} {:?}", &argv.program, &argv.program_args);
+    panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
 
 fn run_tracer(
@@ -209,6 +233,28 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("library-path")
+                .long("library-path")
+                .value_name("LIBRARY_PATH")
+                .help("set library search path for libsystrace.so, libdet.so")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("env-all")
+                .long("env-all")
+                .value_name("ENV-ALL")
+                .help("inherits all environment variables")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("env")
+                .long("env")
+                .value_name("ENV")
+                .multiple(true)
+                .help("set environment variable")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("program")
                 .value_name("PROGRAM")
                 .required(true)
@@ -229,6 +275,21 @@ fn main() {
             .value_of("debug")
             .and_then(|x| x.parse::<i32>().ok())
             .unwrap_or(0),
+        library_path: matches
+            .value_of("library-path")
+            .and_then(|p| PathBuf::from(p).canonicalize().ok())
+            .or_else(||PathBuf::from("lib").canonicalize().ok())
+            .unwrap(),
+        env_all: matches
+            .is_present("env-all"),
+        envs: matches
+            .values_of("env")
+            .unwrap_or_default()
+            .map(|s| {
+                let t: Vec<&str> = s.clone().split('=').collect();
+                debug_assert!(t.len() > 0);
+                (t[0].to_string(), t[1..].join("="))
+            }).collect(),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")
@@ -236,5 +297,6 @@ fn main() {
             .unwrap_or(Vec::new()),
     };
 
+    std::env::set_var(consts::SYSTRACE_LIBRARY_PATH, &argv.library_path);
     run_app(&argv).expect("run_app returned error result");
 }

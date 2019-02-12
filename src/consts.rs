@@ -1,4 +1,5 @@
-pub const LIB_PATH: &'static str = "lib";
+
+pub const SYSTRACE_LIBRARY_PATH: &'static str = "SYSTRACE_LIBRARY_PATH";
 pub const SYSTRACE_SO: &'static str = "libsystrace.so";
 pub const DET_SO: &'static str = "libdet.so";
 
