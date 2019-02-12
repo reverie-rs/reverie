@@ -16,7 +16,7 @@ use crate::remote::*;
 use crate::stubs;
 use crate::sched::Scheduler;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskState {
     Running,
     Stopped(Option<signal::Signal>),
@@ -25,7 +25,7 @@ pub enum TaskState {
     Exited(i32),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunTask<Task> {
     Exited(i32),
     Runnable(Task),

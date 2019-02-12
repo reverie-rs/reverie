@@ -422,7 +422,7 @@ fn handle_ptrace_signal(task: TracedTask) -> Result<TracedTask> {
 fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     let raw_event = match task.state {
         TaskState::Event(ev) => ev as i64,
-        otherwise => panic!("task.state = {:x?}", task.state),
+        otherwise => panic!("task.state = {:x?}", otherwise),
     };
     if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i64 {
         let pair = do_ptrace_fork(task)?;
