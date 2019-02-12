@@ -13,12 +13,12 @@ use crate::consts::*;
 use crate::hooks;
 use crate::nr::*;
 use crate::proc::*;
-use crate::remote::*;
-use crate::stubs;
-use crate::task::*;
 use crate::remote;
+use crate::remote::*;
 use crate::sched::Scheduler;
 use crate::sched_wait::*;
+use crate::stubs;
+use crate::task::*;
 
 fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
@@ -88,19 +88,18 @@ impl Task for TracedTask {
         self.tid
     }
 
-    fn run(self) -> Result<RunTask<TracedTask>>
-    {
+    fn run(self) -> Result<RunTask<TracedTask>> {
         let task = self;
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
                 task.resume(task.signal_to_deliver)?;
                 Ok(RunTask::Runnable(task))
-            },
+            }
             TaskState::Stopped(None) => {
                 task.resume(None)?;
                 Ok(RunTask::Runnable(task))
-            },
+            }
             TaskState::Stopped(Some(signal)) => {
                 task.resume(Some(signal))?;
                 Ok(RunTask::Runnable(task))
@@ -402,7 +401,9 @@ fn remote_do_untraced_syscall(
     task.resume(None)?;
     match wait::waitpid(pid, None) {
         Ok(WaitStatus::Stopped(pid, signal::SIGTRAP)) => (),
-        Ok(WaitStatus::Stopped(pid, signal::SIGCHLD)) => task.signal_to_deliver = Some(signal::SIGCHLD),
+        Ok(WaitStatus::Stopped(pid, signal::SIGCHLD)) => {
+            task.signal_to_deliver = Some(signal::SIGCHLD)
+        }
         otherwise => panic!("waitpid {} returned unknown status: {:x?}", pid, otherwise),
     };
     let newregs = task.getregs()?;
@@ -442,24 +443,31 @@ fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         let sig = task.signal_to_deliver;
         let retval = task.getevent()?;
         ptrace::step(task.pid, sig).expect("ptrace cont");
-        assert_eq!(wait::waitpid(Some(task.pid), None), Ok(WaitStatus::Exited(task.pid, 0)));
+        assert_eq!(
+            wait::waitpid(Some(task.pid), None),
+            Ok(WaitStatus::Exited(task.pid, 0))
+        );
         Ok(RunTask::Exited(retval as i32))
     } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i64 {
         do_ptrace_seccomp(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
     } else {
         panic!("unknown ptrace event: {:x}", raw_event);
-        Err(Error::new(ErrorKind::Other, format!("unknown ptrace event: {:x}", raw_event)))
+        Err(Error::new(
+            ErrorKind::Other,
+            format!("unknown ptrace event: {:x}", raw_event),
+        ))
     }
 }
 
-fn handle_ptrace_syscall(task: &mut TracedTask) -> Result<()>{
+fn handle_ptrace_syscall(task: &mut TracedTask) -> Result<()> {
     panic!("handle_ptrace_syscall, pid: {}", task.pid);
 }
 
 fn wait_sigstop(pid: Pid) -> Result<()> {
     match wait::waitpid(Some(pid), None).expect("waitpid failed") {
-        WaitStatus::Stopped(new_pid, signal) if signal == signal::SIGSTOP && new_pid == pid =>
-            Ok(()),
+        WaitStatus::Stopped(new_pid, signal) if signal == signal::SIGSTOP && new_pid == pid => {
+            Ok(())
+        }
         _ => Err(Error::new(ErrorKind::Other, "expect SIGSTOP")),
     }
 }
@@ -533,29 +541,29 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     let page_size = consts::DET_PAGE_SIZE;
 
     regs.orig_rax = SYS_mmap as u64;
-    regs.rax      = regs.orig_rax;
-    regs.rdi      = page_addr;
-    regs.rsi      = page_size;
-    regs.rdx      = (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u64;
-    regs.r10      = (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u64;
-    regs.r8       = -1 as i64 as u64;
-    regs.r9       = 0 as u64;
+    regs.rax = regs.orig_rax;
+    regs.rdi = page_addr;
+    regs.rsi = page_size;
+    regs.rdx = (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u64;
+    regs.r10 = (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u64;
+    regs.r8 = -1 as i64 as u64;
+    regs.r9 = 0 as u64;
 
     ptrace::setregs(task.pid, regs)?;
     ptrace::cont(task.pid, None)?;
 
     // second breakpoint after syscall hit
-    assert!(wait::waitpid(task.pid, None) ==
-            Ok(wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP)));
-    let regs = ptrace::getregs(task.pid)
-        .and_then(|r| {
-            if r.rax > (-4096i64 as u64) {
-                let errno = -(r.rax as i64) as i32;
-                Err(nix::Error::from_errno(nix::errno::from_i32(errno)))
-            } else {
-                Ok(r)
-            }
-        })?;
+    assert!(
+        wait::waitpid(task.pid, None) == Ok(wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP))
+    );
+    let regs = ptrace::getregs(task.pid).and_then(|r| {
+        if r.rax > (-4096i64 as u64) {
+            let errno = -(r.rax as i64) as i32;
+            Err(nix::Error::from_errno(nix::errno::from_i32(errno)))
+        } else {
+            Ok(r)
+        }
+    })?;
 
     remote::gen_syscall_sequences_at(task.pid, page_addr)?;
 
@@ -570,12 +578,20 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     let regs = ptrace::getregs(task.pid)?;
     assert!(regs.rip & 7 == 0);
     let saved: i64 = ptrace::read(task.pid, regs.rip as ptrace::AddressType)?;
-    ptrace::write(task.pid, regs.rip as ptrace::AddressType, ((saved & !(0xffffffff as i64)) | bp_syscall_bp) as *mut libc::c_void)?;
+    ptrace::write(
+        task.pid,
+        regs.rip as ptrace::AddressType,
+        ((saved & !(0xffffffff as i64)) | bp_syscall_bp) as *mut libc::c_void,
+    )?;
     ptrace::cont(task.pid, None)?;
     let wait_status = wait::waitpid(task.pid, None)?;
     assert!(wait_status == wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP));
     tracee_preinit(task)?;
-    ptrace::write(task.pid, regs.rip as ptrace::AddressType, saved as *mut libc::c_void)?;
+    ptrace::write(
+        task.pid,
+        regs.rip as ptrace::AddressType,
+        saved as *mut libc::c_void,
+    )?;
     ptrace::cont(task.pid, None)?;
     task_reset(task);
     Ok(())

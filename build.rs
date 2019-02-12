@@ -1,28 +1,39 @@
-
 use std::fs::File;
-use std::io::{Write, Result};
+use std::io::{Result, Write};
 use std::path::Path;
 use sysnr::gen_syscalls;
 
 use cc;
 
-fn gen_syscall_nrs() -> Result<()>{
+fn gen_syscall_nrs() -> Result<()> {
     let dest_path = Path::new("src").join("nr.rs");
     let mut f = File::create(&dest_path)?;
-    writeln!(f, "#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n")?;
+    writeln!(
+        f,
+        "#![allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n"
+    )?;
     writeln!(f, "pub use self::SyscallNo::*;")?;
 
     writeln!(f, "#[derive(Debug, PartialEq, Eq, Clone)]")?;
     writeln!(f, "pub enum SyscallNo {{")?;
     let syscalls = gen_syscalls().unwrap();
     for (name, nr) in &syscalls {
-        writeln!(f, "    SYS{} = {},", name.chars().skip(4).collect::<String>(), nr)?;
+        writeln!(
+            f,
+            "    SYS{} = {},",
+            name.chars().skip(4).collect::<String>(),
+            nr
+        )?;
     }
     writeln!(f, "}}")?;
 
     writeln!(f, "static syscall_names: [&str; {}] = [", syscalls.len())?;
     for (name, _) in &syscalls {
-        writeln!(f, "    \"{}\",", name.chars().skip(5).collect::<String>().as_str())?;
+        writeln!(
+            f,
+            "    \"{}\",",
+            name.chars().skip(5).collect::<String>().as_str()
+        )?;
     }
     writeln!(f, "];")?;
 
