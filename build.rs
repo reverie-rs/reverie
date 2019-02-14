@@ -14,7 +14,7 @@ fn gen_syscall_nrs() -> Result<()> {
     )?;
     writeln!(f, "pub use self::SyscallNo::*;")?;
 
-    writeln!(f, "#[derive(Debug, PartialEq, Eq, Clone)]")?;
+    writeln!(f, "#[derive(Debug, PartialEq, Eq, Clone, Copy)]")?;
     writeln!(f, "pub enum SyscallNo {{")?;
     let syscalls = gen_syscalls().unwrap();
     for (name, nr) in &syscalls {
