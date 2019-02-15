@@ -54,7 +54,6 @@ pub struct TracedTask {
     pub injected_mmap_page: Option<u64>,
     pub signal_to_deliver: Option<signal::Signal>,
     pub unpatchable_syscalls: Vec<u64>,
-    pub detsched_connected: bool,
 }
 
 impl Task for TracedTask {
@@ -71,7 +70,6 @@ impl Task for TracedTask {
             injected_mmap_page: None,
             signal_to_deliver: None,
             unpatchable_syscalls: Vec::new(),
-            detsched_connected: false,
         }
     }
 
@@ -124,7 +122,6 @@ fn task_reset(task: &mut TracedTask) {
     task.signal_to_deliver = None;
     task.unpatchable_syscalls = Vec::new();
     task.state = TaskState::Exited(0);
-    task.detsched_connected = false;
 }
 
 fn update_memory_map(task: &mut TracedTask) {
@@ -526,7 +523,6 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
-    let _ = connect_detsched(&mut new_task);
     new_task.resume(None)?;
     Ok((task, new_task))
 }
@@ -539,7 +535,6 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
-    let _ = connect_detsched(&mut new_task);
     new_task.resume(None)?;
     Ok((task, new_task))
 }
@@ -551,7 +546,6 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
-    let _ = connect_detsched(&mut new_task);
     new_task.resume(None)?;
     task.resume(None)?;
     Ok((new_task, task))
@@ -639,81 +633,9 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         regs.rip as ptrace::AddressType,
         saved as *mut libc::c_void,
     )?;
-    let conn = connect_detsched(task);
     ptrace::cont(task.pid, None)?;
     task_reset(task);
-    task.detsched_connected = conn.is_ok();
     Ok(())
-}
-
-// run on tracee not the tracer
-// thus tracee must be in STOPPED state.
-fn connect_detsched(task: &mut TracedTask) -> Result<()> {
-    let unp_path = std::env::var(consts::SYSTRACE_DETSCHED_PATH).unwrap();
-    let fd = task.untraced_syscall(
-        SYS_socket,
-        libc::AF_UNIX as i64,
-        (libc::SOCK_STREAM as i64) | (libc::SOCK_CLOEXEC as i64),
-        0,
-        0,
-        0,
-        0,
-    )?;
-    task.untraced_syscall(SYS_dup2, fd as i64, consts::DETSCHED_FD as i64, 0, 0, 0, 0)?;
-    task.untraced_syscall(SYS_close, fd as i64, 0, 0, 0, 0, 0)?;
-
-    let mut regs = task.getregs()?;
-    let rbp = regs.rsp;
-    let socklen = std::mem::size_of::<socket::sockaddr_un>();
-
-    // allocate space for sockaddr_un
-    regs.rsp -= socklen as u64;
-    regs.rsp &= !0xf;
-
-    task.setregs(regs)?;
-
-    let addr = socket::sockaddr_un {
-        sun_family: socket::AddressFamily::Unix as u16,
-        sun_path: [0; std::mem::size_of::<socket::sockaddr_un>() - std::mem::size_of::<u16>()],
-    };
-
-    // fill sun_path
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            unp_path.as_ptr(),
-            addr.sun_path.as_ptr() as *mut u8,
-            std::cmp::min(addr.sun_path.len(), unp_path.len()),
-        );
-    };
-
-    let remote_sockaddr =
-        RemotePtr::new(NonNull::new(regs.rsp as *mut socket::sockaddr_un).unwrap());
-
-    // fill remote struct sockaddr_un
-    task.poke(remote_sockaddr.clone(), &addr)?;
-
-    // must restore stack pointer even syscall fails
-    match task.untraced_syscall(
-        SYS_connect,
-        consts::DETSCHED_FD as i64,
-        regs.rsp as i64,
-        socklen as i64,
-        0,
-        0,
-        0,
-    ) {
-        Ok(_) => {
-            regs.rsp = rbp; // restore stack pointer
-            task.setregs(regs)?;
-            task.detsched_connected = true;
-            Ok(())
-        }
-        Err(e) => {
-            regs.rsp = rbp; // restore stack pointer
-            task.setregs(regs)?;
-            Err(e)
-        }
-    }
 }
 
 // so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
