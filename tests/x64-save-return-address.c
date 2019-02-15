@@ -15,7 +15,7 @@ __attribute__((noinline)) static void test1(void) {
 __attribute__((noinline, used)) static void test2(void) {
 	__asm__     (   "push %rax\n\t"
 			"movq 0x8(%rsp), %rax\n\t"
-			"movq %rax, 0x70001010\n\t"
+			"movq %rax, 0x65001010\n\t"
 			"addq $0x8, %rsp\n\t"
 			"nop");
 }
@@ -25,13 +25,13 @@ __attribute__((noinline)) static void test3(void) {
 }
 
 static void prepare_mmap(void) {
-	void* addr = mmap((void*)0x70000000UL, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-	assert(addr == (void*)0x70000000UL);
+	void* addr = mmap((void*)0x65000000UL, 0x2000, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	assert(addr == (void*)0x65000000UL);
 }
 
 int main(int argc, char* argv[])
 {
-	unsigned long* ret = (unsigned long*)0x70001010UL;
+	unsigned long* ret = (unsigned long*)0x65001010UL;
 	prepare_mmap();
 	test3();
 	printf("*ret = %lx, expected = %lx\n", *ret, (unsigned long)test1+5);
