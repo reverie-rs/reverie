@@ -59,6 +59,7 @@ fn libsystrace_trampoline_within_first_page() -> Result<()> {
 struct Arguments<'a> {
     debug_level: i32,
     library_path: PathBuf,
+    detsched: PathBuf,
     env_all: bool,
     envs: HashMap<String, String>,
     program: &'a str,
@@ -252,6 +253,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("detsched")
+                .long("detsched")
+                .value_name("DETSCHED")
+                .help("set external scheduler - must a be unix domain socket path")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("program")
                 .value_name("PROGRAM")
                 .required(true)
@@ -277,6 +285,11 @@ fn main() {
             .and_then(|p| PathBuf::from(p).canonicalize().ok())
             .or_else(|| PathBuf::from("lib").canonicalize().ok())
             .unwrap(),
+        detsched: matches
+            .value_of("detsched")
+            .and_then(|p| PathBuf::from(p).canonicalize().ok())
+            .or_else(|| PathBuf::from("/tmp/detsched.sock").canonicalize().ok())
+            .unwrap(),
         env_all: matches.is_present("env-all"),
         envs: matches
             .values_of("env")
@@ -295,5 +308,6 @@ fn main() {
     };
 
     std::env::set_var(consts::SYSTRACE_LIBRARY_PATH, &argv.library_path);
+    std::env::set_var(consts::SYSTRACE_DETSCHED_PATH, &argv.detsched);
     run_app(&argv).expect("run_app returned error result");
 }

@@ -3,6 +3,7 @@ use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd;
 use nix::unistd::Pid;
+use nix::sys::socket;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -53,6 +54,7 @@ pub struct TracedTask {
     pub injected_mmap_page: Option<u64>,
     pub signal_to_deliver: Option<signal::Signal>,
     pub unpatchable_syscalls: Vec<u64>,
+    pub detsched_connected: bool,
 }
 
 impl Task for TracedTask {
@@ -69,6 +71,7 @@ impl Task for TracedTask {
             injected_mmap_page: None,
             signal_to_deliver: None,
             unpatchable_syscalls: Vec::new(),
+            detsched_connected: false,
         }
     }
 
@@ -121,6 +124,7 @@ fn task_reset(task: &mut TracedTask) {
     task.signal_to_deliver = None;
     task.unpatchable_syscalls = Vec::new();
     task.state = TaskState::Exited(0);
+    task.detsched_connected = false;
 }
 
 fn update_memory_map(task: &mut TracedTask) {
@@ -177,6 +181,20 @@ pub fn patch_syscall(task: &mut TracedTask, rip: u64) -> Result<()> {
         ));
     };
     let hook_found = find_syscall_hook(task, rip)?;
+    let regs = ptrace::getregs(task.pid).expect("ptrace getregs");
+    // NB: when @hook_found, we assuem that we can patch the syscall
+    // hence we force kernel skip the pending syscall, by setting
+    // syscall no to -1.
+    // we should do this as early as possible: because
+    // PTRACE_EVENT_SECCOMP is more fragile than general STOP event
+    // I.E: doing ptrace_cont after PTRACE_EVENT_SECCOMP has different
+    // effect as general stop event (SIGTRAP).
+    // if ptrace is stopped by SIGTRAP, it is general safe to do ptrace
+    // continue, with the help of breakpoint; but not so with
+    // PTRACE_EVENT_SECCOMP, as the kernel might allow previous syscall
+    // to run through, this could cause chaotic issues if we rely ptrace
+    // cont/breakpoint to control tracee's execution.
+    skip_seccomp_syscall(task.pid, regs)?;
     let indirect_jump_address = extended_jump_from_to(task, rip)?;
     let regs = ptrace::getregs(task.pid).expect("ptrace getregs");
     patch_at(task, regs, hook_found, indirect_jump_address).map_err(|e| {
@@ -238,18 +256,18 @@ fn extended_jump_from_to(task: &mut TracedTask, rip: u64) -> Result<u64> {
 // `callq extended_jump_stub`, the `extended_jump_stub`
 // must be within +/- 2GB of IP.
 fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
-    let size = (stubs::extended_jump_pages() * 0x1000) as u64;
-    let at = search_stub_page(task.pid, rip, size as usize)? as u64;
-    let allocated_at = task.untraced_syscall(
+    let size = (stubs::extended_jump_pages() * 0x1000) as i64;
+    let at = search_stub_page(task.pid, rip, size as usize)? as i64;
+    let allocated_at = task.traced_syscall(
         SYS_mmap,
         at,
         size,
-        (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u64,
-        (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u64,
-        -1i64 as u64,
+        (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as i64,
+        (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as i64,
+        -1i64,
         0,
     )?;
-    assert!(at == allocated_at as u64);
+    assert!(at == allocated_at);
 
     let preload_address = task.ldpreload_address.ok_or(Error::new(
         ErrorKind::Other,
@@ -257,7 +275,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
     ))?;
     let stubs = stubs::gen_extended_jump_stubs(task.trampoline_hooks, preload_address);
     task.stub_pages.push(SyscallStubPage {
-        address: at,
+        address: at as u64,
         size: size as usize,
         allocated: stubs.len(),
     });
@@ -266,9 +284,9 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
 
     task.untraced_syscall(
         SYS_mprotect,
-        allocated_at as u64,
+        allocated_at,
         size,
-        (libc::PROT_READ | libc::PROT_EXEC) as u64,
+        (libc::PROT_READ | libc::PROT_EXEC) as i64,
         0,
         0,
         0,
@@ -285,7 +303,8 @@ impl Remote for TracedTask {
             let raw_ptr = addr.as_ptr();
             let x = ptrace::read(self.pid, raw_ptr as ptrace::AddressType).expect("ptrace peek");
             let bytes: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(x) };
-            Ok(bytes.iter().take(size).map(|c| *c).collect())
+            let res: Vec<u8> = bytes.iter().cloned().take(size).collect();
+            Ok(res)
         } else {
             let raw_ptr = addr.as_ptr();
             let remote_iov = &[uio::RemoteIoVec {
@@ -356,14 +375,26 @@ impl RemoteSyscall for TracedTask {
     fn untraced_syscall(
         &mut self,
         nr: SyscallNo,
-        a0: u64,
-        a1: u64,
-        a2: u64,
-        a3: u64,
-        a4: u64,
-        a5: u64,
+        a0: i64,
+        a1: i64,
+        a2: i64,
+        a3: i64,
+        a4: i64,
+        a5: i64,
     ) -> Result<i64> {
-        remote_do_untraced_syscall(self, nr, a0, a1, a2, a3, a4, a5)
+        remote_do_syscall_at(self, 0x7000_0008, nr, a0, a1, a2, a3, a4, a5)
+    }
+    fn traced_syscall(
+        &mut self,
+        nr: SyscallNo,
+        a0: i64,
+        a1: i64,
+        a2: i64,
+        a3: i64,
+        a4: i64,
+        a5: i64,
+    ) -> Result<i64> {
+        remote_do_syscall_at(self, 0x7000_0010, nr, a0, a1, a2, a3, a4, a5)
     }
 }
 
@@ -371,15 +402,16 @@ impl RemoteSyscall for TracedTask {
 // NB: limitations:
 // - tracee must be in stopped state.
 // - the tracee must have returned from PTRACE_EXEC_EVENT
-fn remote_do_untraced_syscall(
+fn remote_do_syscall_at(
     task: &mut TracedTask,
+    rip: u64,
     nr: SyscallNo,
-    a0: u64,
-    a1: u64,
-    a2: u64,
-    a3: u64,
-    a4: u64,
-    a5: u64,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+    a5: i64,
 ) -> Result<i64> {
     let pid = task.pid;
     let mut regs = task.getregs()?;
@@ -398,8 +430,7 @@ fn remote_do_untraced_syscall(
     // instruction at 0x7000_0008 must be
     // callq 0x70000000 (5-bytes)
     // .byte 0xcc
-    regs.rip = 0x7000_0008u64;
-
+    regs.rip = rip;
     task.setregs(regs)?;
     task.resume(None)?;
     match wait::waitpid(pid, None) {
@@ -407,7 +438,10 @@ fn remote_do_untraced_syscall(
         Ok(WaitStatus::Stopped(pid, signal::SIGCHLD)) => {
             task.signal_to_deliver = Some(signal::SIGCHLD)
         }
-        otherwise => panic!("waitpid {} returned unknown status: {:x?}", pid, otherwise),
+        otherwise => {
+            let regs = task.getregs()?;
+            panic!("when doing syscall {:?} waitpid {} returned unknown status: {:x?} pc: {:x}", nr, pid, otherwise, regs.rip);
+        }
     };
     let newregs = task.getregs()?;
     task.setregs(oldregs)?;
@@ -433,7 +467,7 @@ fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         Ok(RunTask::Forked(pair.0, pair.1))
     } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i64 {
         let pair = do_ptrace_vfork(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
+        Ok(RunTask::Forked(pair.1, pair.0))
     } else if raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i64 {
         let pair = do_ptrace_clone(task)?;
         Ok(RunTask::Forked(pair.0, pair.1))
@@ -476,40 +510,47 @@ fn wait_sigstop(pid: Pid) -> Result<()> {
 }
 
 fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
+    let pid = task.pid;
     task.resume(task.signal_to_deliver)?;
     Ok(task)
 }
 
 fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+    let pid_raw = task.getevent()?;
     task.resume(None)?;
     let child = Pid::from_raw(pid_raw as libc::pid_t);
     let mut new_task = task.clone();
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
+    let _ = connect_detsched(&mut new_task);
+    new_task.resume(None)?;
     Ok((task, new_task))
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
+    let pid_raw = task.getevent()?;
     task.resume(None)?;
     let child = Pid::from_raw(pid_raw as libc::pid_t);
     let mut new_task = task.clone();
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
+    let _ = connect_detsched(&mut new_task);
+    new_task.resume(None)?;
     Ok((task, new_task))
 }
 
 fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let pid_raw = ptrace::getevent(task.pid).map_err(from_nix_error)?;
-    task.resume(None)?;
+    let pid_raw = task.getevent()?;
     let child = Pid::from_raw(pid_raw as libc::pid_t);
     let mut new_task = task.clone();
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
+    let _ = connect_detsched(&mut new_task);
+    new_task.resume(None)?;
+    task.resume(None)?;
     Ok((new_task, task))
 }
 
@@ -521,10 +562,14 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     if ev == 0x7fff {
         panic!("unfiltered syscall: {:?}", syscall);
     }
-    //println!("seccomp syscall {:?}", syscall);
+    // println!("seccomp syscall {:?}", syscall);
     match patch_syscall(&mut tsk, regs.rip) {
-        Ok(_) => just_continue(task.pid, None),
-        _ => just_continue(task.pid, None),
+        Ok(_) => {
+            just_continue(task.pid, None)
+        }
+        Err(_) => {
+            just_continue(task.pid, None)
+        }
     }?;
     Ok(task)
 }
@@ -595,7 +640,89 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         regs.rip as ptrace::AddressType,
         saved as *mut libc::c_void,
     )?;
+    let conn = connect_detsched(task);
     ptrace::cont(task.pid, None)?;
     task_reset(task);
+    task.detsched_connected = conn.is_ok();
+    Ok(())
+}
+
+// run on tracee not the tracer
+// thus tracee must be in STOPPED state.
+fn connect_detsched(task: &mut TracedTask) -> Result <()>{
+    let unp_path = std::env::var(consts::SYSTRACE_DETSCHED_PATH).unwrap();
+    let fd = task.untraced_syscall(
+        SYS_socket,
+        libc::AF_UNIX as i64,
+        (libc::SOCK_STREAM as i64) | (libc::SOCK_CLOEXEC as i64),
+        0, 0, 0, 0)?;
+    task.untraced_syscall(
+        SYS_dup2, fd as i64, consts::DETSCHED_FD as i64,
+        0, 0, 0, 0)?;
+    task.untraced_syscall(
+        SYS_close, fd as i64, 0, 0, 0, 0, 0)?;
+
+    let mut regs = task.getregs()?;
+    let rbp = regs.rsp;
+    let socklen = std::mem::size_of::<socket::sockaddr_un>();
+
+    // allocate space for sockaddr_un
+    regs.rsp -= socklen as u64;
+    regs.rsp &= !0xf;
+
+    task.setregs(regs)?;
+
+    let addr = socket::sockaddr_un {
+        sun_family: socket::AddressFamily::Unix as u16,
+        sun_path: [0; std::mem::size_of::<socket::sockaddr_un>() -
+                   std::mem::size_of::<u16>()],
+    };
+
+    // fill sun_path
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            unp_path.as_ptr(),
+            addr.sun_path.as_ptr() as *mut u8,
+            std::cmp::min(addr.sun_path.len(),
+                          unp_path.len())
+        );
+    };
+
+    let remote_sockaddr = RemotePtr::new(NonNull::new(regs.rsp as *mut socket::sockaddr_un).unwrap());
+
+    // fill remote struct sockaddr_un
+    task.poke(remote_sockaddr.clone(), &addr)?;
+
+    // must restore stack pointer even syscall fails
+    match task.untraced_syscall(
+        SYS_connect,
+        consts::DETSCHED_FD as i64,
+        regs.rsp as i64,
+        socklen as i64, 0, 0, 0) {
+        Ok(_) => {
+            regs.rsp = rbp; // restore stack pointer
+            task.setregs(regs)?;
+            task.detsched_connected = true;
+            Ok(())
+        }
+        Err(e) => {
+            regs.rsp = rbp; // restore stack pointer
+            task.setregs(regs)?;
+            Err(e)
+        }
+    }
+}
+
+// so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
+// do the syscall, without our patch. we change to syscall number to -1, so that
+// kernel would simply skip the syscall, so that we can jump to our patched syscall
+// on the first run.
+fn skip_seccomp_syscall(pid: unistd::Pid, regs: libc::user_regs_struct) -> Result<()> {
+    let mut new_regs = regs.clone();
+    new_regs.orig_rax = -1i64 as u64;
+    ptrace::setregs(pid, new_regs).expect("ptrace setregs failed");
+    ptrace::step(pid, None).expect("ptrace single step");
+    assert!(wait::waitpid(Some(pid), None) == Ok(WaitStatus::Stopped(pid, signal::SIGTRAP)));
+    ptrace::setregs(pid, regs).expect("ptrace setregs failed");
     Ok(())
 }

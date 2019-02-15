@@ -57,12 +57,22 @@ pub trait RemoteSyscall {
     fn untraced_syscall(
         &mut self,
         nr: nr::SyscallNo,
-        a0: u64,
-        a1: u64,
-        a2: u64,
-        a3: u64,
-        a4: u64,
-        a5: u64,
+        a0: i64,
+        a1: i64,
+        a2: i64,
+        a3: i64,
+        a4: i64,
+        a5: i64,
+    ) -> Result<i64>;
+    fn traced_syscall(
+        &mut self,
+        nr: nr::SyscallNo,
+        a0: i64,
+        a1: i64,
+        a2: i64,
+        a3: i64,
+        a4: i64,
+        a5: i64,
     ) -> Result<i64>;
 }
 
@@ -79,7 +89,7 @@ pub trait Remote {
         // to be initialized by copy_nonoverlapping.
         let mut res: T = unsafe { std::mem::uninitialized() };
         let ret_ptr: *mut T = &mut res;
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const T, ret_ptr, size) };
+        res = unsafe { std::mem::transmute_copy(&bytes) };
         Ok(res)
     }
     fn poke<T>(&self, addr: RemotePtr<T>, value: &T) -> Result<()>
@@ -116,19 +126,6 @@ fn ensure_syscall(pid: unistd::Pid, rip: u64) -> Result<()> {
     }
 }
 
-// so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
-// do the syscall, without our patch. we change to syscall number to -1, so that
-// kernel would simply skip the syscall, so that we can jump to our patched syscall
-// on the first run.
-fn skip_seccomp_syscall(pid: unistd::Pid, regs: &libc::user_regs_struct) -> Result<()> {
-    let mut new_regs = regs.clone();
-    new_regs.orig_rax = -1i64 as u64;
-    ptrace::setregs(pid, new_regs).expect("ptrace setregs failed");
-    ptrace::step(pid, None).expect("ptrace single step");
-    assert!(wait::waitpid(Some(pid), None) == Ok(WaitStatus::Stopped(pid, signal::SIGTRAP)));
-    Ok(())
-}
-
 fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
     Ok(())
 }
@@ -156,8 +153,6 @@ pub fn patch_at(
         | (rela as u64 & 0xff00).wrapping_shl(8)
         | (rela as u64 & 0xff0000).wrapping_shl(8)
         | (rela as u64 & 0xff000000).wrapping_shl(8);
-
-    skip_seccomp_syscall(pid, &regs)?;
 
     ptrace::write(
         pid,
@@ -328,6 +323,11 @@ fn can_find_stub_page() {
     }
 }
 
+// generate syscall instructions at injected page
+// the page address should be 0x7000_0000
+// the byte code can be confirmed by running objcopy
+// x86_64-linux-gnu-objcopy -I binary /tmp/1.bin -O elf64-x86-64 -B i386:x86-64 /tmp/1.elf
+// then objdump -d 1.elf must match the instructions listed below.
 pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> {
     /* the syscall sequences used here:
      * 0:   0f 05                   syscall
@@ -343,7 +343,7 @@ pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> 
      * 15:   cc                      int3
      * 16:   66 90                   xchg   %ax,%ax
      */
-    let syscall_stub: &[u64] = &[0x90c3050f90c3050f, 0xe8f7ffffffcc6690, 0xe8efffffffcc6690];
+    let syscall_stub: &[u64] = &[0x90c3050f90c3050f, 0x9066ccfffffff3e8, 0x9066ccffffffefe8];
     // please note we force each `ptrace::write` to be exactly ptrace_poke (8 bytes a time)
     // instead of using `process_vm_writev`, because this function can be called in
     // PTRACE_EXEC_EVENT, the process seems not fully loaded by ld-linux.so

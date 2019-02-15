@@ -40,7 +40,7 @@ impl Scheduler<TracedTask> for SchedWait {
 }
 
 fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
-    while let Some(status) = wait::waitpid(None, None).ok() {
+    while let Ok(status) = wait::waitpid(None, None) {
         match status {
             WaitStatus::Exited(pid, exit_code) => {
                 tasks

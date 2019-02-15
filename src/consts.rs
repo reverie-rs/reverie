@@ -1,4 +1,5 @@
 pub const SYSTRACE_LIBRARY_PATH: &'static str = "SYSTRACE_LIBRARY_PATH";
+pub const SYSTRACE_DETSCHED_PATH: &'static str = "SYSTRACE_DETSCHED_PATH";
 pub const SYSTRACE_SO: &'static str = "libsystrace.so";
 pub const DET_SO: &'static str = "libdet.so";
 
@@ -22,6 +23,9 @@ pub const DET_TLS_STACK_NESTING_LEVEL: u64 =
 pub const DET_TLS_SYSCALL_TRAMPOLINE: u64 =
     DET_TLS_STACK_NESTING_LEVEL + std::mem::size_of::<u64>() as u64;
 pub const DET_TLS_LIBDET_HOOK: u64 = DET_TLS_SYSCALL_TRAMPOLINE + std::mem::size_of::<u64>() as u64;
+
+// fd connects detsched socket
+pub const DETSCHED_FD: i32 = 257;
 
 #[test]
 fn det_tls_sanity_check() {
