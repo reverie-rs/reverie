@@ -20,9 +20,9 @@ int main(int argc, char* argv[], char* envp[])
   pid_t pid;
   pfn f;
   
-  if (argc == 2 && strcmp(argv[1], "fork")) {
+  if (argc == 2 && strcmp(argv[1], "fork") == 0) {
     f = fork;
-  } else if (argc == 2 && strcmp(argv[1], "vfork")) {
+  } else if (argc == 2 && strcmp(argv[1], "vfork") == 0) {
     f = vfork;
   } else if (argc == 1) {
     runAppDefault();
