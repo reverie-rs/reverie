@@ -89,7 +89,7 @@ pub trait Remote {
         // to be initialized by copy_nonoverlapping.
         let mut res: T = unsafe { std::mem::uninitialized() };
         let ret_ptr: *mut T = &mut res;
-        res = unsafe { std::mem::transmute_copy(&bytes) };
+        unsafe { std::ptr::copy(bytes.as_ptr(), ret_ptr as *mut u8, size) };
         Ok(res)
     }
     fn poke<T>(&self, addr: RemotePtr<T>, value: &T) -> Result<()>
