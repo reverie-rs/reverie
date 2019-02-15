@@ -1,9 +1,9 @@
 use libc;
+use nix::sys::socket;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd;
 use nix::unistd::Pid;
-use nix::sys::socket;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -440,7 +440,10 @@ fn remote_do_syscall_at(
         }
         otherwise => {
             let regs = task.getregs()?;
-            panic!("when doing syscall {:?} waitpid {} returned unknown status: {:x?} pc: {:x}", nr, pid, otherwise, regs.rip);
+            panic!(
+                "when doing syscall {:?} waitpid {} returned unknown status: {:x?} pc: {:x}",
+                nr, pid, otherwise, regs.rip
+            );
         }
     };
     let newregs = task.getregs()?;
@@ -564,12 +567,8 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     }
     // println!("seccomp syscall {:?}", syscall);
     match patch_syscall(&mut tsk, regs.rip) {
-        Ok(_) => {
-            just_continue(task.pid, None)
-        }
-        Err(_) => {
-            just_continue(task.pid, None)
-        }
+        Ok(_) => just_continue(task.pid, None),
+        Err(_) => just_continue(task.pid, None),
     }?;
     Ok(task)
 }
@@ -649,18 +648,19 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
 
 // run on tracee not the tracer
 // thus tracee must be in STOPPED state.
-fn connect_detsched(task: &mut TracedTask) -> Result <()>{
+fn connect_detsched(task: &mut TracedTask) -> Result<()> {
     let unp_path = std::env::var(consts::SYSTRACE_DETSCHED_PATH).unwrap();
     let fd = task.untraced_syscall(
         SYS_socket,
         libc::AF_UNIX as i64,
         (libc::SOCK_STREAM as i64) | (libc::SOCK_CLOEXEC as i64),
-        0, 0, 0, 0)?;
-    task.untraced_syscall(
-        SYS_dup2, fd as i64, consts::DETSCHED_FD as i64,
-        0, 0, 0, 0)?;
-    task.untraced_syscall(
-        SYS_close, fd as i64, 0, 0, 0, 0, 0)?;
+        0,
+        0,
+        0,
+        0,
+    )?;
+    task.untraced_syscall(SYS_dup2, fd as i64, consts::DETSCHED_FD as i64, 0, 0, 0, 0)?;
+    task.untraced_syscall(SYS_close, fd as i64, 0, 0, 0, 0, 0)?;
 
     let mut regs = task.getregs()?;
     let rbp = regs.rsp;
@@ -674,8 +674,7 @@ fn connect_detsched(task: &mut TracedTask) -> Result <()>{
 
     let addr = socket::sockaddr_un {
         sun_family: socket::AddressFamily::Unix as u16,
-        sun_path: [0; std::mem::size_of::<socket::sockaddr_un>() -
-                   std::mem::size_of::<u16>()],
+        sun_path: [0; std::mem::size_of::<socket::sockaddr_un>() - std::mem::size_of::<u16>()],
     };
 
     // fill sun_path
@@ -683,12 +682,12 @@ fn connect_detsched(task: &mut TracedTask) -> Result <()>{
         std::ptr::copy_nonoverlapping(
             unp_path.as_ptr(),
             addr.sun_path.as_ptr() as *mut u8,
-            std::cmp::min(addr.sun_path.len(),
-                          unp_path.len())
+            std::cmp::min(addr.sun_path.len(), unp_path.len()),
         );
     };
 
-    let remote_sockaddr = RemotePtr::new(NonNull::new(regs.rsp as *mut socket::sockaddr_un).unwrap());
+    let remote_sockaddr =
+        RemotePtr::new(NonNull::new(regs.rsp as *mut socket::sockaddr_un).unwrap());
 
     // fill remote struct sockaddr_un
     task.poke(remote_sockaddr.clone(), &addr)?;
@@ -698,7 +697,11 @@ fn connect_detsched(task: &mut TracedTask) -> Result <()>{
         SYS_connect,
         consts::DETSCHED_FD as i64,
         regs.rsp as i64,
-        socklen as i64, 0, 0, 0) {
+        socklen as i64,
+        0,
+        0,
+        0,
+    ) {
         Ok(_) => {
             regs.rsp = rbp; // restore stack pointer
             task.setregs(regs)?;
