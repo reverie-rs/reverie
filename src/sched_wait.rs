@@ -39,21 +39,30 @@ impl Scheduler<TracedTask> for SchedWait {
     }
 }
 
+// tracee received group stop
+// NB: must be call after waitpid returned STOPPED status.
+// see `man ptrace`, `Group-stop` for more details.
+fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
+    if sig == signal::SIGSTOP ||
+        sig == signal::SIGTSTP ||
+        sig == signal::SIGTTIN ||
+        sig == signal::SIGTTOU {
+            ptrace::getsiginfo(pid).is_err()
+       } else {
+            false
+       }
+}
+
 fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
-    while let Ok(status) = wait::waitpid(None, None) {
+    while let Ok(status) = wait::waitpid(None, Some(wait::WaitPidFlag::__WALL)) {
         match status {
             WaitStatus::Exited(pid, exit_code) => {
-                tasks
-                    .tasks
-                    .entry(pid)
-                    .and_modify(|t| t.state = TaskState::Exited(exit_code));
-                tasks.tasks.remove(&pid);
             }
             WaitStatus::Signaled(pid, signal, _core) => {
                 let mut task = tasks
                     .tasks
                     .remove(&pid)
-                    .expect(&format!("unknown pid {}", pid));
+                    .expect(&format!("signaled: unknown pid {} signal {}", pid, signal));
                 task.state = TaskState::Signaled(signal);
                 return Some(task);
             }
@@ -69,18 +78,25 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                 let mut task = tasks
                     .tasks
                     .remove(&pid)
-                    .expect(&format!("unknown pid {}", pid));
+                    .expect(&format!("unknown pid {} {} {}", pid, signal, event));
                 task.state = TaskState::Event(event as u64);
                 return Some(task);
             }
             WaitStatus::PtraceSyscall(pid) => panic!("ptrace syscall"),
+            // sometimes ptrace delivers signal even before fork/vfork event
+            // in fact, Linux kernel does not guarantee the signal must happen
+            // after fork/vfork
+            // see: https://stackoverflow.com/questions/49354408/why-does-a-sigtrap-ptrace-event-stop-occur-when-the-tracee-receives-sigcont
             WaitStatus::Stopped(pid, sig) => {
-                let mut task = tasks
-                    .tasks
-                    .remove(&pid)
-                    .expect(&format!("unknown pid {}", pid));
-                task.state = TaskState::Stopped(Some(sig));
-                return Some(task);
+                // ignore group-stop by let tracee continue
+                // and enter next (tracer) waitpid
+                if is_ptrace_group_stop(pid, sig) {
+                    ptrace::cont(pid, Some(sig)).unwrap();
+                } else {
+                    let mut task = tasks.tasks.remove(&pid).unwrap_or(Task::new(pid));
+                    task.state = TaskState::Stopped(Some(sig));
+                    return Some(task);
+                }
             }
             otherwise => panic!("unknown status: {:?}", otherwise),
         }

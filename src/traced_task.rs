@@ -47,6 +47,7 @@ pub struct TracedTask {
     pub ppid: Pid,
     pub tid: Pid,
     pub state: TaskState,
+    pub in_vfork: bool,
     pub memory_map: Vec<ProcMapsEntry>,
     pub stub_pages: Vec<SyscallStubPage>,
     pub trampoline_hooks: &'static Vec<hooks::SyscallHook>,
@@ -63,11 +64,12 @@ impl Task for TracedTask {
             ppid: pid,
             tid: pid,
             state: TaskState::Stopped(None),
+            in_vfork: false,
             memory_map: decode_proc_maps(pid).unwrap_or(Vec::new()),
             stub_pages: Vec::new(),
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: libsystrace_load_address(pid),
-            injected_mmap_page: None,
+            injected_mmap_page: Some(0x7000_0000),
             signal_to_deliver: None,
             unpatchable_syscalls: Vec::new(),
         }
@@ -97,7 +99,7 @@ impl Task for TracedTask {
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
-                task.resume(task.signal_to_deliver)?;
+                task.resume(Some(signal))?;
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Stopped(None) => {
@@ -109,7 +111,7 @@ impl Task for TracedTask {
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(ev) => handle_ptrace_event(task),
-            TaskState::Exited(exit_code) => Ok(RunTask::Exited(exit_code)),
+            TaskState::Exited(exit_code) => panic!("shouldn't run into here"),
         }
     }
 }
@@ -122,6 +124,7 @@ fn task_reset(task: &mut TracedTask) {
     task.signal_to_deliver = None;
     task.unpatchable_syscalls = Vec::new();
     task.state = TaskState::Exited(0);
+    task.in_vfork = false;
 }
 
 fn update_memory_map(task: &mut TracedTask) {
@@ -158,7 +161,19 @@ fn find_syscall_hook(task: &mut TracedTask, rip: u64) -> Result<&'static hooks::
     }
 }
 
+/// patch a syscall site @rip for a given task.
+/// returns OK(_) when patch success
+/// or Err(_) when patch failed
+/// NB: special case for `vfork`: this function returns Err(_) after
+/// `vfork`, because `vfork` are usually followed by `exec*`
 pub fn patch_syscall(task: &mut TracedTask, rip: u64) -> Result<()> {
+    // vfork are usually followed by exec, after exec the program
+    // is replaced with a new context, hence we don't patch any
+    // syscall after vfork.
+    if task.in_vfork {
+        return Err(Error::new(ErrorKind::Other, format!("skip syscall patching due to vork")));
+    }
+
     if task.ldpreload_address.is_none() {
         task.ldpreload_address = libsystrace_load_address(task.pid);
     }
@@ -480,11 +495,14 @@ fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         let sig = task.signal_to_deliver;
         let retval = task.getevent()?;
         ptrace::step(task.pid, sig).expect("ptrace cont");
-        assert_eq!(
-            wait::waitpid(Some(task.pid), None),
-            Ok(WaitStatus::Exited(task.pid, 0))
-        );
-        Ok(RunTask::Exited(retval as i32))
+        match wait::waitpid(Some(task.pid), None) {
+            Ok(WaitStatus::Exited(pid, _ret)) => Ok(RunTask::Exited(retval as i32)),
+            Ok(WaitStatus::Signaled(pid, sig, _)) => {
+                let _ = ptrace::cont(pid, Some(sig)); // ignore error
+                Ok(RunTask::Exited(0x80 | sig as i32)
+            }
+            status => panic!("unknown status after ptrace exit: {:?}", status),
+        }
     } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i64 {
         do_ptrace_seccomp(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
     } else {
@@ -519,11 +537,10 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let pid_raw = task.getevent()?;
     task.resume(None)?;
     let child = Pid::from_raw(pid_raw as libc::pid_t);
-    let mut new_task = task.clone();
+    let mut new_task: TracedTask = Task::new(child);
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
-    new_task.resume(None)?;
     Ok((task, new_task))
 }
 
@@ -531,22 +548,22 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let pid_raw = task.getevent()?;
     task.resume(None)?;
     let child = Pid::from_raw(pid_raw as libc::pid_t);
-    let mut new_task = task.clone();
+    let mut new_task: TracedTask = Task::new(child);
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
-    new_task.resume(None)?;
+    new_task.in_vfork = false;
     Ok((task, new_task))
 }
 
 fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let pid_raw = task.getevent()?;
     let child = Pid::from_raw(pid_raw as libc::pid_t);
-    let mut new_task = task.clone();
+    let mut new_task: TracedTask = Task::new(child);
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.tid = child;
-    new_task.resume(None)?;
+    new_task.in_vfork = true;
     task.resume(None)?;
     Ok((new_task, task))
 }
@@ -555,12 +572,12 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     let ev = ptrace::getevent(task.pid).map_err(from_nix_error)?;
     let regs = ptrace::getregs(task.pid).map_err(from_nix_error)?;
     let syscall = SyscallNo::from(regs.orig_rax as i32);
-    let mut tsk = &mut task;
+    let pid = task.pid;
     if ev == 0x7fff {
         panic!("unfiltered syscall: {:?}", syscall);
     }
-    // println!("seccomp syscall {:?}", syscall);
-    match patch_syscall(&mut tsk, regs.rip) {
+    // println!("{} seccomp syscall {:?}", pid, syscall);
+    match patch_syscall(&mut task, regs.rip) {
         Ok(_) => just_continue(task.pid, None),
         Err(_) => just_continue(task.pid, None),
     }?;
@@ -594,8 +611,9 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     ptrace::cont(task.pid, None)?;
 
     // second breakpoint after syscall hit
+    let status = wait::waitpid(task.pid, None)?;
     assert!(
-        wait::waitpid(task.pid, None) == Ok(wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP))
+        status == wait::WaitStatus::Stopped(task.pid, signal::SIGTRAP)
     );
     let regs = ptrace::getregs(task.pid).and_then(|r| {
         if r.rax > (-4096i64 as u64) {
@@ -617,7 +635,6 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
 fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let regs = ptrace::getregs(task.pid)?;
-    assert!(regs.rip & 7 == 0);
     let saved: i64 = ptrace::read(task.pid, regs.rip as ptrace::AddressType)?;
     ptrace::write(
         task.pid,
