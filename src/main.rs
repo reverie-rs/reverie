@@ -111,7 +111,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
 
     unsafe {
         assert!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
-        assert!(libc::personality(ADDR_NO_RANDOMIZE) == 0);
+        assert!(libc::personality(ADDR_NO_RANDOMIZE) != -1);
     };
 
     ptrace::traceme()
@@ -296,5 +296,8 @@ fn main() {
     };
 
     std::env::set_var(consts::SYSTRACE_LIBRARY_PATH, &argv.library_path);
-    run_app(&argv).expect("run_app returned error result");
+    match run_app(&argv) {
+        Ok(exit_code) => std::process::exit(exit_code),
+        err => panic!("run app failed with error: {:?}", err),
+    }
 }
