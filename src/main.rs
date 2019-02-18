@@ -98,7 +98,8 @@ fn from_nix_error(err: nix::Error) -> Error {
 const ADDR_NO_RANDOMIZE: u64 = 0x0040000;
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
-    let libs: Result<Vec<PathBuf>> = ["libdet.so", "libsystrace.so"]
+    // FIXME: There should NOT be a hardcoded tool name!:
+    let libs: Result<Vec<PathBuf>> = ["libechotool.so", "libsystrace.so"]
         .iter()
         .map(|so| argv.library_path.join(so).canonicalize())
         .collect();
@@ -233,7 +234,8 @@ fn main() {
             Arg::with_name("library-path")
                 .long("library-path")
                 .value_name("LIBRARY_PATH")
-                .help("set library search path for libsystrace.so, libdet.so")
+                // FIXME: There should NOT be a hardcoded tool name!:
+                .help("set library search path for libsystrace.so, libechotool.so")
                 .takes_value(true),
         )
         .arg(

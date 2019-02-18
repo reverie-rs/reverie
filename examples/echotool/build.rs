@@ -65,11 +65,12 @@ fn gen_syscall_nrs() -> Result<()> {
     Ok(())
 }
 
+// FIXME: this introduces a source dependency on the systrace lib:
 fn main() {
     gen_syscall_nrs().unwrap();
     cc::Build::new()
-        .file("../src/raw_syscall.S")
-        .file("../src/strlen.c")
+        .file("../../src/raw_syscall.S")
+        .file("../../src/strlen.c")
         .file("src/init.c")
         .compile("my-asm-lib");
 }

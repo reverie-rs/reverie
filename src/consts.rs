@@ -1,6 +1,8 @@
 pub const SYSTRACE_LIBRARY_PATH: &'static str = "SYSTRACE_LIBRARY_PATH";
 pub const SYSTRACE_SO: &'static str = "libsystrace.so";
-pub const DET_SO: &'static str = "libdet.so";
+
+// FIXME: There should NOT be a hardcoded tool name!
+pub const DET_SO: &'static str = "libechotool.so";
 
 pub const SYSCALL_INSN_SIZE: usize = 2;
 pub const SYSCALL_INSN_MASK: u64 = 0xffff;
@@ -21,10 +23,7 @@ pub const DET_TLS_STACK_NESTING_LEVEL: u64 =
 
 pub const DET_TLS_SYSCALL_TRAMPOLINE: u64 =
     DET_TLS_STACK_NESTING_LEVEL + std::mem::size_of::<u64>() as u64;
-pub const DET_TLS_LIBDET_HOOK: u64 = DET_TLS_SYSCALL_TRAMPOLINE + std::mem::size_of::<u64>() as u64;
-
-// fd connects detsched socket
-pub const DETSCHED_FD: i32 = 257;
+pub const DET_TLS_SYSTOOL_HOOK: u64 = DET_TLS_SYSCALL_TRAMPOLINE + std::mem::size_of::<u64>() as u64;
 
 #[test]
 fn det_tls_sanity_check() {
@@ -33,5 +32,5 @@ fn det_tls_sanity_check() {
     assert_eq!(DET_TLS_STUB_SCRATCH, DET_PAGE_TLS + 16);
     assert_eq!(DET_TLS_STACK_NESTING_LEVEL, DET_PAGE_TLS + 24);
     assert_eq!(DET_TLS_SYSCALL_TRAMPOLINE, DET_PAGE_TLS + 32);
-    assert_eq!(DET_TLS_LIBDET_HOOK, DET_PAGE_TLS + 40);
+    assert_eq!(DET_TLS_SYSTOOL_HOOK, DET_PAGE_TLS + 40);
 }
