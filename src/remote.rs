@@ -53,6 +53,9 @@ impl<T> Clone for RemotePtr<T> {
     }
 }
 
+impl<T: Sized> Copy for RemotePtr<T> {
+}
+
 pub trait RemoteSyscall {
     fn untraced_syscall(
         &mut self,
@@ -132,20 +135,20 @@ fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
 
 pub fn patch_at(
     task: &mut TracedTask,
-    regs: libc::user_regs_struct,
     hook: &hooks::SyscallHook,
     target: u64,
 ) -> Result<()> {
-    let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let jmp_insn_size = 5;
-    let ip = resume_from;
     let pid = task.pid;
-
+    let regs = task.getregs()?;
+    let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
+    let ip = resume_from;
     let rela: i64 = target as i64 - ip as i64 - jmp_insn_size as i64;
     assert!(rela >= -1i64.wrapping_shl(31) && rela < 1i64.wrapping_shl(31));
 
-    let mut insn_at_syscall =
-        ptrace::read(pid, ip as ptrace::AddressType).expect("ptrace peek failed") as u64;
+    let remote_rip = RemotePtr::new(NonNull::new(ip as *mut u64).unwrap());
+
+    let mut insn_at_syscall = task.peek(remote_rip)?;
     // set LSB-40bit to a callq/jmp instruction.
     insn_at_syscall &= !(0xff_ffffffffu64);
     insn_at_syscall |= 0xe8u64
@@ -154,12 +157,7 @@ pub fn patch_at(
         | (rela as u64 & 0xff0000).wrapping_shl(8)
         | (rela as u64 & 0xff000000).wrapping_shl(8);
 
-    ptrace::write(
-        pid,
-        ip as ptrace::AddressType,
-        insn_at_syscall as *mut libc::c_void,
-    )
-    .expect("ptrace poke failed");
+    task.poke(remote_rip, &insn_at_syscall)?;
 
     let padding_size = SYSCALL_INSN_SIZE + hook.instructions.len() - jmp_insn_size as usize;
     assert!(padding_size <= 9);
@@ -187,47 +185,35 @@ pub fn patch_at(
         0xffffff_ffffffffu64,
         0xffffffff_ffffffffu64,
     ];
+
+    let insn_after_patch = RemotePtr::new(
+        NonNull::new((ip + jmp_insn_size)
+                      as *mut u64).unwrap());
+    let insn_after_patch_2 = RemotePtr::new(
+        NonNull::new((ip + jmp_insn_size +
+                      std::mem::size_of::<u64>() as u64)
+                      as *mut u64).unwrap());
+
     if padding_size == 0 {
         ;
     } else if padding_size <= 8 {
-        let insn_after_patch = ip + jmp_insn_size;
-        let mut padding_insn =
-            ptrace::read(pid, insn_after_patch as ptrace::AddressType).expect("ptrace peek") as u64;
+        let mut padding_insn = task.peek(insn_after_patch)?;
         padding_insn &= !(masks[padding_size]);
         padding_insn |= nops[padding_size].1;
-        ptrace::write(
-            pid,
-            insn_after_patch as ptrace::AddressType,
-            padding_insn as *mut libc::c_void,
-        )
-        .expect("ptrace poke");
+        task.poke(insn_after_patch, &padding_insn)?;
     } else if padding_size == 9 {
-        let insn_after_patch = ip + jmp_insn_size;
-        let insn_after_patch_2 = insn_after_patch + std::mem::size_of::<u64>() as u64;
-        ptrace::write(
-            pid,
-            insn_after_patch as ptrace::AddressType,
-            nops[padding_size].1 as *mut libc::c_void,
-        )
-        .expect("ptrace poke");
-        ;
-        let mut insn2 = ptrace::read(pid, insn_after_patch_2 as ptrace::AddressType)
-            .expect("ptrace peek") as u64;
+        task.poke(insn_after_patch, &nops[padding_size].1)?;
+        let mut insn2 = task.peek(insn_after_patch_2)?;
         insn2 &= !0xff; // the last byte of the 9-byte nop is 0x00.
-        ptrace::write(
-            pid,
-            insn_after_patch as ptrace::AddressType,
-            insn2 as *mut libc::c_void,
-        )
-        .expect("ptrace poke");
+        task.poke(insn_after_patch_2, &insn2)?;
     } else {
         panic!("maximum padding is 9");
     }
 
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
-    new_regs.rip = ip; // rewind pc back (-2).
-    ptrace::setregs(pid, new_regs).expect("ptrace setregs");
+    new_regs.rip = ip;            // rewind pc back (-2).
+    task.setregs(new_regs)?;
 
     // because we modified tracee's code
     // we need some kind of synchronization to make sure

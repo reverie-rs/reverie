@@ -193,7 +193,7 @@ pub fn patch_syscall(task: &mut TracedTask, rip: u64) -> Result<()> {
         ));
     };
     let hook_found = find_syscall_hook(task, rip)?;
-    let regs = ptrace::getregs(task.pid).expect("ptrace getregs");
+    let mut old_regs = ptrace::getregs(task.pid).expect("ptrace getregs");
     // NB: when @hook_found, we assuem that we can patch the syscall
     // hence we force kernel skip the pending syscall, by setting
     // syscall no to -1.
@@ -206,11 +206,14 @@ pub fn patch_syscall(task: &mut TracedTask, rip: u64) -> Result<()> {
     // PTRACE_EVENT_SECCOMP, as the kernel might allow previous syscall
     // to run through, this could cause chaotic issues if we rely ptrace
     // cont/breakpoint to control tracee's execution.
-    skip_seccomp_syscall(task.pid, regs)?;
+    skip_seccomp_syscall(task.pid, old_regs)?;
     let indirect_jump_address = extended_jump_from_to(task, rip)?;
-    let regs = ptrace::getregs(task.pid).expect("ptrace getregs");
-    patch_at(task, regs, hook_found, indirect_jump_address).map_err(|e| {
+    patch_at(task, hook_found, indirect_jump_address).map_err(|e| {
         task.unpatchable_syscalls.push(rip);
+        // restart syscall, since it was skipped earlier.
+        old_regs.rip -= 2;
+        old_regs.rax = old_regs.orig_rax;
+        ptrace::setregs(task.pid, old_regs).expect("ptrace setregs");
         e
     })
 }
