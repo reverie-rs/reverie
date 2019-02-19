@@ -1,4 +1,4 @@
-GCC	 = clang
+CC	 = clang
 CXX	 = clang++
 LD	 = lld
 
