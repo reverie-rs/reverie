@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
 
   long long elapsed = diff_time(&begin, &end);
 
-  fprintf(stderr, "time elapsed %lluus for %u iterations, mean: %.3lfus\n",
+  printf("time elapsed %lluus for %u iterations, mean: %.3lfus\n",
 	 elapsed, ntests, (double)elapsed / ntests);
 
   return 0;

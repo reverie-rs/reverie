@@ -66,6 +66,7 @@ tests: build-tests
 	cd .. && ./bin/systrace ./tests/clock-nanosleep || exit 1
 	cd .. && ./bin/systrace ./tests/getpid-pie || exit 1
 	cd .. && ./bin/systrace ./tests/test1.sh || exit 1
+	cd .. && ./bin/systrace ./tests/test2.sh || exit 1
 	cd .. && ./bin/systrace ./tests/segfault || exit 0
 
 .PHONY: all tests clean
