@@ -36,9 +36,10 @@ pub trait Task {
     fn new(pid: Pid) -> Self
     where
         Self: Sized;
+    fn gettid(&self) -> Pid;
     fn getpid(&self) -> Pid;
     fn getppid(&self) -> Pid;
-    fn gettid(&self) -> Pid;
+    fn getpgid(&self) -> Pid;
     fn exited(&self) -> Option<i32>;
     /// take ownership of `self`
     fn run(self) -> Result<RunTask<Self>>

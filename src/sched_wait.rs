@@ -25,8 +25,13 @@ impl Scheduler<TracedTask> for SchedWait {
         }
     }
     fn add(&mut self, task: TracedTask) {
-        let pid = Task::getpid(&task);
-        self.tasks.insert(pid, task);
+        let tid = Task::gettid(&task);
+        self.tasks.insert(tid, task);
+    }
+    fn add_and_schedule(&mut self, task: TracedTask) {
+        let tid = Task::gettid(&task);
+        self.tasks.insert(tid, task);
+        ptrace::cont(tid, None).expect(&format!("add_and_schedule, resume {}", tid));
     }
     fn remove(&mut self, task: &mut TracedTask) {
         self.tasks.remove(&Task::getpid(task));
@@ -83,18 +88,30 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                 return Some(task);
             }
             WaitStatus::PtraceSyscall(pid) => panic!("ptrace syscall"),
-            // sometimes ptrace delivers signal even before fork/vfork event
-            // in fact, Linux kernel does not guarantee the signal must happen
-            // after fork/vfork
-            // see: https://stackoverflow.com/questions/49354408/why-does-a-sigtrap-ptrace-event-stop-occur-when-the-tracee-receives-sigcont
             WaitStatus::Stopped(pid, sig) => {
                 // ignore group-stop by let tracee continue
                 // and enter next (tracer) waitpid
                 if is_ptrace_group_stop(pid, sig) {
                     ptrace::cont(pid, Some(sig)).unwrap();
                 } else {
+                    // sometimes ptrace delivers signal even before fork/vfork event
+                    // this seems to happen when job control is enabled
+                    // i.e.: run as task in bash such as `xxx &`
+                    // see: https://stackoverflow.com/questions/49354408/why-does-a-sigtrap-ptrace-event-stop-occur-when-the-tracee-receives-sigcont
                     let mut task = tasks.tasks.remove(&pid).unwrap_or(Task::new(pid));
-                    task.state = TaskState::Stopped(Some(sig));
+                    // From ptrace man page:
+                    //
+                    // If the PTRACE_O_TRACEFORK, PTRACE_O_TRACEVFORK, or PTRACE_O_TRACECLONE options are in effect,
+                    // then  children  created by,  respectively,  vfork(2)  or  clone(2)  with the CLONE_VFORK flag,
+                    // fork(2) or clone(2) with the exit signal set to SIGCHLD, and other kinds of clone(2), are
+                    // automatically attached  to  the  same  tracer  which  traced  their  parent. SIGSTOP is
+                    // delivered to the children, causing them to enter signal-delivery-stop after they exit the
+                    // system call which created them.
+                    //
+                    // NB: we use TaskState::Stopped(None) for the intial SIGSTOP
+                    if task.state != TaskState::Stopped(None) {
+                        task.state = TaskState::Stopped(Some(sig));
+                    }
                     return Some(task);
                 }
             }

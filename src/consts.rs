@@ -24,6 +24,7 @@ pub const DET_TLS_STACK_NESTING_LEVEL: u64 =
 pub const DET_TLS_SYSCALL_TRAMPOLINE: u64 =
     DET_TLS_STACK_NESTING_LEVEL + std::mem::size_of::<u64>() as u64;
 pub const DET_TLS_SYSTOOL_HOOK: u64 = DET_TLS_SYSCALL_TRAMPOLINE + std::mem::size_of::<u64>() as u64;
+pub const DET_TLS_SYSCALL_PATCH_LOCK: u64 = DET_TLS_SYSTOOL_HOOK + std::mem::size_of::<u64>() as u64;
 
 #[test]
 fn det_tls_sanity_check() {
@@ -33,4 +34,5 @@ fn det_tls_sanity_check() {
     assert_eq!(DET_TLS_STACK_NESTING_LEVEL, DET_PAGE_TLS + 24);
     assert_eq!(DET_TLS_SYSCALL_TRAMPOLINE, DET_PAGE_TLS + 32);
     assert_eq!(DET_TLS_SYSTOOL_HOOK, DET_PAGE_TLS + 40);
+    assert_eq!(DET_TLS_SYSCALL_PATCH_LOCK, DET_PAGE_TLS + 48);
 }

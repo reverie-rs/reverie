@@ -72,9 +72,9 @@ fn run_tracer_main(sched: &mut SchedWait) -> Result<i32> {
         match run_result {
             RunTask::Exited(_code) => exit_code = _code,
             RunTask::Runnable(task1) => sched.add(task1),
-            RunTask::Forked(run_first, run_second) => {
-                sched.add(run_first);
-                sched.add(run_second);
+            RunTask::Forked(parent, child) => {
+                sched.add(child);
+                sched.add_and_schedule(parent);
             }
         }
     }
@@ -118,6 +118,9 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     ptrace::traceme()
         .and_then(|_| signal::raise(signal::SIGSTOP))
         .map_err(from_nix_error)?;
+
+    let root_pid = unistd::getpid();
+    unistd::setpgid(root_pid, root_pid).expect("setpgid");
 
     // println!("launching program: {} {:?}", &argv.program, &argv.program_args);
 

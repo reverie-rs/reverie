@@ -42,7 +42,7 @@ impl ProcMapsEntry {
     }
 }
 
-pub fn pretty_show_maps(pid: unistd::Pid) -> String {
+pub fn pretty_show_maps(pid: Pid) -> String {
     let mut res = String::new();
 
     let ents = decode_proc_maps(pid).unwrap();
@@ -232,7 +232,7 @@ where
         )
 }
 
-pub fn decode_proc_maps(pid: unistd::Pid) -> Result<Vec<ProcMapsEntry>> {
+pub fn decode_proc_maps(pid: Pid) -> Result<Vec<ProcMapsEntry>> {
     let filepath = PathBuf::from("/proc")
         .join(&format!("{}", pid))
         .join(PathBuf::from("maps"));

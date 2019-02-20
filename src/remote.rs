@@ -139,7 +139,6 @@ pub fn patch_at(
     target: u64,
 ) -> Result<()> {
     let jmp_insn_size = 5;
-    let pid = task.pid;
     let regs = task.getregs()?;
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let ip = resume_from;
