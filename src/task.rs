@@ -18,8 +18,9 @@ use crate::stubs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskState {
+    Ready,
     Running,
-    Stopped(Option<signal::Signal>),
+    Stopped(signal::Signal),
     Signaled(signal::Signal),
     Event(u64),
     Exited(i32),

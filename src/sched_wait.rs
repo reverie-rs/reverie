@@ -109,8 +109,8 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     // system call which created them.
                     //
                     // NB: we use TaskState::Stopped(None) for the intial SIGSTOP
-                    if task.state != TaskState::Stopped(None) {
-                        task.state = TaskState::Stopped(Some(sig));
+                    if task.state != TaskState::Ready {
+                        task.state = TaskState::Stopped(sig);
                     }
                     return Some(task);
                 }

@@ -53,8 +53,7 @@ impl<T> Clone for RemotePtr<T> {
     }
 }
 
-impl<T: Sized> Copy for RemotePtr<T> {
-}
+impl<T: Sized> Copy for RemotePtr<T> {}
 
 pub trait RemoteSyscall {
     fn untraced_syscall(

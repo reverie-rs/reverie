@@ -72,7 +72,7 @@ impl Task for TracedTask {
             pid,
             ppid: pid,
             pgid: unistd::getpgid(Some(pid)).unwrap(),
-            state: TaskState::Stopped(None),
+            state: TaskState::Ready,
             in_vfork: false,
             memory_map: decode_proc_maps(pid).unwrap_or(Vec::new()),
             stub_pages: Vec::new(),
@@ -115,11 +115,11 @@ impl Task for TracedTask {
                 task.resume(Some(signal))?;
                 Ok(RunTask::Runnable(task))
             }
-            TaskState::Stopped(None) => {
+            TaskState::Ready => {
                 task.resume(None)?;
                 Ok(RunTask::Runnable(task))
             }
-            TaskState::Stopped(Some(signal)) => {
+            TaskState::Stopped(signal) => {
                 task.resume(Some(signal))?;
                 Ok(RunTask::Runnable(task))
             }
@@ -570,7 +570,6 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     new_task.pid = child;
     new_task.ppid = task.pid;
     new_task.pgid = task.pgid;
-    new_task.in_vfork = false;
     Ok((task, new_task))
 }
 
