@@ -17,6 +17,9 @@ clap = "2.32"
 combine = "3.6"
 lazy_static = "1.2"
 colored = "1.7"
+chrono = "0.4"
+log = "0.4"
+fern = "0.5"
 
 [build-dependencies]
 cc = "1.0.28"

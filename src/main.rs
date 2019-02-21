@@ -8,6 +8,7 @@ extern crate lazy_static;
 
 use clap::{App, Arg, SubCommand};
 use libc;
+use fern;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
@@ -300,9 +301,34 @@ fn main() {
             .unwrap_or(Vec::new()),
     };
 
+    setup_logger(argv.debug_level).expect("set log level");
     std::env::set_var(consts::SYSTRACE_LIBRARY_PATH, &argv.library_path);
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
         err => panic!("run app failed with error: {:?}", err),
     }
+}
+
+fn setup_logger(level: i32) -> Result<()> {
+    let log_level = match level {
+        0 => log::LevelFilter::Off,
+        1 => log::LevelFilter::Error,
+        2 => log::LevelFilter::Warn,
+        3 => log::LevelFilter::Info,
+        4 => log::LevelFilter::Debug,
+        5 => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Trace,
+    };
+
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}",
+                message
+            ))
+        })
+        .level(log_level)
+        .chain(std::io::stdout())
+        .chain(fern::log_file("output.log")?)
+        .apply().map_err(|e| Error::new(ErrorKind::Other, e))
 }

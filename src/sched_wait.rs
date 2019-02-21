@@ -4,6 +4,7 @@ use nix::sys::{ptrace, signal, wait};
 use nix::unistd::Pid;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Result};
+use log::Level::Trace;
 
 use crate::consts;
 use crate::nr::*;
@@ -60,6 +61,11 @@ fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
 
 fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     while let Ok(status) = wait::waitpid(None, Some(wait::WaitPidFlag::__WALL)) {
+        if log::log_enabled!(Trace) {
+            let mut debug_string = format!("[sched]: {:?}, task queue:", status);
+            tasks.tasks.iter().for_each(|(k, _)| debug_string += &format!(" {} ", k));
+            log::trace!("{}", debug_string);
+        }
         match status {
             WaitStatus::Exited(pid, exit_code) => {
             }
@@ -108,7 +114,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     // delivered to the children, causing them to enter signal-delivery-stop after they exit the
                     // system call which created them.
                     //
-                    // NB: we use TaskState::Stopped(None) for the intial SIGSTOP
+                    // NB: we use TaskState::Ready for the intial SIGSTOP
                     if task.state != TaskState::Ready {
                         task.state = TaskState::Stopped(sig);
                     }
