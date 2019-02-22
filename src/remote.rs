@@ -226,7 +226,7 @@ pub fn patch_at(
     };
     assert_eq!(patch_bytes.len(), hook.instructions.len() + consts::SYSCALL_INSN_SIZE);
 
-    let (page, size) = (ip & !0x3ff, 0x2000);
+    let (page, size) = (ip & !0xfff, 0x2000);
     task.untraced_syscall(
         SYS_mprotect,
         page as i64,
@@ -244,7 +244,6 @@ pub fn patch_at(
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).
     task.setregs(new_regs)?;
-
     // because we modified tracee's code
     // we need some kind of synchronization to make sure
     // the CPU (especially i-cache) noticed the change
