@@ -225,21 +225,26 @@ pub fn patch_at(
         _ => panic!("maximum padding is 9"),
     };
     assert_eq!(patch_bytes.len(), hook.instructions.len() + consts::SYSCALL_INSN_SIZE);
-
-    let (page, size) = (ip & !0xfff, 0x2000);
+    let page = ip & !0xfff;
+    // must perform check when patch across page boundry
+    let size = if ((ip as usize + patch_bytes.len()) & !0xfff) < patch_bytes.len() {
+        0x2000
+    } else {
+        0x1000
+    };
     task.untraced_syscall(
         SYS_mprotect,
         page as i64,
         size as i64,
         libc::PROT_WRITE as i64,
-        0, 0, 0)?;
+        0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
     task.poke_bytes(remote_rip, patch_bytes.as_slice())?;
     task.untraced_syscall(
         SYS_mprotect,
         page as i64,
         size as i64,
         (libc::PROT_READ | libc::PROT_EXEC) as i64,
-        0, 0, 0)?;
+        0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).
