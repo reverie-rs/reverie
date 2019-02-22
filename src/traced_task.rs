@@ -458,10 +458,18 @@ impl Remote for TracedTask {
             } else {
                 0u64
             };
-            let u64_val_ptr: *mut u64 = &mut u64_val;
-            unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const u64, u64_val_ptr, size)
-            };
+            let masks = &[ 0xffffffff_ffffff00u64,
+                           0xffffffff_ffff0000u64,
+                           0xffffffff_ff000000u64,
+                           0xffffffff_00000000u64,
+                           0xffffff00_00000000u64,
+                           0xffff0000_00000000u64,
+                           0xff000000_00000000u64,
+                           0x00000000_00000000u64 ];
+            u64_val = u64_val & masks[size-1];
+            for k in 0..size {
+                u64_val |= (bytes[k] as u64).wrapping_shl(k as u32 *8);
+            }
             ptrace::write(
                 self.tid,
                 raw_ptr as ptrace::AddressType,
