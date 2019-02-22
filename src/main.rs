@@ -298,7 +298,7 @@ fn main() {
         program_args: matches
             .values_of("program_args")
             .map(|v| v.collect())
-            .unwrap_or(Vec::new()),
+            .unwrap_or_else(|| Vec::new()),
     };
 
     setup_logger(argv.debug_level).expect("set log level");

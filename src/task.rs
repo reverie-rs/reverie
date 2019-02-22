@@ -37,6 +37,12 @@ pub trait Task {
     fn new(pid: Pid) -> Self
     where
         Self: Sized;
+    fn cloned(&self) -> Self
+    where
+        Self: Sized;
+    fn forked(&self) -> Self
+    where
+        Self: Sized;
     fn gettid(&self) -> Pid;
     fn getpid(&self) -> Pid;
     fn getppid(&self) -> Pid;

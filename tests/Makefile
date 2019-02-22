@@ -74,5 +74,8 @@ tests: build-tests
 	cd .. && ./bin/systrace ./tests/test1.sh || echo "test1 returned $$?"
 	cd .. && ./bin/systrace ./tests/test2.sh || echo "test2 returned $$?"
 	cd .. && ./bin/systrace ./tests/segfault && exit 1 || exit 0
+	cd .. && timeout 1s ./bin/systrace ./tests/threads1 || exit 1
+	cd .. && timeout 1s ./bin/systrace ./tests/threads2 || exit 1
+	cd .. && timeout 1s ./bin/systrace ./tests/threads3 || exit 1
 
 .PHONY: all tests clean

@@ -13,6 +13,7 @@ use crate::hooks;
 use crate::nr;
 use crate::proc::*;
 use crate::stubs;
+use crate::nr::SyscallNo::*;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
 
@@ -129,6 +130,7 @@ fn ensure_syscall(pid: unistd::Pid, rip: u64) -> Result<()> {
 }
 
 fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
+    std::thread::sleep(std::time::Duration::from_micros(1000));
     Ok(())
 }
 
@@ -144,70 +146,100 @@ pub fn patch_at(
     let rela: i64 = target as i64 - ip as i64 - jmp_insn_size as i64;
     assert!(rela >= -1i64.wrapping_shl(31) && rela < 1i64.wrapping_shl(31));
 
-    let remote_rip = RemotePtr::new(NonNull::new(ip as *mut u64).unwrap());
+    let mut patch_bytes: Vec<u8> = Vec::new();
 
-    let mut insn_at_syscall = task.peek(remote_rip)?;
-    // set LSB-40bit to a callq/jmp instruction.
-    insn_at_syscall &= !(0xff_ffffffffu64);
-    insn_at_syscall |= 0xe8u64
-        | (rela as u64 & 0xff).wrapping_shl(8)
-        | (rela as u64 & 0xff00).wrapping_shl(8)
-        | (rela as u64 & 0xff0000).wrapping_shl(8)
-        | (rela as u64 & 0xff000000).wrapping_shl(8);
+    let remote_rip = RemotePtr::new(NonNull::new(ip as *mut u8).unwrap());
 
-    task.poke(remote_rip, &insn_at_syscall)?;
+    patch_bytes.push(0xe8);
+    patch_bytes.push((rela & 0xff) as u8);
+    patch_bytes.push((rela.wrapping_shr(8) & 0xff) as u8);
+    patch_bytes.push((rela.wrapping_shr(16) & 0xff) as u8);
+    patch_bytes.push((rela.wrapping_shr(24) & 0xff) as u8);
 
     let padding_size = SYSCALL_INSN_SIZE + hook.instructions.len() - jmp_insn_size as usize;
     assert!(padding_size <= 9);
 
-    let nops: Vec<(usize, u64)> = vec![
-        (0, 0x0),
-        (1, 0x90),
-        (2, 0x9066),
-        (3, 0x001f0f),
-        (4, 0x00401f0f),
-        (5, 0x0000441f0f),
-        (6, 0x0000441f0f66),
-        (7, 0x00000000801f0f),
-        (8, 0x0000000000841f0f),
-        (9, 0x0000000000841f0f66),
-    ];
-    let masks: Vec<u64> = vec![
-        0x0u64,
-        0xffu64,
-        0xffffu64,
-        0xffffffu64,
-        0xffffffffu64,
-        0xff_ffffffffu64,
-        0xffff_ffffffffu64,
-        0xffffff_ffffffffu64,
-        0xffffffff_ffffffffu64,
-    ];
+    match padding_size {
+        0 => (),
+        1 => patch_bytes.push(0x90),
+        2 => {
+            patch_bytes.push(0x66);
+            patch_bytes.push(0x90);
+        }
+        3 => {
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x00);
+        }
+        4 => {
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x40);
+            patch_bytes.push(0x00);
+        }
+        5 => {
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x44);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+        }
+        6 => {
+            patch_bytes.push(0x66);
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x44);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+        }
+        7 => {
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x80);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+        }
+        8 => {
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x84);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+        }
+        9 => {
+            patch_bytes.push(0x66);
+            patch_bytes.push(0x0f);
+            patch_bytes.push(0x1f);
+            patch_bytes.push(0x84);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+            patch_bytes.push(0x00);
+        }
+        _ => panic!("maximum padding is 9"),
+    };
+    assert_eq!(patch_bytes.len(), hook.instructions.len() + consts::SYSCALL_INSN_SIZE);
 
-    let insn_after_patch = RemotePtr::new(
-        NonNull::new((ip + jmp_insn_size)
-                      as *mut u64).unwrap());
-    let insn_after_patch_2 = RemotePtr::new(
-        NonNull::new((ip + jmp_insn_size +
-                      std::mem::size_of::<u64>() as u64)
-                      as *mut u64).unwrap());
-
-    if padding_size == 0 {
-        ;
-    } else if padding_size <= 8 {
-        let mut padding_insn = task.peek(insn_after_patch)?;
-        padding_insn &= !(masks[padding_size]);
-        padding_insn |= nops[padding_size].1;
-        task.poke(insn_after_patch, &padding_insn)?;
-    } else if padding_size == 9 {
-        task.poke(insn_after_patch, &nops[padding_size].1)?;
-        let mut insn2 = task.peek(insn_after_patch_2)?;
-        insn2 &= !0xff; // the last byte of the 9-byte nop is 0x00.
-        task.poke(insn_after_patch_2, &insn2)?;
-    } else {
-        panic!("maximum padding is 9");
-    }
-
+    let (page, size) = (ip & !0x3ff, 0x2000);
+    task.untraced_syscall(
+        SYS_mprotect,
+        page as i64,
+        size as i64,
+        libc::PROT_WRITE as i64,
+        0, 0, 0)?;
+    task.poke_bytes(remote_rip, patch_bytes.as_slice())?;
+    task.untraced_syscall(
+        SYS_mprotect,
+        page as i64,
+        size as i64,
+        (libc::PROT_READ | libc::PROT_EXEC) as i64,
+        0, 0, 0)?;
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).
@@ -323,9 +355,9 @@ pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> 
      * 8:   e8 f3 ff ff ff          callq  0 <_do_syscall>   // untraced syscall, then breakpoint.
      * d:   cc                      int3
      * e:   66 90                   xchg   %ax,%ax
-     * 10:   e8 ef ff ff ff          callq  4 <_do_syscall+0x4> // traced syscall, then breakpoint
-     * 15:   cc                      int3
-     * 16:   66 90                   xchg   %ax,%ax
+     * 10:  e8 ef ff ff ff          callq  4 <_do_syscall+0x4> // traced syscall, then breakpoint
+     * 15:  cc                      int3
+     * 16:  66 90                   xchg   %ax,%ax
      */
     let syscall_stub: &[u64] = &[0x90c3050f90c3050f, 0x9066ccfffffff3e8, 0x9066ccffffffefe8];
     // please note we force each `ptrace::write` to be exactly ptrace_poke (8 bytes a time)

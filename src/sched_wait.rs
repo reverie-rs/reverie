@@ -104,7 +104,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     // this seems to happen when job control is enabled
                     // i.e.: run as task in bash such as `xxx &`
                     // see: https://stackoverflow.com/questions/49354408/why-does-a-sigtrap-ptrace-event-stop-occur-when-the-tracee-receives-sigcont
-                    let mut task = tasks.tasks.remove(&pid).unwrap_or(Task::new(pid));
+                    let mut task = tasks.tasks.remove(&pid).unwrap_or_else(|| Task::new(pid));
                     // From ptrace man page:
                     //
                     // If the PTRACE_O_TRACEFORK, PTRACE_O_TRACEVFORK, or PTRACE_O_TRACECLONE options are in effect,
