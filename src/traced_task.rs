@@ -146,8 +146,8 @@ impl Task for TracedTask {
                 Rc::new(RefCell::new(stubs))
             },
             trampoline_hooks: &SYSCALL_HOOKS,
-            ldpreload_address: libsystrace_load_address(self.pid),
-            injected_mmap_page: Some(0x7000_0000),
+            ldpreload_address: self.ldpreload_address,
+            injected_mmap_page: self.injected_mmap_page,
             signal_to_deliver: None,
             unpatchable_syscalls: {
                 let unpatchables = self.unpatchable_syscalls.borrow().clone();
@@ -188,14 +188,19 @@ impl Task for TracedTask {
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
-                task.resume(Some(signal))?;
-                Ok(RunTask::Runnable(task))
+                let _ = ptrace::cont(task.gettid(), Some(signal));
+                Ok(RunTask::Exited(0x80 | signal as i32)
             }
             TaskState::Ready => {
                 task.resume(None)?;
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Stopped(signal) => {
+                if signal == signal::SIGSEGV {
+                    let regs = task.getregs()?;
+                    println!("rsp: {:x}, rip: {:x}", regs.rsp, regs.rip);
+                    decode_proc_maps(task.gettid()).unwrap().iter().for_each(|e| { println!("{:x?}", e);});
+                }
                 task.resume(Some(signal))?;
                 Ok(RunTask::Runnable(task))
             }
@@ -205,7 +210,11 @@ impl Task for TracedTask {
     }
 }
 
-fn task_reset(task: &mut TracedTask) {
+// reset task after exec
+// FIXME: needs special handling
+// see https://github.com/pgbovine/strace-plus/blob/master/README-linux-ptrace
+// section: 1.x execve under ptrace.
+fn task_exec_reset(task: &mut TracedTask) {
     task.ldpreload_address = None;
     task.injected_mmap_page = Some(0x7000_0000);
     task.signal_to_deliver = None;
@@ -378,6 +387,7 @@ fn extended_jump_from_to(task: &mut TracedTask, rip: u64) -> Result<u64> {
         None => allocate_extended_jumps(task, rip)?,
         Some(x) => x,
     };
+    trace!("=== {:?} extended_jump_from_to rip {:x}, new pa: {:x}, stubs: {:x?}", task, rip, page_address, task.stub_pages.borrow().clone());
     let offset = extended_jump_offset_from_stub_page(task, hook)?;
     Ok(page_address + offset as u64)
 }
@@ -579,6 +589,11 @@ fn remote_do_syscall_at(
         WaitStatus::Stopped(pid, signal::SIGCHLD) => {
             task.signal_to_deliver = Some(signal::SIGCHLD)
         }
+        WaitStatus::Stopped(pid, signal::SIGSEGV) => {
+            task.setregs(oldregs)?;
+            task.signal_to_deliver = Some(signal::SIGSEGV);
+            task.resume(Some(signal::SIGSEGV))?;
+        }
         otherwise => {
             let regs = task.getregs()?;
             panic!(
@@ -637,12 +652,23 @@ fn handle_ptrace_syscall(task: &mut TracedTask) -> Result<()> {
     panic!("handle_ptrace_syscall, pid: {}", task.gettid());
 }
 
-fn wait_sigstop(pid: Pid) -> Result<()> {
-    match wait::waitpid(Some(pid), None).expect("waitpid failed") {
-        WaitStatus::Stopped(new_pid, signal) if signal == signal::SIGSTOP && new_pid == pid => {
+// From ptrace man page:
+//
+// If the PTRACE_O_TRACEFORK, PTRACE_O_TRACEVFORK, or PTRACE_O_TRACECLONE options are in effect,
+// then  children  created by,  respectively,  vfork(2)  or  clone(2)  with the CLONE_VFORK flag,
+// fork(2) or clone(2) with the exit signal set to SIGCHLD, and other kinds of clone(2), are
+// automatically attached  to  the  same  tracer  which  traced  their  parent. SIGSTOP is
+// delivered to the children, causing them to enter signal-delivery-stop after they exit the
+// system call which created them.
+//
+fn wait_sigstop(task: &TracedTask) -> Result<()> {
+    let tid = task.gettid();
+    match wait::waitpid(Some(tid), None) {
+        Ok(WaitStatus::Stopped(new_pid, signal)) if signal == signal::SIGSTOP && new_pid == tid => {
+            task.resume(None)?;
             Ok(())
         }
-        _ => Err(Error::new(ErrorKind::Other, "expect SIGSTOP")),
+        _st => Err(Error::new(ErrorKind::Other, format!("expect SIGSTOP, got: {:?}", _st))),
     }
 }
 
@@ -652,18 +678,22 @@ fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
 }
 
 fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let new_task = task.cloned();
+    let mut new_task = task.cloned();
+    new_task.in_vfork = true;
+    wait_sigstop(&new_task)?;
     Ok((task, new_task))
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let new_task = task.forked();
+    wait_sigstop(&new_task)?;
     Ok((task, new_task))
 }
 
 fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let mut new_task = task.forked();
     new_task.in_vfork = true;
+    wait_sigstop(&new_task)?;
     Ok((task, new_task))
 }
 
@@ -766,7 +796,7 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         regs.rip as ptrace::AddressType,
         saved as *mut libc::c_void,
     )?;
-    task_reset(task);
+    task_exec_reset(task);
     ptrace::cont(tid, None)?;
     Ok(())
 }
