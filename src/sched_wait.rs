@@ -72,16 +72,19 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
         let tid_ = tasks
             .run_queue.pop_front()
             .or_else(||tasks.blocked_queue.pop_front());
-        log::trace!(">>> sched next {:?}", tid_);
+        log::trace!("[sched] sched next {:?}", tid_);
         if tid_.is_none() { return None; }
         let tid = tid_.unwrap();
         if log::log_enabled!(Trace) {
             let mut debug_string = format!("[sched]: {:?}, task queue:", tid);
-            tasks.tasks.iter().for_each(|(k, _)| debug_string += &format!(" {} ", k));
+            tasks.tasks.iter().for_each(|(k, _)| debug_string += &format!(" {}", k));
             log::trace!("{}", debug_string);
         }
         while let Ok(status) = wait::waitpid(Some(tid), Some(WaitPidFlag::WNOHANG)) {
             retry = status == WaitStatus::StillAlive;
+            if !retry {
+                log::trace!("[sched] {} {:?}", tid, status);
+            }
             match status {
                 // no status change, TODO: dead lock detection?
                 WaitStatus::StillAlive => {
@@ -102,7 +105,13 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     task.state = TaskState::Event(event as u64);
                     return Some(task);
                 }
-                WaitStatus::PtraceSyscall(pid) => panic!("ptrace syscall"),
+                WaitStatus::PtraceSyscall(pid) => {
+                    assert!(pid == tid);
+                    let mut task = tasks.tasks.remove(&tid).unwrap();
+                    let regs = task.getregs().unwrap();
+                    task.state = TaskState::Syscall(regs.rip);
+                    return Some(task);
+                }
                 WaitStatus::Stopped(pid, sig) => {
                     // ignore group-stop
                     if !is_ptrace_group_stop(pid, sig) {

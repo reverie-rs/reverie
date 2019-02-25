@@ -1,4 +1,5 @@
 use libc;
+use log::{trace};
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd;
@@ -115,32 +116,25 @@ pub trait Remote {
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
 }
 
-fn ensure_syscall(pid: unistd::Pid, rip: u64) -> Result<()> {
-    let insn = ptrace::read(pid, rip as ptrace::AddressType).expect("ptrace peek failed") as u64;
-    match insn & SYSCALL_INSN_MASK as u64 {
-        SYSCALL_INSN => Ok(()),
-        _otherwise => Err(Error::new(
-            ErrorKind::Other,
-            format!(
-                "expect syscall instructions at {:x}, but got: {:x}",
-                rip, insn
-            ),
-        )),
-    }
-}
-
-fn synchronize_from(task: &mut TracedTask, rip: u64) -> Result<()> {
-    std::thread::sleep(std::time::Duration::from_micros(1000));
-    Ok(())
+pub fn synchronize_from(task: &TracedTask, rip: u64){
+    let mut regs = task.getregs().unwrap();
+    // stub for cpuid routine
+    regs.rip = 0x7000_0018u64;
+    // push return address
+    regs.rsp -= 8;
+    let remote_return_address_ptr = RemotePtr::new(NonNull::new(regs.rsp as *mut u64).unwrap());
+    let remote_return_address = rip;
+    task.poke(remote_return_address_ptr, &remote_return_address).unwrap();
+    task.setregs(regs).unwrap();
 }
 
 pub fn patch_at(
     task: &mut TracedTask,
     hook: &hooks::SyscallHook,
     target: u64,
-) -> Result<()> {
+) {
     let jmp_insn_size = 5;
-    let regs = task.getregs()?;
+    let regs = task.getregs().unwrap();
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let ip = resume_from;
     let rela: i64 = target as i64 - ip as i64 - jmp_insn_size as i64;
@@ -238,17 +232,18 @@ pub fn patch_at(
         size as i64,
         libc::PROT_WRITE as i64,
         0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
-    task.poke_bytes(remote_rip, patch_bytes.as_slice())?;
+    task.poke_bytes(remote_rip, patch_bytes.as_slice()).unwrap();
     task.untraced_syscall(
         SYS_mprotect,
         page as i64,
         size as i64,
         (libc::PROT_READ | libc::PROT_EXEC) as i64,
         0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
+    trace!("patched instruction @{:x} => callq {:x} : {:02x?}", ip, target, patch_bytes);
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).
-    task.setregs(new_regs)?;
+    task.setregs(new_regs).unwrap();
     // because we modified tracee's code
     // we need some kind of synchronization to make sure
     // the CPU (especially i-cache) noticed the change
@@ -362,8 +357,32 @@ pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> 
      * 10:  e8 ef ff ff ff          callq  4 <_do_syscall+0x4> // traced syscall, then breakpoint
      * 15:  cc                      int3
      * 16:  66 90                   xchg   %ax,%ax
+     * 18:  50                   	push   %rax
+     * 19:  53                   	push   %rbx
+     * 1a:  51                   	push   %rcx
+     * 1b:  52                   	push   %rdx
+     * 1c:  b8 00 00 00 00       	mov    $0x0,%eax
+     * 21:  0f a2                	cpuid
+     * 23:  5a                   	pop    %rdx
+     * 24:  59                   	pop    %rcx
+     * 25:  5b                   	pop    %rbx
+     * 26:  58                   	pop    %rax
+     * 27:  c3                   	retq
+     * 28:  50                   	push   %rax
+     * 29:  53                   	push   %rbx
+     * 2a:  51                   	push   %rcx
+     * 2b:  52                   	push   %rdx
+     * 2c:  b8 00 00 00 00       	mov    $0x0,%eax
+     * 31:  0f a2                	cpuid
+     * 33:  5a                   	pop    %rdx
+     * 34:  59                   	pop    %rcx
+     * 35:  5b                   	pop    %rbx
+     * 36:  58                   	pop    %rax
+     * 37:  cc                   	int3
      */
-    let syscall_stub: &[u64] = &[0x90c3050f90c3050f, 0x9066ccfffffff3e8, 0x9066ccffffffefe8];
+    let syscall_stub: &[u64] = &[0x90c3050f90c3050f, 0x9066ccfffffff3e8, 0x9066ccffffffefe8,
+                                 0x000000b852515350, 0xc3585b595aa20f00,
+                                 0x000000b852515350, 0xcc585b595aa20f00];
     // please note we force each `ptrace::write` to be exactly ptrace_poke (8 bytes a time)
     // instead of using `process_vm_writev`, because this function can be called in
     // PTRACE_EXEC_EVENT, the process seems not fully loaded by ld-linux.so

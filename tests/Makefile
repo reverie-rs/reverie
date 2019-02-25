@@ -89,5 +89,8 @@ tests: build-tests
 	cd .. && timeout 1s ./bin/systrace ./tests/threads1 || exit 1
 	cd .. && timeout 1s ./bin/systrace ./tests/threads2 || exit 1
 	cd .. && timeout 1s ./bin/systrace ./tests/threads3 || exit 1
+	cd .. && timeout 8s ./bin/systrace ./tests/threads4 || exit 1
+	cd .. && timeout 8s ./bin/systrace ./tests/threads5 || exit 1
+	cd .. && timeout 8s ./bin/systrace ./tests/threads6 || exit 1
 
 .PHONY: all tests clean

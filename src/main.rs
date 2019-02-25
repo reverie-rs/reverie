@@ -25,6 +25,7 @@ mod nr;
 mod ns;
 mod proc;
 mod remote;
+mod remote_rwlock;
 mod sched;
 mod sched_wait;
 mod stubs;
