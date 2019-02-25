@@ -284,9 +284,6 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
         return Err(Error::new(ErrorKind::Other, format!("skip syscall patching due to vork")));
     }
 
-    if task.ldpreload_address.is_none() {
-        task.ldpreload_address = libsystrace_load_address(task.gettid());
-    }
     task.ldpreload_address.ok_or(Error::new(
         ErrorKind::Other,
         format!("libsystrace not loaded"),
@@ -516,7 +513,7 @@ impl Remote for TracedTask {
     }
 
     fn getevent(&self) -> Result<i64> {
-        let ev = ptrace::getevent(self.tid).expect("pid {}: ptrace getevent");
+        let ev = ptrace::getevent(self.tid).expect(&format!("task {:?}: ptrace getevent", self));
         Ok(ev)
     }
 }
@@ -773,10 +770,13 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         std::thread::sleep(std::time::Duration::from_micros(1000));
     }
 
+    if task.ldpreload_address.is_none() {
+        task.ldpreload_address = libsystrace_load_address(tid);
+    }
     if task.ldpreload_address.is_none() || hook.is_none() {
         ptrace::syscall(tid).expect("ptrace syscall");
     } else {
-        let _ = patch_syscall_with(&mut task, hook.unwrap(), syscall, rip).unwrap();
+        patch_syscall_with(&mut task, hook.unwrap(), syscall, rip).unwrap();
         just_continue(tid, None)?;
     }
     Ok(task)
