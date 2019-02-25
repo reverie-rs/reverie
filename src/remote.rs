@@ -34,8 +34,8 @@ impl<T> RemotePtr<T>
 where
     T: Sized,
 {
-    pub fn new(not_null: NonNull<T>) -> Self {
-        RemotePtr { ptr: not_null }
+    pub fn new(ptr: *mut T) -> Self {
+        RemotePtr { ptr: NonNull::new(ptr).unwrap() }
     }
     pub fn as_ptr(self) -> *mut T {
         self.ptr.as_ptr()
@@ -122,7 +122,7 @@ pub fn synchronize_from(task: &TracedTask, rip: u64){
     regs.rip = 0x7000_0018u64;
     // push return address
     regs.rsp -= 8;
-    let remote_return_address_ptr = RemotePtr::new(NonNull::new(regs.rsp as *mut u64).unwrap());
+    let remote_return_address_ptr = RemotePtr::new(regs.rsp as *mut u64);
     let remote_return_address = rip;
     task.poke(remote_return_address_ptr, &remote_return_address).unwrap();
     task.setregs(regs).unwrap();
@@ -142,7 +142,7 @@ pub fn patch_at(
 
     let mut patch_bytes: Vec<u8> = Vec::new();
 
-    let remote_rip = RemotePtr::new(NonNull::new(ip as *mut u8).unwrap());
+    let remote_rip = RemotePtr::new(ip as *mut u8);
 
     patch_bytes.push(0xe8);
     patch_bytes.push((rela & 0xff) as u8);

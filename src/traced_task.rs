@@ -257,8 +257,7 @@ fn find_syscall_hook(task: &TracedTask, rip: u64) -> Option<&'static hooks::Sysc
     for i in 0..=1 {
         let u64_size = std::mem::size_of::<u64>();
         let remote_ptr = RemotePtr::new(
-            NonNull::new((rip + i * std::mem::size_of::<u64>() as u64) as *mut u64)
-                .expect("null pointer"),
+            (rip + i * std::mem::size_of::<u64>() as u64) as *mut u64
         );
         let u: u64 = task.peek(remote_ptr).unwrap();
         let raw: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(u) };
@@ -422,7 +421,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
         size: size as usize,
         allocated: stubs.len(),
     });
-    let remote_ptr = RemotePtr::new(NonNull::new(at as *mut u8).expect("null pointer"));
+    let remote_ptr = RemotePtr::new(at as *mut u8);
     task.poke_bytes(remote_ptr, stubs.as_slice())?;
 
     task.untraced_syscall(
