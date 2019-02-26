@@ -74,6 +74,7 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         instructions: &[0x48, 0x8b, 0x3c, 0x24],
         symbol: "_syscall_hook_trampoline_48_8b_3c_24",
     },
+    /*
     /* __lll_unlock_wake has 'syscall' followed by
      * pop %rdx; pop %rsi; ret */
     SyscallPatchHook {
@@ -81,6 +82,7 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         instructions: &[0x5a, 0x5e, 0xc3],
         symbol: "_syscall_hook_trampoline_5a_5e_c3",
     },
+    */
     /* posix_fadvise64 has 'syscall' followed by
      * mov %eax,%edx;
      * neg %edx */
@@ -112,6 +114,7 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         instructions: &[0x89, 0xc1, 0x31, 0xd2],
         symbol: "_syscall_hook_trampoline_89_c1_31_d2",
     },
+    /*
     /* getpid has 'syscall' followed by
      * 'retq;
      *  nopl 0x0(%rax,%rax,1) */
@@ -120,6 +123,8 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         instructions: &[0xc3, 0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00],
         symbol: "_syscall_hook_trampoline_c3_nop",
     },
+    */
+    /*
     /* liblsan internal_close has 'syscall' followed by
      * 'retq;
      *  nopl 0x0(%rax,%rax,1) */
@@ -144,6 +149,7 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         instructions: &[0xc3, 0x66, 0x90],
         symbol: "_syscall_hook_trampoline_c3_nop",
     },
+    */
     /* ld-linux.so SYS_access has 'syscall' followed by
      * 'test %eax, %eax
      *  sete dl' */
