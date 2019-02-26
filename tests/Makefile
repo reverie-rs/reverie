@@ -7,7 +7,8 @@ CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -f
 
 TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7
 
-SYSTRACE := ../bin/systrace --library-path=$(shell pwd)/../lib --
+SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../lib)
+SYSTRACE := ../bin/systrace --library-path=$(SYSTRACE_LIBRARY_PATH) --
 all: $(TARGET)
 
 build-tests: $(TARGET)
@@ -87,11 +88,11 @@ tests: build-tests
 	$(SYSTRACE) ./test1.sh || echo "test1 returned $$?"
 	$(SYSTRACE) ./test2.sh || echo "test2 returned $$?"
 	$(SYSTRACE) ./segfault && exit 1 || exit 0
-	timeout 30s $(SYSTRACE) ./threads1 || exit 1
-	timeout 30s $(SYSTRACE) ./threads2 || exit 1
-	timeout 30s $(SYSTRACE) ./threads3 || exit 1
-	timeout 30s $(SYSTRACE) ./threads4 || exit 1
-	timeout 30s $(SYSTRACE) ./threads5 || exit 1
-	timeout 30s $(SYSTRACE) ./threads6 || exit 1
+	timeout 30s $(SYSTRACE) ./threads1
+	timeout 30s $(SYSTRACE) ./threads2
+	timeout 30s $(SYSTRACE) ./threads3
+	timeout 30s $(SYSTRACE) ./threads4
+	timeout 30s $(SYSTRACE) ./threads5
+	timeout 30s $(SYSTRACE) ./threads6
 
 .PHONY: all tests clean
