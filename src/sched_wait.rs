@@ -123,6 +123,10 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         return Some(task);
                     }
                 }
+                WaitStatus::Exited(pid, retval) => {
+                    tasks.tasks.remove(&pid);
+                    log::trace!("task {} exited with: {}", pid, retval);
+                }
                 otherwise => panic!("unknown status: {:?}", otherwise),
             }
         }
