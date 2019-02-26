@@ -295,7 +295,7 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
         .is_some()
     {
         // already patched
-        unreachable!("{:?} syscall @{:x} is patched already", task, rip);
+        return Ok(());
     }
     if task
         .unpatchable_syscalls
@@ -699,7 +699,6 @@ fn wait_sigstop(task: &TracedTask) -> Result<()> {
 }
 
 fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
-    task.resume(task.signal_to_deliver)?;
     Ok(task)
 }
 
@@ -774,7 +773,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         task.ldpreload_address = libsystrace_load_address(tid);
     }
     if !(task.ldpreload_address.is_none() || hook.is_none()) {
-        patch_syscall_with(&mut task, hook.unwrap(), syscall, rip).unwrap();
+        let _ = patch_syscall_with(&mut task, hook.unwrap(), syscall, rip);
     }
     Ok(task)
 }
@@ -855,7 +854,8 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
 // so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
 // do the syscall, without our patch. we change to syscall number to -1, so that
 // kernel would simply skip the syscall, so that we can jump to our patched syscall
-// on the first run.
+// on the first run. please note after calling this function, the task state will
+// no longer in ptrace event seccomp.
 fn skip_seccomp_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -> Result<()> {
     let tid = task.gettid();
     let mut new_regs = regs.clone();
