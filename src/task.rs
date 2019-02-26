@@ -16,7 +16,7 @@ use crate::remote::*;
 use crate::sched::Scheduler;
 use crate::stubs;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TaskState {
     Ready,
     Running,

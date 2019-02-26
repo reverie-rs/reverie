@@ -73,7 +73,9 @@ fn run_tracer_main(sched: &mut SchedWait) -> Result<i32> {
         let run_result = task.run()?;
         match run_result {
             RunTask::Exited(_code) => exit_code = _code,
-            RunTask::Runnable(task1) => sched.add(task1),
+            RunTask::Runnable(task1) => {
+                sched.add_and_schedule(task1);
+            }
             RunTask::Forked(parent, child) => {
                 sched.add(child);
                 sched.add_and_schedule(parent);

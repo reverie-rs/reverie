@@ -37,9 +37,14 @@ impl Scheduler<TracedTask> for SchedWait {
     fn add_and_schedule(&mut self, task: TracedTask) {
         let tid = task.gettid();
         let sig = task.signal_to_deliver;
+        let state = task.state;
         self.tasks.insert(tid, task);
         self.run_queue.push_front(tid);
-        ptrace::cont(tid, sig).expect(&format!("add_and_schedule, resume {}", tid));
+        if state == TaskState::Event(7) { // PTRACE_EVENT_SECCOMP
+            ptrace::syscall(tid).expect(&format!("add_and_schedule, syscall {}", tid));
+        } else {
+            ptrace::cont(tid, sig).expect(&format!("add_and_schedule, resume {}", tid));
+        }
     }
     fn remove(&mut self, task: &mut TracedTask) {
         self.tasks.remove(&Task::getpid(task));

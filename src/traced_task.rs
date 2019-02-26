@@ -189,7 +189,7 @@ impl Task for TracedTask {
     }
 
     fn run(self) -> Result<RunTask<TracedTask>> {
-        let task = self;
+        let mut task = self;
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
@@ -197,7 +197,6 @@ impl Task for TracedTask {
                 Ok(RunTask::Exited(0x80 | signal as i32)
             }
             TaskState::Ready => {
-                task.resume(None)?;
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Stopped(signal) => {
@@ -206,7 +205,7 @@ impl Task for TracedTask {
                     debug!("{:?} got {:?} rsp: {:x}, rip: {:x}", task, signal, regs.rsp, regs.rip);
                     decode_proc_maps(task.gettid()).unwrap().iter().for_each(|e| { debug!("{:x?}", e);});
                 }
-                task.resume(Some(signal))?;
+                task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(ev) => handle_ptrace_event(task),
@@ -323,7 +322,7 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
     // PTRACE_EVENT_SECCOMP, as the kernel might allow previous syscall
     // to run through, this could cause chaotic issues if we rely ptrace
     // cont/breakpoint to control tracee's execution.
-    skip_seccomp_syscall(task.gettid(), old_regs)?;
+    skip_seccomp_syscall(task, old_regs)?;
 
     task.syscall_patch_lockset.borrow_mut().try_read_unlock(task.gettid(), rip);
     task.syscall_patch_lockset.borrow_mut().try_write_lock(task.gettid(), rip);
@@ -512,6 +511,11 @@ impl Remote for TracedTask {
         Ok(())
     }
 
+    fn step(&self, sig: Option<signal::Signal>) -> Result<()> {
+        ptrace::step(self.tid, sig).expect(&format!("task {:?}: ptrace cont", self));
+        Ok(())
+    }
+
     fn getevent(&self) -> Result<i64> {
         let ev = ptrace::getevent(self.tid).expect(&format!("task {:?}: ptrace getevent", self));
         Ok(ev)
@@ -609,11 +613,6 @@ fn remote_do_syscall_at(
     }
 }
 
-fn handle_ptrace_signal(task: TracedTask) -> Result<TracedTask> {
-    task.resume(task.signal_to_deliver)?;
-    Ok(task)
-}
-
 // PTRACE_SYSCALL stop. task was stopped because of syscall exit.
 // this is desired because some syscalls are blocking
 // we use it to do the read lock unlock
@@ -621,7 +620,7 @@ fn handle_syscall_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let regs = task.getregs()?;
     let rip = regs.rip;
     let tid = task.gettid();
-    trace!("=== seccomp syscall {:?} @{:x}, return: {:x}", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax);
+    trace!("=== seccomp syscall {:?} @{:x}, return: {:x} ({})", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax, regs.rax as i64);
     let syscall_end = rip + 9; // TODO: maximum patch is less than 16B
     let mut sig: Option<signal::Signal> = None;
     loop {
@@ -644,7 +643,6 @@ fn handle_syscall_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
         }
     }
     task.syscall_patch_lockset.borrow_mut().try_read_unlock(tid, rip);
-    ptrace::cont(tid, None).expect("ptrace cont");
     Ok(RunTask::Runnable(task))
 }
 
@@ -760,10 +758,11 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     // we skip the (seccomp) syscall, do a synchronization, and let
     // it rerun from the begining of the patched instruction.
     if !is_syscall_insn(tid, rip_before_syscall) {
-        trace!("{} seccomp syscall {:?}@{:x} restart because it is already patched", tid, syscall, rip);
-        skip_seccomp_syscall(tid, regs).unwrap();
+        let mut new_regs = regs;
+        new_regs.rax = regs.orig_rax;
+        trace!("{} seccomp syscall {:?}@{:x} restart because it is already patched, rax: {:x}", tid, syscall, rip, regs.rax);
+        skip_seccomp_syscall(&mut task, new_regs).unwrap();
         synchronize_from(&mut task, rip_before_syscall);
-        task.resume(None).unwrap();
         return Ok(task);
     }
 
@@ -774,11 +773,8 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     if task.ldpreload_address.is_none() {
         task.ldpreload_address = libsystrace_load_address(tid);
     }
-    if task.ldpreload_address.is_none() || hook.is_none() {
-        ptrace::syscall(tid).expect("ptrace syscall");
-    } else {
+    if !(task.ldpreload_address.is_none() || hook.is_none()) {
         patch_syscall_with(&mut task, hook.unwrap(), syscall, rip).unwrap();
-        just_continue(tid, None)?;
     }
     Ok(task)
 }
@@ -853,20 +849,22 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         saved as *mut libc::c_void,
     )?;
     task_exec_reset(task);
-    ptrace::cont(tid, None)
+    Ok(())
 }
 
 // so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
 // do the syscall, without our patch. we change to syscall number to -1, so that
 // kernel would simply skip the syscall, so that we can jump to our patched syscall
 // on the first run.
-fn skip_seccomp_syscall(pid: unistd::Pid, regs: libc::user_regs_struct) -> Result<()> {
+fn skip_seccomp_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -> Result<()> {
+    let tid = task.gettid();
     let mut new_regs = regs.clone();
     new_regs.orig_rax = -1i64 as u64;
-    ptrace::setregs(pid, new_regs).expect("ptrace setregs failed");
-    ptrace::step(pid, None).expect("ptrace single step");
-    assert!(wait::waitpid(Some(pid), None) == Ok(WaitStatus::Stopped(pid, signal::SIGTRAP)));
-    ptrace::setregs(pid, regs).expect("ptrace setregs failed");
+    task.setregs(new_regs)?;
+    task.step(None)?;
+    assert!(wait::waitpid(Some(tid), None) == Ok(WaitStatus::Stopped(tid, signal::SIGTRAP)));
+    task.state = TaskState::Stopped(signal::SIGTRAP);
+    task.setregs(regs)?;
     Ok(())
 }
 

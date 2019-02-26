@@ -114,6 +114,7 @@ pub trait Remote {
     fn setregs(&self, regs: libc::user_regs_struct) -> Result<()>;
     fn getevent(&self) -> Result<i64>;
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
+    fn step(&self, sig: Option<signal::Signal>) -> Result<()>;
 }
 
 pub fn synchronize_from(task: &TracedTask, rip: u64){
