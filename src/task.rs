@@ -31,6 +31,7 @@ pub enum TaskState {
 pub enum RunTask<Task> {
     Exited(i32),
     Runnable(Task),
+    Blocked(Task),
     Forked(Task, Task),
 }
 

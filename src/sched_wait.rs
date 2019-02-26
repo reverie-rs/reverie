@@ -34,6 +34,11 @@ impl Scheduler<TracedTask> for SchedWait {
         self.tasks.insert(tid, task);
         self.run_queue.push_back(tid);
     }
+    fn add_blocked(&mut self, task: TracedTask) {
+        let tid = Task::gettid(&task);
+        self.tasks.insert(tid, task);
+        self.blocked_queue.push_back(tid);
+    }
     fn add_and_schedule(&mut self, task: TracedTask) {
         let tid = task.gettid();
         let sig = task.signal_to_deliver;
@@ -130,6 +135,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                 }
                 WaitStatus::Exited(pid, retval) => {
                     tasks.tasks.remove(&pid);
+                    retry = true;
                     log::trace!("task {} exited with: {}", pid, retval);
                 }
                 otherwise => panic!("unknown status: {:?}", otherwise),

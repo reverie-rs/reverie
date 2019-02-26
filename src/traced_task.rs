@@ -1,5 +1,5 @@
 use libc;
-use log::{trace, debug};
+use log::{trace, debug, warn};
 use nix::sys::socket;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
@@ -224,8 +224,28 @@ impl TracedTask {
             .is_some()
     }
 }
+
+fn check_ref_counters(task: &TracedTask) {
+    let expected = 1;
+    let refcnt = Rc::strong_count(&task.unpatchable_syscalls);
+    if refcnt != expected {
+        warn!("{:?} Rc::strong_count(&task.unpatchable_syscalls) expected {} got {}", task, expected, refcnt);
+    }
+    let expected = 1;
+    let refcnt = Rc::strong_count(&task.memory_map);
+    if refcnt != expected {
+        warn!("{:?} Rc::strong_count(&task.memory_map) expected {} got {}", task, expected, refcnt);
+    }
+
+    let expected = 1;
+    let refcnt = Rc::strong_count(&task.stub_pages);
+    if refcnt != expected {
+        warn!("{:?} Rc::strong_count(&task.stub_pages) expected {} got {}", task, expected, refcnt);
+    }
+}
+
 // reset task after exec
-// FIXME: needs special handling
+// FIXME: may needs special handling
 // see https://github.com/pgbovine/strace-plus/blob/master/README-linux-ptrace
 // section: 1.x execve under ptrace.
 fn task_exec_reset(task: &mut TracedTask) {
@@ -234,9 +254,7 @@ fn task_exec_reset(task: &mut TracedTask) {
     task.signal_to_deliver = None;
     task.state = TaskState::Exited(0);
     task.in_vfork = false;
-    debug_assert_eq!(Rc::strong_count(&task.unpatchable_syscalls), 1);
-    debug_assert_eq!(Rc::strong_count(&task.memory_map), 1);
-    debug_assert_eq!(Rc::strong_count(&task.stub_pages), 1);
+    check_ref_counters(task);
     *(task.unpatchable_syscalls.borrow_mut()) = Vec::new();
     *(task.memory_map.borrow_mut()) = Vec::new();
     *(task.stub_pages.borrow_mut()) = Vec::new();
@@ -725,13 +743,14 @@ fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let sig = task.signal_to_deliver;
     let retval = task.getevent()?;
     ptrace::step(task.gettid(), sig).expect("ptrace cont");
-    match wait::waitpid(Some(task.gettid()), None) {
+    match wait::waitpid(Some(task.gettid()), Some(wait::WaitPidFlag::WNOHANG)) {
         Ok(WaitStatus::Exited(pid, _ret)) => Ok(RunTask::Exited(retval as i32)),
         Ok(WaitStatus::Signaled(pid, sig, _)) => {
             // ignore error, because task could have been killed already
             let _ = ptrace::cont(pid, Some(sig));
             Ok(RunTask::Exited(0x80 | sig as i32)
         }
+        Ok(WaitStatus::StillAlive) => Ok(RunTask::Blocked(task)),
         unknown => {
             panic!("unknown status after ptrace exit: {:?}", unknown)
         }

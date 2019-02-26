@@ -13,6 +13,7 @@ pub trait Scheduler<Task> {
     where
         Self: Sized;
     fn add(&mut self, task: Task);
+    fn add_blocked(&mut self, task: Task);
     fn add_and_schedule(&mut self, task: Task);
     fn remove(&mut self, task: &mut Task);
     fn next(&mut self) -> Option<Task>;
