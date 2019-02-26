@@ -145,8 +145,6 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_5a_5e_c3)
         pop (stub_scratch_1)
         pop %rdx
         pop %rsi
-	retq
-	push (stub_scratch_1)
 	jmp _syscallbuf_final_exit_instruction
 
         .size _syscall_hook_trampoline_5a_5e_c3, .-_syscall_hook_trampoline_5a_5e_c3
