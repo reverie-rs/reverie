@@ -621,6 +621,7 @@ fn handle_syscall_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let regs = task.getregs()?;
     let rip = regs.rip;
     let tid = task.gettid();
+    trace!("=== seccomp syscall {:?} @{:x}, return: {:x}", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax);
     let syscall_end = rip + 9; // TODO: maximum patch is less than 16B
     let mut sig: Option<signal::Signal> = None;
     loop {

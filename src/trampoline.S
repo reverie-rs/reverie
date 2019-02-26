@@ -142,14 +142,12 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_5a_5e_c3)
         callq __morestack
         /* The original instructions after the syscall are
            pop %rdx; pop %rsi; retq. */
-        /* We're not returning to the dynamically generated stub, so
-           we need to fix the stack pointer ourselves. */
-        pop %rdx
-        pop %rsp
+        pop (stub_scratch_1)
         pop %rdx
         pop %rsi
-        pop (stub_scratch_1)
-        jmp _syscallbuf_final_exit_instruction
+	retq
+	push (stub_scratch_1)
+	jmp _syscallbuf_final_exit_instruction
 
         .size _syscall_hook_trampoline_5a_5e_c3, .-_syscall_hook_trampoline_5a_5e_c3
 
