@@ -7,6 +7,7 @@ CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -f
 
 TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7
 
+SYSTRACE := ../bin/systrace --library-path=$(shell pwd)/../lib --
 all: $(TARGET)
 
 build-tests: $(TARGET)
@@ -75,22 +76,22 @@ clean:
 	$(RM) $(TARGET)
 
 tests: build-tests
-	cd .. && ./tests/x64-save-return-address || exit 1
-	cd .. && ./bin/systrace ./tests/openat1 || exit 1
-	cd .. && ./bin/systrace ./tests/open-many > /dev/null || exit 1
-	cd .. && ./bin/systrace ./tests/write-many || exit 1
-	cd .. && ./bin/systrace ./tests/getpid || exit 1
-	cd .. && ./bin/systrace ./tests/nanosleep || exit 1
-	cd .. && ./bin/systrace ./tests/clock-nanosleep || exit 1
-	cd .. && ./bin/systrace ./tests/getpid-pie || exit 1
-	cd .. && ./bin/systrace ./tests/test1.sh || echo "test1 returned $$?"
-	cd .. && ./bin/systrace ./tests/test2.sh || echo "test2 returned $$?"
-	cd .. && ./bin/systrace ./tests/segfault && exit 1 || exit 0
-	cd .. && timeout 1s ./bin/systrace ./tests/threads1 || exit 1
-	cd .. && timeout 1s ./bin/systrace ./tests/threads2 || exit 1
-	cd .. && timeout 1s ./bin/systrace ./tests/threads3 || exit 1
-	cd .. && timeout 8s ./bin/systrace ./tests/threads4 || exit 1
-	cd .. && timeout 8s ./bin/systrace ./tests/threads5 || exit 1
-	cd .. && timeout 8s ./bin/systrace ./tests/threads6 || exit 1
+	./x64-save-return-address || exit 1
+	$(SYSTRACE) ./openat1 || exit 1
+	$(SYSTRACE) ./open-many > /dev/null || exit 1
+	$(SYSTRACE) ./write-many || exit 1
+	$(SYSTRACE) ./getpid || exit 1
+	$(SYSTRACE) ./nanosleep || exit 1
+	$(SYSTRACE) ./clock-nanosleep || exit 1
+	$(SYSTRACE) ./getpid-pie || exit 1
+	$(SYSTRACE) ./test1.sh || echo "test1 returned $$?"
+	$(SYSTRACE) ./test2.sh || echo "test2 returned $$?"
+	$(SYSTRACE) ./segfault && exit 1 || exit 0
+	timeout 30s $(SYSTRACE) ./threads1 || exit 1
+	timeout 30s $(SYSTRACE) ./threads2 || exit 1
+	timeout 30s $(SYSTRACE) ./threads3 || exit 1
+	timeout 30s $(SYSTRACE) ./threads4 || exit 1
+	timeout 30s $(SYSTRACE) ./threads5 || exit 1
+	timeout 30s $(SYSTRACE) ./threads6 || exit 1
 
 .PHONY: all tests clean

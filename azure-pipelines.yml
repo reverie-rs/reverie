@@ -28,7 +28,9 @@ jobs:
       displayName: Query rust and cargo versions
     - script: |
         uname -a
-      displayName: Check kernel version
+        /bin/bash --version
+        timeout --version
+      displayName: Check environment
     - script: make
       displayName: Build
     - script: |
