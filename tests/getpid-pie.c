@@ -27,7 +27,6 @@ int main(int argc, char* argv[])
   int pid0 = getpid();
   int pid = sys_getpid();
   printf("pid = %d\n", pid);
-  assert(pid == 2);
   assert(pid0 == pid);
 
   return 0;
