@@ -201,16 +201,7 @@ impl Task for TracedTask {
             }
             TaskState::Stopped(signal) => {
                 if signal == signal::SIGSEGV || signal == signal::SIGILL {
-                    let regs = task.getregs()?;
-                    let siginfo = task.getsiginfo()?;
-                    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rip: {:x}",
-                           task, signal,
-                           siginfo.si_errno, siginfo.si_code,
-                           regs.rsp, regs.rip);
-                    decode_proc_maps(task.gettid())
-                        .unwrap()
-                        .iter()
-                        .for_each(|e| { debug!("{:x?}", e);});
+                    show_fault_context(&task, signal);
                 }
                 task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
@@ -220,6 +211,50 @@ impl Task for TracedTask {
             TaskState::Exited(exit_code) => unreachable!("run task which is already exited"),
         }
     }
+}
+
+fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
+    let regs = task.getregs().unwrap();
+    let siginfo = task.getsiginfo().unwrap();
+    let tid = task.gettid();
+    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rip: {:x}",
+           task, sig,
+           siginfo.si_errno, siginfo.si_code,
+           regs.rsp, regs.rip);
+    let sp_top = regs.rsp - 0x40;
+    let sp_bot = regs.rsp + 0x40;
+    let mut sp = sp_top;
+
+    let mut text = String::new();
+    while sp <= sp_bot {
+        match ptrace::read(tid, sp as ptrace::AddressType) {
+            Err(_) => break,
+            Ok(x)  => {
+                if sp == regs.rsp {
+                    text += &format!(" => {:12x}: {:16x}\n", sp, x);
+                } else {
+                    text += &format!("    {:12x}: {:16x}\n", sp, x);
+                }
+            }
+        }
+        sp += 8;
+    }
+    debug!("backtrace: \n{}", text);
+
+    if regs.rip != 0 {
+        let rptr = RemotePtr::new((regs.rip - 2) as *mut u8);
+        match task.peek_bytes(rptr, 16) {
+            Err(_) => (),
+            Ok(v)  => {
+                debug!("insn @{:x?} = {:02x?}", rptr.as_ptr(), v);
+            }
+        }
+    }
+
+    decode_proc_maps(task.gettid())
+        .unwrap()
+        .iter()
+        .for_each(|e| { debug!("{:x?}", e);});
 }
 
 impl TracedTask {
