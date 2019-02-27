@@ -14,6 +14,7 @@ use crate::hooks;
 use crate::nr;
 use crate::proc::*;
 use crate::stubs;
+use crate::nr::SyscallNo;
 use crate::nr::SyscallNo::*;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
@@ -130,8 +131,9 @@ pub fn synchronize_from(task: &TracedTask, rip: u64){
     task.setregs(regs).unwrap();
 }
 
-pub fn patch_at(
+pub fn patch_syscall_at(
     task: &mut TracedTask,
+    syscall: SyscallNo,
     hook: &hooks::SyscallHook,
     target: u64,
 ) {
@@ -231,6 +233,7 @@ pub fn patch_at(
     };
     let patch_head: Vec<_> = patch_bytes.iter().cloned().take(SYSCALL_INSN_SIZE).collect();
     let patch_tail: Vec<_> = patch_bytes.iter().cloned().skip(SYSCALL_INSN_SIZE).collect();
+    let original_bytes = task.peek_bytes(remote_rip, patch_bytes.len()).unwrap();
     // split into chunks so that ptrace::write is called
     // explicitly avoid process_vm_writev because the later
     // requires memory map permission change
@@ -241,7 +244,8 @@ pub fn patch_at(
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
-    debug!("patched instruction @{:x} => callq {:x} : {:02x?}", ip, target, patch_bytes);
+    debug!("{:?} patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})",
+           task, syscall, ip, original_bytes, patch_bytes, target);
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).

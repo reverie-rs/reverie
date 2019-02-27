@@ -33,10 +33,5 @@ jobs:
       displayName: Check environment
     - script: make
       displayName: Build
-    - script: |
-        $HOME/.cargo/bin/rustup component add rustfmt
-        $HOME/.cargo/bin/cargo fmt -- --check
-      displayName: Run rustfmt
-      continueOnError: true
     - script: make tests
       displayName: Run tests

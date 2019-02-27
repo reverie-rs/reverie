@@ -201,16 +201,7 @@ impl Task for TracedTask {
             }
             TaskState::Stopped(signal) => {
                 if signal == signal::SIGSEGV || signal == signal::SIGILL {
-                    let regs = task.getregs()?;
-                    let siginfo = task.getsiginfo()?;
-                    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rip: {:x}",
-                           task, signal,
-                           siginfo.si_errno, siginfo.si_code,
-                           regs.rsp, regs.rip);
-                    decode_proc_maps(task.gettid())
-                        .unwrap()
-                        .iter()
-                        .for_each(|e| { debug!("{:x?}", e);});
+                    show_fault_context(&task, signal);
                 }
                 task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
@@ -220,6 +211,74 @@ impl Task for TracedTask {
             TaskState::Exited(exit_code) => unreachable!("run task which is already exited"),
         }
     }
+}
+
+fn show_stackframe(tid: Pid, stack: u64, top_size: usize, bot_size: usize) -> String{
+    let sp_top = stack - top_size as u64;
+    let sp_bot = stack + bot_size as u64;
+    let mut sp = sp_top;
+    let mut text = String::new();
+    while sp <= sp_bot {
+        match ptrace::read(tid, sp as ptrace::AddressType) {
+            Err(_) => break,
+            Ok(x)  => {
+                if sp == stack {
+                    text += &format!(" => {:12x}: {:16x}\n", sp, x);
+                } else {
+                    text += &format!("    {:12x}: {:16x}\n", sp, x);
+                }
+            }
+        }
+        sp += 8;
+    }
+    text
+}
+
+fn show_user_regs(regs: &libc::user_regs_struct) -> String {
+    let mut res = String::new();
+
+    res += &format!("rax {:16x} rbx {:16x} rcx {:16x} rdx {:16x}\n",
+                    regs.rax, regs.rbx, regs.rcx, regs.rdx);
+    res += &format!("rsi {:16x} rdi {:16x} rbp {:16x} rsp {:16x}\n",
+                    regs.rsi, regs.rdi, regs.rbp, regs.rsp);
+    res += &format!(" r8 {:16x}  r9 {:16x} r10 {:16x} r11 {:16x}\n",
+                    regs.r8, regs.r9, regs.r10, regs.r11);
+    res += &format!("r12 {:16x} r13 {:16x} r14 {:16x} r15 {:16x}\n",
+                    regs.r12, regs.r13, regs.r14, regs.r15);
+    res += &format!("rip {:16x} eflags {:16x}\n",
+                    regs.rip, regs.eflags);
+    res += &format!("cs {:x} ss {:x} ds {:x} es {:x}\nfs {:x} gs {:x}",
+                    regs.cs, regs.ss, regs.ds, regs.es,
+                    regs.fs, regs.gs);
+    res
+}
+
+fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
+    let regs = task.getregs().unwrap();
+    let siginfo = task.getsiginfo().unwrap();
+    let tid = task.gettid();
+    debug!("{:?} got {:?} si_errno: {}, si_code: {}, regs\n{}",
+           task, sig,
+           siginfo.si_errno, siginfo.si_code,
+           show_user_regs(&regs));
+
+    debug!("stackframe from rsp@{:x}\n{}", regs.rsp,
+           show_stackframe(tid, regs.rsp, 0x40, 0x80));
+
+    if regs.rip != 0 {
+        let rptr = RemotePtr::new((regs.rip - 2) as *mut u8);
+        match task.peek_bytes(rptr, 16) {
+            Err(_) => (),
+            Ok(v)  => {
+                debug!("insn @{:x?} = {:02x?}", rptr.as_ptr(), v);
+            }
+        }
+    }
+
+    decode_proc_maps(task.gettid())
+        .unwrap()
+        .iter()
+        .for_each(|e| { debug!("{:x?}", e);});
 }
 
 impl TracedTask {
@@ -353,7 +412,7 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
     task.syscall_patch_lockset.borrow_mut().try_write_lock(task.gettid(), rip);
     let indirect_jump_address = extended_jump_from_to(task, hook, rip)?;
     task.patched_syscalls.borrow_mut().push(rip);
-    patch_at(task, hook, indirect_jump_address);
+    patch_syscall_at(task, syscall, hook, indirect_jump_address);
     task.syscall_patch_lockset.borrow_mut().try_write_unlock(task.gettid(), rip);
     Ok(())
 }
@@ -620,11 +679,6 @@ fn remote_do_syscall_at(
         WaitStatus::Stopped(pid, signal::SIGTRAP) => (),
         WaitStatus::Stopped(pid, signal::SIGCHLD) => {
             task.signal_to_deliver = Some(signal::SIGCHLD)
-        }
-        WaitStatus::Stopped(pid, signal::SIGSEGV) => {
-            task.setregs(oldregs)?;
-            task.signal_to_deliver = Some(signal::SIGSEGV);
-            task.resume(Some(signal::SIGSEGV))?;
         }
         otherwise => {
             let regs = task.getregs()?;
