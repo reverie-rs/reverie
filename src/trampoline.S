@@ -135,7 +135,7 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_48_8b_3c_24)
          callq __morestack
          /* The original instruction after the syscall is movq (%rsp),%rdi. */
          movq 8(%rsp),%rdi
-         movq (%rdi),%rdi
+         movq %rax, %rdx
 SYSCALLHOOK_END(_syscall_hook_trampoline_48_8b_3c_24)
 
 SYSCALLHOOK_START(_syscall_hook_trampoline_5a_5e_c3)
