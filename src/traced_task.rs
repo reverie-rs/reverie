@@ -202,8 +202,15 @@ impl Task for TracedTask {
             TaskState::Stopped(signal) => {
                 if signal == signal::SIGSEGV || signal == signal::SIGILL {
                     let regs = task.getregs()?;
-                    debug!("{:?} got {:?} rsp: {:x}, rip: {:x}", task, signal, regs.rsp, regs.rip);
-                    decode_proc_maps(task.gettid()).unwrap().iter().for_each(|e| { debug!("{:x?}", e);});
+                    let siginfo = task.getsiginfo()?;
+                    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rip: {:x}",
+                           task, signal,
+                           siginfo.si_errno, siginfo.si_code,
+                           regs.rsp, regs.rip);
+                    decode_proc_maps(task.gettid())
+                        .unwrap()
+                        .iter()
+                        .for_each(|e| { debug!("{:x?}", e);});
                 }
                 task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
@@ -532,6 +539,11 @@ impl Remote for TracedTask {
     fn step(&self, sig: Option<signal::Signal>) -> Result<()> {
         ptrace::step(self.tid, sig).expect(&format!("task {:?}: ptrace cont", self));
         Ok(())
+    }
+
+    fn getsiginfo(&self) -> Result<libc::siginfo_t> {
+        let siginfo = ptrace::getsiginfo(self.tid).expect(&format!("task {:?}: getsiginfo", self));
+        Ok(siginfo)
     }
 
     fn getevent(&self) -> Result<i64> {
