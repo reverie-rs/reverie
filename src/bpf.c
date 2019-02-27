@@ -34,6 +34,7 @@ void bpf_install(void)
     SYSCALL(__NR_vfork, ALLOW),
     SYSCALL(__NR_execve, ALLOW),
     SYSCALL(__NR_rt_sigreturn, ALLOW),
+    SYSCALL(__NR_futex, ALLOW),
     SYSCALL(__NR_clock_nanosleep, ALLOW),	// this syscall should not be patched
     LOAD_SYSCALL_IP,
     IP(0x70000002, ALLOW),
