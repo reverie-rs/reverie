@@ -245,8 +245,6 @@ fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
 
     debug!("stackframe from rsp@{:x}\n{}", regs.rsp,
            show_stackframe(tid, regs.rsp, 0x40, 0x80));
-    debug!("stackframe from rbp@{:x}\n{}", regs.rbp,
-           show_stackframe(tid, regs.rbp, 0x40, 0x80));
 
     if regs.rip != 0 {
         let rptr = RemotePtr::new((regs.rip - 2) as *mut u8);

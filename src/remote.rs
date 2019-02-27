@@ -233,6 +233,7 @@ pub fn patch_syscall_at(
     };
     let patch_head: Vec<_> = patch_bytes.iter().cloned().take(SYSCALL_INSN_SIZE).collect();
     let patch_tail: Vec<_> = patch_bytes.iter().cloned().skip(SYSCALL_INSN_SIZE).collect();
+    let original_bytes = task.peek_bytes(remote_rip, patch_bytes.len()).unwrap();
     // split into chunks so that ptrace::write is called
     // explicitly avoid process_vm_writev because the later
     // requires memory map permission change
@@ -243,7 +244,7 @@ pub fn patch_syscall_at(
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
-    debug!("patched {:?}@{:x} => callq {:x}: {:02x?}", syscall, ip, target, patch_bytes);
+    debug!("patched {:?}@{:x} {:02x?} => callq {:02x?} (callq {:x})", syscall, ip, original_bytes, patch_bytes, target);
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).
