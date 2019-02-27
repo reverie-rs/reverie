@@ -144,6 +144,7 @@ pub fn patch_at(
     let mut patch_bytes: Vec<u8> = Vec::new();
 
     let remote_rip = RemotePtr::new(ip as *mut u8);
+    let remote_rip_after_syscall = RemotePtr::new((ip + SYSCALL_INSN_SIZE as u64) as *mut u8);
 
     patch_bytes.push(0xe8);
     patch_bytes.push((rela & 0xff) as u8);
@@ -233,7 +234,11 @@ pub fn patch_at(
         size as i64,
         libc::PROT_WRITE as i64,
         0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
-    task.poke_bytes(remote_rip, patch_bytes.as_slice()).unwrap();
+    let patch_head: Vec<_> = patch_bytes.iter().cloned().take(SYSCALL_INSN_SIZE).collect();
+    let patch_tail: Vec<_> = patch_bytes.iter().cloned().skip(SYSCALL_INSN_SIZE).collect();
+    task.poke_bytes(remote_rip_after_syscall, patch_tail.as_slice()).unwrap();
+    std::thread::sleep(std::time::Duration::from_micros(1));
+    task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
     task.untraced_syscall(
         SYS_mprotect,
         page as i64,
