@@ -213,24 +213,16 @@ impl Task for TracedTask {
     }
 }
 
-fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
-    let regs = task.getregs().unwrap();
-    let siginfo = task.getsiginfo().unwrap();
-    let tid = task.gettid();
-    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rip: {:x}",
-           task, sig,
-           siginfo.si_errno, siginfo.si_code,
-           regs.rsp, regs.rip);
-    let sp_top = regs.rsp - 0x40;
-    let sp_bot = regs.rsp + 0x40;
+fn show_stackframe(tid: Pid, stack: u64, top_size: usize, bot_size: usize) -> String{
+    let sp_top = stack - top_size as u64;
+    let sp_bot = stack + bot_size as u64;
     let mut sp = sp_top;
-
     let mut text = String::new();
     while sp <= sp_bot {
         match ptrace::read(tid, sp as ptrace::AddressType) {
             Err(_) => break,
             Ok(x)  => {
-                if sp == regs.rsp {
+                if sp == stack {
                     text += &format!(" => {:12x}: {:16x}\n", sp, x);
                 } else {
                     text += &format!("    {:12x}: {:16x}\n", sp, x);
@@ -239,7 +231,22 @@ fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
         }
         sp += 8;
     }
-    debug!("backtrace: \n{}", text);
+    text
+}
+    
+fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
+    let regs = task.getregs().unwrap();
+    let siginfo = task.getsiginfo().unwrap();
+    let tid = task.gettid();
+    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rbp: {:x}, rip: {:x}",
+           task, sig,
+           siginfo.si_errno, siginfo.si_code,
+           regs.rsp, regs.rbp, regs.rip);
+
+    debug!("stackframe from rsp@{:x}\n{}", regs.rsp,
+           show_stackframe(tid, regs.rsp, 0x40, 0x80));
+    debug!("stackframe from rbp@{:x}\n{}", regs.rbp,
+           show_stackframe(tid, regs.rbp, 0x40, 0x80));
 
     if regs.rip != 0 {
         let rptr = RemotePtr::new((regs.rip - 2) as *mut u8);
