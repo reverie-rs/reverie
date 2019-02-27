@@ -12,8 +12,6 @@ pub extern "C" fn captured_syscall(
     _a4: i64,
     _a5: i64,
 ) -> i64 {
-    raw_println!("doing syscall {:?}", SyscallNo::from(_no));
     let ret = untraced_syscall(_no, _a0, _a1, _a2, _a3, _a4, _a5);
-    raw_println!("doing syscall {:?} returned: {:x}", SyscallNo::from(_no), ret);
     ret
 }
