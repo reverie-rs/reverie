@@ -52,12 +52,9 @@ pub fn extended_jump_pages() -> usize {
 
 pub fn gen_extended_jump_stubs(hooks: &Vec<hooks::SyscallHook>, addr: u64) -> Vec<u8> {
     let mut res: Vec<u8> = Vec::new();
-    let mut i = 0;
     hooks.iter().for_each(|hook| {
         assert!(hook.instructions.len() <= extended_jump_size());
         let mut stub = gen_extended_jump(hook.offset + addr);
-        println!("hook {:x?}, off: {:x}", hook, i*0x80);
-        i += 1;
         let pad = extended_jump_size() - stub.len();
         res.append(&mut stub);
         for _i in 0..pad {
