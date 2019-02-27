@@ -94,5 +94,6 @@ tests: build-tests
 	timeout 30s $(SYSTRACE) ./threads4
 	timeout 30s $(SYSTRACE) ./threads5
 	timeout 30s $(SYSTRACE) ./threads6
+	timeout 30s $(SYSTRACE) ./threads7
 
 .PHONY: all tests clean
