@@ -1,5 +1,5 @@
 use libc;
-use log::{trace};
+use log::{trace, debug};
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd;
@@ -115,6 +115,7 @@ pub trait Remote {
     fn getevent(&self) -> Result<i64>;
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
     fn step(&self, sig: Option<signal::Signal>) -> Result<()>;
+    fn getsiginfo(&self) -> Result<libc::siginfo_t>;
 }
 
 pub fn synchronize_from(task: &TracedTask, rip: u64){
@@ -228,24 +229,19 @@ pub fn patch_at(
     } else {
         0x1000
     };
-    task.untraced_syscall(
-        SYS_mprotect,
-        page as i64,
-        size as i64,
-        libc::PROT_WRITE as i64,
-        0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
     let patch_head: Vec<_> = patch_bytes.iter().cloned().take(SYSCALL_INSN_SIZE).collect();
     let patch_tail: Vec<_> = patch_bytes.iter().cloned().skip(SYSCALL_INSN_SIZE).collect();
-    task.poke_bytes(remote_rip_after_syscall, patch_tail.as_slice()).unwrap();
-    std::thread::sleep(std::time::Duration::from_micros(1));
+    // split into chunks so that ptrace::write is called
+    // explicitly avoid process_vm_writev because the later
+    // requires memory map permission change
+    // since bytes to write is small, we can save the permission
+    // change and restore, which requires two mprotect
+    for (k, chunk) in patch_tail.chunks(std::mem::size_of::<u64>()).enumerate() {
+        let rptr: RemotePtr<u8> = RemotePtr::new( (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE) as *mut u8);
+        task.poke_bytes(rptr, chunk).unwrap();
+    }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
-    task.untraced_syscall(
-        SYS_mprotect,
-        page as i64,
-        size as i64,
-        (libc::PROT_READ | libc::PROT_EXEC) as i64,
-        0, 0, 0).expect(&format!("mprotect failed page: {:x}, size: {:x}", page, size));
-    trace!("patched instruction @{:x} => callq {:x} : {:02x?}", ip, target, patch_bytes);
+    debug!("patched instruction @{:x} => callq {:x} : {:02x?}", ip, target, patch_bytes);
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).
