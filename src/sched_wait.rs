@@ -1,10 +1,10 @@
 // simple (de)scheduler with `waitpid`
-use nix::sys::wait::{WaitStatus, WaitPidFlag};
+use log::Level::Trace;
+use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd::Pid;
-use std::collections::{VecDeque, HashMap};
+use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind, Result};
-use log::Level::Trace;
 
 use crate::consts;
 use crate::nr::*;
@@ -45,7 +45,8 @@ impl Scheduler<TracedTask> for SchedWait {
         let state = task.state;
         self.tasks.insert(tid, task);
         self.run_queue.push_front(tid);
-        if state == TaskState::Event(7) { // PTRACE_EVENT_SECCOMP
+        if state == TaskState::Event(7) {
+            // PTRACE_EVENT_SECCOMP
             ptrace::syscall(tid).expect(&format!("add_and_schedule, syscall {}", tid));
         } else {
             ptrace::cont(tid, sig).expect(&format!("add_and_schedule, resume {}", tid));
@@ -66,27 +67,34 @@ impl Scheduler<TracedTask> for SchedWait {
 // NB: must be call after waitpid returned STOPPED status.
 // see `man ptrace`, `Group-stop` for more details.
 fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
-    if sig == signal::SIGSTOP ||
-        sig == signal::SIGTSTP ||
-        sig == signal::SIGTTIN ||
-        sig == signal::SIGTTOU {
-            ptrace::getsiginfo(pid).is_err()
-       } else {
-            false
-       }
+    if sig == signal::SIGSTOP
+        || sig == signal::SIGTSTP
+        || sig == signal::SIGTTIN
+        || sig == signal::SIGTTOU
+    {
+        ptrace::getsiginfo(pid).is_err()
+    } else {
+        false
+    }
 }
 
 fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     let mut retry = true;
     while retry {
         let tid_ = tasks
-            .run_queue.pop_front()
-            .or_else(||tasks.blocked_queue.pop_front());
-        if tid_.is_none() { return None; }
+            .run_queue
+            .pop_front()
+            .or_else(|| tasks.blocked_queue.pop_front());
+        if tid_.is_none() {
+            return None;
+        }
         let tid = tid_.unwrap();
         if log::log_enabled!(Trace) {
             let mut debug_string = format!("[sched]: {:?}, task queue:", tid);
-            tasks.tasks.iter().for_each(|(k, _)| debug_string += &format!(" {}", k));
+            tasks
+                .tasks
+                .iter()
+                .for_each(|(k, _)| debug_string += &format!(" {}", k));
             log::trace!("{}", debug_string);
         }
         while let Ok(status) = wait::waitpid(Some(tid), Some(WaitPidFlag::WNOHANG)) {
@@ -101,16 +109,25 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     break;
                 }
                 WaitStatus::Signaled(pid, signal, _core) => {
-                    let mut task = tasks.tasks.remove(&tid).expect(&format!("unknown pid {:}", tid));
+                    let mut task = tasks
+                        .tasks
+                        .remove(&tid)
+                        .expect(&format!("unknown pid {:}", tid));
                     task.state = TaskState::Signaled(signal);
                     return Some(task);
                 }
                 WaitStatus::Continued(pid) => {
-                    let task = tasks.tasks.remove(&tid).expect(&format!("unknown pid {:}", tid));
+                    let task = tasks
+                        .tasks
+                        .remove(&tid)
+                        .expect(&format!("unknown pid {:}", tid));
                     return Some(task);
                 }
                 WaitStatus::PtraceEvent(pid, signal, event) if signal == signal::SIGTRAP => {
-                    let mut task = tasks.tasks.remove(&tid).expect(&format!("unknown pid {:}", tid));
+                    let mut task = tasks
+                        .tasks
+                        .remove(&tid)
+                        .expect(&format!("unknown pid {:}", tid));
                     task.state = TaskState::Event(event as u64);
                     return Some(task);
                 }
@@ -125,7 +142,10 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     // ignore group-stop
                     if !is_ptrace_group_stop(pid, sig) {
                         // NB: we use TaskState::Ready for the intial SIGSTOP
-                        let mut task = tasks.tasks.remove(&tid).expect(&format!("unknown pid {:}", tid));
+                        let mut task = tasks
+                            .tasks
+                            .remove(&tid)
+                            .expect(&format!("unknown pid {:}", tid));
                         if task.state != TaskState::Ready {
                             task.state = TaskState::Stopped(sig);
                         }
@@ -135,7 +155,6 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                 WaitStatus::Exited(pid, retval) => {
                     tasks.tasks.remove(&pid);
                     retry = true;
-                    log::trace!("task {} exited with: {}", pid, retval);
                 }
                 otherwise => panic!("unknown status: {:?}", otherwise),
             }

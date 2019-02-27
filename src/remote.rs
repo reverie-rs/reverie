@@ -1,5 +1,5 @@
 use libc;
-use log::{trace, debug};
+use log::{debug, trace};
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd;
@@ -12,10 +12,10 @@ use crate::consts;
 use crate::consts::*;
 use crate::hooks;
 use crate::nr;
-use crate::proc::*;
-use crate::stubs;
 use crate::nr::SyscallNo;
 use crate::nr::SyscallNo::*;
+use crate::proc::*;
+use crate::stubs;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
 
@@ -36,7 +36,9 @@ where
     T: Sized,
 {
     pub fn new(ptr: *mut T) -> Self {
-        RemotePtr { ptr: NonNull::new(ptr).unwrap() }
+        RemotePtr {
+            ptr: NonNull::new(ptr).unwrap(),
+        }
     }
     pub fn as_ptr(self) -> *mut T {
         self.ptr.as_ptr()
@@ -119,7 +121,7 @@ pub trait Remote {
     fn getsiginfo(&self) -> Result<libc::siginfo_t>;
 }
 
-pub fn synchronize_from(task: &TracedTask, rip: u64){
+pub fn synchronize_from(task: &TracedTask, rip: u64) {
     let mut regs = task.getregs().unwrap();
     // stub for cpuid routine
     regs.rip = 0x7000_0018u64;
@@ -127,7 +129,8 @@ pub fn synchronize_from(task: &TracedTask, rip: u64){
     regs.rsp -= 8;
     let remote_return_address_ptr = RemotePtr::new(regs.rsp as *mut u64);
     let remote_return_address = rip;
-    task.poke(remote_return_address_ptr, &remote_return_address).unwrap();
+    task.poke(remote_return_address_ptr, &remote_return_address)
+        .unwrap();
     task.setregs(regs).unwrap();
 }
 
@@ -223,16 +226,20 @@ pub fn patch_syscall_at(
         }
         _ => panic!("maximum padding is 9"),
     };
-    assert_eq!(patch_bytes.len(), hook.instructions.len() + consts::SYSCALL_INSN_SIZE);
-    let page = ip & !0xfff;
-    // must perform check when patch across page boundry
-    let size = if ((ip as usize + patch_bytes.len()) & !0xfff) < patch_bytes.len() {
-        0x2000
-    } else {
-        0x1000
-    };
-    let patch_head: Vec<_> = patch_bytes.iter().cloned().take(SYSCALL_INSN_SIZE).collect();
-    let patch_tail: Vec<_> = patch_bytes.iter().cloned().skip(SYSCALL_INSN_SIZE).collect();
+    assert_eq!(
+        patch_bytes.len(),
+        hook.instructions.len() + consts::SYSCALL_INSN_SIZE
+    );
+    let patch_head: Vec<_> = patch_bytes
+        .iter()
+        .cloned()
+        .take(SYSCALL_INSN_SIZE)
+        .collect();
+    let patch_tail: Vec<_> = patch_bytes
+        .iter()
+        .cloned()
+        .skip(SYSCALL_INSN_SIZE)
+        .collect();
     let original_bytes = task.peek_bytes(remote_rip, patch_bytes.len()).unwrap();
     // split into chunks so that ptrace::write is called
     // explicitly avoid process_vm_writev because the later
@@ -240,15 +247,24 @@ pub fn patch_syscall_at(
     // since bytes to write is small, we can save the permission
     // change and restore, which requires two mprotect
     for (k, chunk) in patch_tail.chunks(std::mem::size_of::<u64>()).enumerate() {
-        let rptr: RemotePtr<u8> = RemotePtr::new( (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE) as *mut u8);
+        let rptr: RemotePtr<u8> = RemotePtr::new(
+            (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE) as *mut u8,
+        );
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
-    debug!("{:?} patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})",
-           task, syscall, ip, original_bytes, patch_bytes, target);
+    debug!(
+        "{} patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})",
+        task.gettid(),
+        syscall,
+        ip,
+        original_bytes,
+        patch_bytes,
+        target
+    );
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
-    new_regs.rip = ip;            // rewind pc back (-2).
+    new_regs.rip = ip; // rewind pc back (-2).
     task.setregs(new_regs).unwrap();
     // because we modified tracee's code
     // we need some kind of synchronization to make sure
@@ -386,9 +402,15 @@ pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> 
      * 36:  58                   	pop    %rax
      * 37:  cc                   	int3
      */
-    let syscall_stub: &[u64] = &[0x90c3050f90c3050f, 0x9066ccfffffff3e8, 0x9066ccffffffefe8,
-                                 0x000000b852515350, 0xc3585b595aa20f00,
-                                 0x000000b852515350, 0xcc585b595aa20f00];
+    let syscall_stub: &[u64] = &[
+        0x90c3050f90c3050f,
+        0x9066ccfffffff3e8,
+        0x9066ccffffffefe8,
+        0x000000b852515350,
+        0xc3585b595aa20f00,
+        0x000000b852515350,
+        0xcc585b595aa20f00,
+    ];
     // please note we force each `ptrace::write` to be exactly ptrace_poke (8 bytes a time)
     // instead of using `process_vm_writev`, because this function can be called in
     // PTRACE_EXEC_EVENT, the process seems not fully loaded by ld-linux.so

@@ -1,7 +1,6 @@
-
-use std::collections::{HashMap, HashSet};
-use nix::unistd::Pid;
 use crate::remote::*;
+use nix::unistd::Pid;
+use std::collections::{HashMap, HashSet};
 
 pub struct RemoteRWLock {
     reader: HashSet<Pid>,
@@ -22,9 +21,16 @@ impl RemoteRWLock {
         let r = self.reverse_loopup_table.get(&at);
         if r.is_none() || r.unwrap().len() == 0 {
             self.writer.remove(&tid);
-            self.reverse_loopup_table.entry(at)
-                .and_modify(|s| { s.insert(tid); })
-                .or_insert( { let mut s = HashSet::new(); s.insert(tid); s} );
+            self.reverse_loopup_table
+                .entry(at)
+                .and_modify(|s| {
+                    s.insert(tid);
+                })
+                .or_insert({
+                    let mut s = HashSet::new();
+                    s.insert(tid);
+                    s
+                });
             true
         } else {
             for x in r.unwrap() {
@@ -43,7 +49,9 @@ impl RemoteRWLock {
         if self.writer.contains(&tid) {
             return false;
         }
-        self.reverse_loopup_table.entry(at).and_modify(|s| { let _ = s.remove(&tid); });
+        self.reverse_loopup_table.entry(at).and_modify(|s| {
+            let _ = s.remove(&tid);
+        });
         true
     }
 
@@ -52,9 +60,16 @@ impl RemoteRWLock {
         if r.is_none() || r.unwrap().len() == 0 {
             self.writer.insert(tid);
             self.reader.remove(&tid);
-            self.reverse_loopup_table.entry(at)
-                .and_modify(|s| { s.insert(tid); })
-                .or_insert({ let mut s = HashSet::new(); s.insert(tid); s});
+            self.reverse_loopup_table
+                .entry(at)
+                .and_modify(|s| {
+                    s.insert(tid);
+                })
+                .or_insert({
+                    let mut s = HashSet::new();
+                    s.insert(tid);
+                    s
+                });
             true
         } else {
             false
@@ -68,8 +83,9 @@ impl RemoteRWLock {
         if self.reader.contains(&tid) {
             return false;
         }
-        self.reverse_loopup_table.entry(at)
-            .and_modify(|s| { let _ = s.remove(&tid); });
+        self.reverse_loopup_table.entry(at).and_modify(|s| {
+            let _ = s.remove(&tid);
+        });
         true
     }
 }

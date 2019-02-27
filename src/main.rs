@@ -7,8 +7,8 @@
 extern crate lazy_static;
 
 use clap::{App, Arg, SubCommand};
-use libc;
 use fern;
+use libc;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
@@ -219,7 +219,10 @@ fn run_app(argv: &Arguments) -> Result<i32> {
         unsafe {
             assert!(
                 libc::unshare(
-                    libc::CLONE_NEWUSER | libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS
+                    libc::CLONE_NEWUSER
+                        | libc::CLONE_NEWPID
+                        | libc::CLONE_NEWNS
+                        | libc::CLONE_NEWUTS
                 ) == 0
             );
         };
@@ -342,14 +345,10 @@ fn setup_logger(level: i32) -> Result<()> {
     };
 
     fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "{}",
-                message
-            ))
-        })
+        .format(|out, message, record| out.finish(format_args!("{}", message)))
         .level(log_level)
         .chain(std::io::stdout())
         .chain(fern::log_file("output.log")?)
-        .apply().map_err(|e| Error::new(ErrorKind::Other, e))
+        .apply()
+        .map_err(|e| Error::new(ErrorKind::Other, e))
 }

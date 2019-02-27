@@ -83,8 +83,10 @@ pub struct TracedTask {
 
 impl std::fmt::Debug for TracedTask {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Task {{ tid: {}, pid: {}, ppid: {}, pgid: {}, state: {:?}}}",
-               self.tid, self.pid, self.ppid, self.pgid, self.state)
+        write!(f, "Task {{ tid: {}, pid: {}, ppid: {}, \
+                   pgid: {}, state: {:?}, signal: {:?}}}",
+               self.tid, self.pid, self.ppid, self.pgid,
+               self.state, self.signal_to_deliver)
     }
 }
 
