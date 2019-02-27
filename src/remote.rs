@@ -244,7 +244,8 @@ pub fn patch_syscall_at(
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
-    debug!("patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})", syscall, ip, original_bytes, patch_bytes, target);
+    debug!("{:?} patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})",
+           task, syscall, ip, original_bytes, patch_bytes, target);
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).

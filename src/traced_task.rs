@@ -233,15 +233,34 @@ fn show_stackframe(tid: Pid, stack: u64, top_size: usize, bot_size: usize) -> St
     }
     text
 }
-    
+
+fn show_user_regs(regs: &libc::user_regs_struct) -> String {
+    let mut res = String::new();
+
+    res += &format!("rax {:16x} rbx {:16x} rcx {:16x} rdx {:16x}\n",
+                    regs.rax, regs.rbx, regs.rcx, regs.rdx);
+    res += &format!("rsi {:16x} rdi {:16x} rbp {:16x} rsp {:16x}\n",
+                    regs.rsi, regs.rdi, regs.rbp, regs.rsp);
+    res += &format!(" r8 {:16x}  r9 {:16x} r10 {:16x} r11 {:16x}\n",
+                    regs.r8, regs.r9, regs.r10, regs.r11);
+    res += &format!("r12 {:16x} r13 {:16x} r14 {:16x} r15 {:16x}\n",
+                    regs.r12, regs.r13, regs.r14, regs.r15);
+    res += &format!("rip {:16x} eflags {:16x}\n",
+                    regs.rip, regs.eflags);
+    res += &format!("cs {:x} ss {:x} ds {:x} es {:x}\nfs {:x} gs {:x}",
+                    regs.cs, regs.ss, regs.ds, regs.es,
+                    regs.fs, regs.gs);
+    res
+}
+
 fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
     let regs = task.getregs().unwrap();
     let siginfo = task.getsiginfo().unwrap();
     let tid = task.gettid();
-    debug!("{:?} got {:?} si_errno: {}, si_code: {}, rsp: {:x}, rbp: {:x}, rip: {:x}",
+    debug!("{:?} got {:?} si_errno: {}, si_code: {}, regs\n{}",
            task, sig,
            siginfo.si_errno, siginfo.si_code,
-           regs.rsp, regs.rbp, regs.rip);
+           show_user_regs(&regs));
 
     debug!("stackframe from rsp@{:x}\n{}", regs.rsp,
            show_stackframe(tid, regs.rsp, 0x40, 0x80));
