@@ -63,6 +63,7 @@ struct Arguments<'a> {
     library_path: PathBuf,
     env_all: bool,
     envs: HashMap<String, String>,
+    namespaces: bool,
     program: &'a str,
     program_args: Vec<&'a str>,
 }
@@ -175,10 +176,11 @@ fn run_tracer(
     starting_gid: unistd::Gid,
     argv: &Arguments,
 ) -> Result<i32> {
-    ns::init_ns(starting_pid, starting_uid, starting_gid)?;
-
     // tracer is the 1st process in the new namespace.
-    assert!(unistd::getpid() == unistd::Pid::from_raw(1));
+    if argv.namespaces {
+        ns::init_ns(starting_pid, starting_uid, starting_gid)?;
+        debug_assert!(unistd::getpid() == unistd::Pid::from_raw(1));
+    }
 
     match unistd::fork().expect("fork failed") {
         ForkResult::Child => {
@@ -212,21 +214,26 @@ fn run_tracer(
 fn run_app(argv: &Arguments) -> Result<i32> {
     let (starting_pid, starting_uid, starting_gid) =
         (unistd::getpid(), unistd::getuid(), unistd::getgid());
-    unsafe {
-        assert!(
-            libc::unshare(
-                libc::CLONE_NEWUSER | libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS
-            ) == 0
-        );
-    };
 
-    match unistd::fork().expect("fork failed") {
-        ForkResult::Child => run_tracer(starting_pid, starting_uid, starting_gid, argv),
-        ForkResult::Parent { child } => match wait::waitpid(Some(child), None) {
-            Ok(wait::WaitStatus::Exited(_, exit_code)) => Ok(exit_code),
-            Ok(wait::WaitStatus::Signaled(_, sig, _)) => Ok(0x80 | sig as i32),
-            otherwise => panic!("unexpected status from waitpid: {:?}", otherwise),
-        },
+    if argv.namespaces {
+        unsafe {
+            assert!(
+                libc::unshare(
+                    libc::CLONE_NEWUSER | libc::CLONE_NEWPID | libc::CLONE_NEWNS | libc::CLONE_NEWUTS
+                ) == 0
+            );
+        };
+
+        match unistd::fork().expect("fork failed") {
+            ForkResult::Child => run_tracer(starting_pid, starting_uid, starting_gid, argv),
+            ForkResult::Parent { child } => match wait::waitpid(Some(child), None) {
+                Ok(wait::WaitStatus::Exited(_, exit_code)) => Ok(exit_code),
+                Ok(wait::WaitStatus::Signaled(_, sig, _)) => Ok(0x80 | sig as i32),
+                otherwise => panic!("unexpected status from waitpid: {:?}", otherwise),
+            },
+        }
+    } else {
+        run_tracer(starting_pid, starting_uid, starting_gid, argv)
     }
 }
 
@@ -262,6 +269,13 @@ fn main() {
                 .multiple(true)
                 .help("set environment variable")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("namespaces")
+                .long("namespaces")
+                .value_name("NAMESPACES")
+                .help("enable namespaces")
+                .takes_value(false),
         )
         .arg(
             Arg::with_name("program")
@@ -300,6 +314,7 @@ fn main() {
                 (t[0].to_string(), t[1..].join("="))
             })
             .collect(),
+        namespaces: matches.is_present("namespaces"),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")

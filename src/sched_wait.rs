@@ -82,7 +82,6 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
         let tid_ = tasks
             .run_queue.pop_front()
             .or_else(||tasks.blocked_queue.pop_front());
-        log::trace!("[sched] sched next {:?}", tid_);
         if tid_.is_none() { return None; }
         let tid = tid_.unwrap();
         if log::log_enabled!(Trace) {
