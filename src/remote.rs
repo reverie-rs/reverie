@@ -14,6 +14,7 @@ use crate::hooks;
 use crate::nr;
 use crate::proc::*;
 use crate::stubs;
+use crate::nr::SyscallNo;
 use crate::nr::SyscallNo::*;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
@@ -130,8 +131,9 @@ pub fn synchronize_from(task: &TracedTask, rip: u64){
     task.setregs(regs).unwrap();
 }
 
-pub fn patch_at(
+pub fn patch_syscall_at(
     task: &mut TracedTask,
+    syscall: SyscallNo,
     hook: &hooks::SyscallHook,
     target: u64,
 ) {
@@ -241,7 +243,7 @@ pub fn patch_at(
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
-    debug!("patched instruction @{:x} => callq {:x} : {:02x?}", ip, target, patch_bytes);
+    debug!("patched {:?} instruction @{:x} => callq {:x} : {:02x?}", syscall, ip, target, patch_bytes);
     let mut new_regs = regs.clone();
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip;            // rewind pc back (-2).

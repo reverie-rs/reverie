@@ -353,7 +353,7 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
     task.syscall_patch_lockset.borrow_mut().try_write_lock(task.gettid(), rip);
     let indirect_jump_address = extended_jump_from_to(task, hook, rip)?;
     task.patched_syscalls.borrow_mut().push(rip);
-    patch_at(task, hook, indirect_jump_address);
+    patch_syscall_at(task, syscall, hook, indirect_jump_address);
     task.syscall_patch_lockset.borrow_mut().try_write_unlock(task.gettid(), rip);
     Ok(())
 }
@@ -620,11 +620,6 @@ fn remote_do_syscall_at(
         WaitStatus::Stopped(pid, signal::SIGTRAP) => (),
         WaitStatus::Stopped(pid, signal::SIGCHLD) => {
             task.signal_to_deliver = Some(signal::SIGCHLD)
-        }
-        WaitStatus::Stopped(pid, signal::SIGSEGV) => {
-            task.setregs(oldregs)?;
-            task.signal_to_deliver = Some(signal::SIGSEGV);
-            task.resume(Some(signal::SIGSEGV))?;
         }
         otherwise => {
             let regs = task.getregs()?;
