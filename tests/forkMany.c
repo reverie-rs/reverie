@@ -34,11 +34,9 @@ int main(int argc, char* argv[]) {
     // Child
     if (pid == 0) {
       c = atomic_fetch_add(counter, 1);
-      fprintf(stderr, "counter: %lu\n", c);
       exit(0);
     } else if (pid > 0) {
       c = atomic_fetch_add(counter, 1);
-      fprintf(stderr, "counter: %lu\n", c);
     } else {
       perror("fork: ");
       exit(1);
