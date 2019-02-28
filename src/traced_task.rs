@@ -205,7 +205,16 @@ impl Task for TracedTask {
                 if signal == signal::SIGSEGV || signal == signal::SIGILL {
                     show_fault_context(&task, signal);
                 }
-                task.signal_to_deliver = Some(signal);
+                // FIXME: avoid deliver SIGCHLD. the scheduler calls waitpid
+                // on all child tasks, we should(?) avoid deliver SIGCHLD after
+                // waitpid.
+                // In (ubuntu 16.04) glibc-2.23. delivering SIGCHLD cause the program
+                // segfault; however, in (ubuntu 18.04) glibc-2.27. there's no problem
+                // at all. There're seem to be changes SIGCHLD handling between glibc,
+                // including ld-linux.so, when starting the new process.
+                if signal != signal::SIGCHLD {
+                    task.signal_to_deliver = Some(signal);
+                }
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(ev) => handle_ptrace_event(task),
@@ -284,12 +293,15 @@ fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
 }
 
 impl TracedTask {
-    fn is_patched_syscall(&self, rip: u64) -> bool {
+    pub fn is_patched_syscall(&self, rip: u64) -> bool {
         self.patched_syscalls
             .borrow()
             .iter()
             .find(|&&pc| pc == rip)
             .is_some()
+    }
+    pub fn task_state_is_seccomp(&self) -> bool {
+        self.state == TaskState::Event(7)
     }
 }
 

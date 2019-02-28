@@ -39,14 +39,19 @@ impl Scheduler<TracedTask> for SchedWait {
         self.tasks.insert(tid, task);
         self.blocked_queue.push_back(tid);
     }
-    fn add_and_schedule(&mut self, task: TracedTask) {
+    fn add_and_schedule(&mut self, mut task: TracedTask) {
         let tid = task.gettid();
         let sig = task.signal_to_deliver;
         let state = task.state;
+        // PTRACE_EVENT_SECCOMP
+        let is_seccomp = task.task_state_is_seccomp();
+        if !is_seccomp {
+            // signal is to be delivered
+            task.signal_to_deliver = None;
+        }
         self.tasks.insert(tid, task);
         self.run_queue.push_front(tid);
-        if state == TaskState::Event(7) {
-            // PTRACE_EVENT_SECCOMP
+        if is_seccomp {
             ptrace::syscall(tid).expect(&format!("add_and_schedule, syscall {}", tid));
         } else {
             ptrace::cont(tid, sig).expect(&format!("add_and_schedule, resume {}", tid));
