@@ -79,16 +79,16 @@ clean:
 	$(RM) $(TARGET)
 
 tests: build-tests
-	./x64-save-return-address || exit 1
-	$(SYSTRACE) ./openat1 || exit 1
-	$(SYSTRACE) ./open-many > /dev/null || exit 1
-	$(SYSTRACE) ./write-many || exit 1
-	$(SYSTRACE) ./getpid || exit 1
-	$(SYSTRACE) ./nanosleep || exit 1
-	$(SYSTRACE) ./clock-nanosleep || exit 1
-	$(SYSTRACE) ./getpid-pie || exit 1
-	$(SYSTRACE) ./test1.sh || echo "test1 returned $$?"
-	$(SYSTRACE) ./test2.sh || echo "test2 returned $$?"
+	./x64-save-return-address
+	$(SYSTRACE) ./openat1
+	$(SYSTRACE) ./open-many > /dev/null
+	$(SYSTRACE) ./write-many
+	$(SYSTRACE) ./getpid
+	$(SYSTRACE) ./nanosleep
+	$(SYSTRACE) ./clock-nanosleep
+	$(SYSTRACE) ./getpid-pie
+	$(SYSTRACE) ./test1.sh
+	$(SYSTRACE) ./test2.sh
 	$(SYSTRACE) ./segfault && exit 1 || exit 0
 	timeout 30s $(SYSTRACE) ./threads1
 	timeout 30s $(SYSTRACE) ./threads2
