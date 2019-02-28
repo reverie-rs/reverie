@@ -34,11 +34,11 @@ int main(int argc, char* argv[]) {
     // Child
     if (pid == 0) {
       c = atomic_fetch_add(counter, 1);
-      //fprintf(stderr, "counter: %lu\n", c);
-      return 0;
-    } else  if (pid > 0) {
+      fprintf(stderr, "counter: %lu\n", c);
+      exit(0);
+    } else if (pid > 0) {
       c = atomic_fetch_add(counter, 1);
-      //fprintf(stderr, "counter: %lu\n", c);
+      fprintf(stderr, "counter: %lu\n", c);
     } else {
       perror("fork: ");
       exit(1);
@@ -47,7 +47,11 @@ int main(int argc, char* argv[]) {
 
   waitpid(pid, &status, 0);
 
-  assert(*counter == 2 * TESTS_NLOOPS);
+  unsigned long expected = 2 * TESTS_NLOOPS;
+  unsigned long got = atomic_load(counter);
+
+  printf("counter: expected: %lu got: %lu\n", expected, got);
+  assert(expected == got);
 
   return 0;
 }
