@@ -49,7 +49,6 @@ int main(int argc, char* argv[]) {
   unsigned long got = atomic_load(counter);
 
   printf("counter: expected: %lu got: %lu\n", expected, got);
-  assert(expected == got);
 
   return 0;
 }
