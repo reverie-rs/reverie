@@ -1,7 +1,7 @@
 use libc;
-use log::{debug, trace};
+use log::{debug};
 use nix::sys::wait::WaitStatus;
-use nix::sys::{ptrace, signal, uio, wait};
+use nix::sys::{ptrace, signal};
 use nix::unistd;
 use nix::unistd::Pid;
 use std::io::{Error, ErrorKind, Result};
@@ -150,7 +150,6 @@ pub fn patch_syscall_at(
     let mut patch_bytes: Vec<u8> = Vec::new();
 
     let remote_rip = RemotePtr::new(ip as *mut u8);
-    let remote_rip_after_syscall = RemotePtr::new((ip + SYSCALL_INSN_SIZE as u64) as *mut u8);
 
     patch_bytes.push(0xe8);
     patch_bytes.push((rela & 0xff) as u8);
@@ -297,7 +296,7 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
     let res: Vec<u64> = ranges_from
         .iter()
         .zip(ranges_to)
-        .filter_map(|((x1, y1), (x2, y2))| {
+        .filter_map(|((_x1, y1), (x2, _y2))| {
             let space = x2 - y1;
             let start_from = *y1;
             if space >= (pages as u64 * page_size) {

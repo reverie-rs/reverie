@@ -1,12 +1,10 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
-#![allow(unreachable_code)]
-#![allow(unused_variables)]
 
 #[macro_use]
 extern crate lazy_static;
 
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg};
 use fern;
 use libc;
 use nix::sys::wait::WaitStatus;
@@ -14,7 +12,6 @@ use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
 use nix::unistd::ForkResult;
 use std::collections::HashMap;
-use std::env::current_exe;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
@@ -29,14 +26,13 @@ mod remote_rwlock;
 mod sched;
 mod sched_wait;
 mod stubs;
+mod vdso;
 mod task;
 mod traced_task;
 
-use remote::*;
 use sched::Scheduler;
 use sched_wait::SchedWait;
 use task::{RunTask, Task};
-use traced_task::TracedTask;
 
 // install seccomp-bpf filters
 extern "C" {
@@ -345,7 +341,7 @@ fn setup_logger(level: i32) -> Result<()> {
     };
 
     fern::Dispatch::new()
-        .format(|out, message, record| out.finish(format_args!("{}", message)))
+        .format(|out, message, _record| out.finish(format_args!("{}", message)))
         .level(log_level)
         .chain(std::io::stdout())
         .chain(fern::log_file("output.log")?)

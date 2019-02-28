@@ -42,7 +42,6 @@ impl Scheduler<TracedTask> for SchedWait {
     fn add_and_schedule(&mut self, mut task: TracedTask) {
         let tid = task.gettid();
         let sig = task.signal_to_deliver;
-        let state = task.state;
         // PTRACE_EVENT_SECCOMP
         let is_seccomp = task.task_state_is_seccomp();
         if !is_seccomp {
@@ -113,7 +112,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     tasks.blocked_queue.push_back(tid);
                     break;
                 }
-                WaitStatus::Signaled(pid, signal, _core) => {
+                WaitStatus::Signaled(_pid, signal, _core) => {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
@@ -121,14 +120,14 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     task.state = TaskState::Signaled(signal);
                     return Some(task);
                 }
-                WaitStatus::Continued(pid) => {
+                WaitStatus::Continued(_pid) => {
                     let task = tasks
                         .tasks
                         .remove(&tid)
                         .expect(&format!("unknown pid {:}", tid));
                     return Some(task);
                 }
-                WaitStatus::PtraceEvent(pid, signal, event) if signal == signal::SIGTRAP => {
+                WaitStatus::PtraceEvent(_pid, signal, event) if signal == signal::SIGTRAP => {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
@@ -157,7 +156,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         return Some(task);
                     }
                 }
-                WaitStatus::Exited(pid, retval) => {
+                WaitStatus::Exited(pid, _retval) => {
                     tasks.tasks.remove(&pid);
                     retry = true;
                 }

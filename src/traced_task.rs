@@ -25,6 +25,7 @@ use crate::sched_wait::*;
 use crate::stubs;
 use crate::task::*;
 use crate::remote_rwlock::*;
+use crate::vdso;
 
 fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
@@ -217,9 +218,9 @@ impl Task for TracedTask {
                 }
                 Ok(RunTask::Runnable(task))
             }
-            TaskState::Event(ev) => handle_ptrace_event(task),
-            TaskState::Syscall(at) => handle_syscall_exit(task),
-            TaskState::Exited(exit_code) => unreachable!("run task which is already exited"),
+            TaskState::Event(_ev) => handle_ptrace_event(task),
+            TaskState::Syscall(_at) => handle_syscall_exit(task),
+            TaskState::Exited(_exit_code) => unreachable!("run task which is already exited"),
         }
     }
 }
@@ -352,7 +353,6 @@ fn find_syscall_hook(task: &TracedTask, rip: u64) -> Option<&'static hooks::Sysc
     let mut bytes: Vec<u8> = Vec::new();
 
     for i in 0..=1 {
-        let u64_size = std::mem::size_of::<u64>();
         let remote_ptr = RemotePtr::new(
             (rip + i * std::mem::size_of::<u64>() as u64) as *mut u64
         );
@@ -690,8 +690,8 @@ fn remote_do_syscall_at(
     task.resume(None)?;
     let status = wait::waitpid(tid, None).expect("waitpid");
     match status {
-        WaitStatus::Stopped(pid, signal::SIGTRAP) => (),
-        WaitStatus::Stopped(pid, signal::SIGCHLD) => {
+        WaitStatus::Stopped(_pid, signal::SIGTRAP) => (),
+        WaitStatus::Stopped(_pid, signal::SIGCHLD) => {
             task.signal_to_deliver = Some(signal::SIGCHLD)
         }
         otherwise => {
@@ -769,10 +769,6 @@ fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         do_ptrace_seccomp(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
     } else {
         panic!("unknown ptrace event: {:x}", raw_event);
-        Err(Error::new(
-            ErrorKind::Other,
-            format!("unknown ptrace event: {:x}", raw_event),
-        ))
     }
 }
 
@@ -824,7 +820,7 @@ fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let retval = task.getevent()?;
     ptrace::step(task.gettid(), sig).expect("ptrace cont");
     match wait::waitpid(Some(task.gettid()), Some(wait::WaitPidFlag::WNOHANG)) {
-        Ok(WaitStatus::Exited(pid, _ret)) => Ok(RunTask::Exited(retval as i32)),
+        Ok(WaitStatus::Exited(_pid, _ret)) => Ok(RunTask::Exited(retval as i32)),
         Ok(WaitStatus::Signaled(pid, sig, _)) => {
             // ignore error, because task could have been killed already
             let _ = ptrace::cont(pid, Some(sig));
@@ -920,6 +916,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
 
     assert_eq!(ret, page_addr);
     remote::gen_syscall_sequences_at(tid, page_addr)?;
+
+    let _ = vdso::vdso_patch(task);
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
     ptrace::setregs(tid, saved_regs)?;

@@ -1,22 +1,15 @@
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::path::PathBuf;
-use std::result;
 
 use combine::error::ParseError;
 use combine::parser::char::{char, digit, hex_digit, letter, spaces};
-use combine::stream::state::State;
 use combine::Parser;
 use combine::{any, choice, count, many, many1, none_of, optional, Stream};
 
 use libc;
-use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
 use nix::unistd::Pid;
-
-use crate::consts::*;
-use crate::hooks;
-use crate::nr;
 
 #[derive(Clone)]
 pub struct ProcMapsEntry {
@@ -34,11 +27,14 @@ impl ProcMapsEntry {
     pub fn base(&self) -> u64 {
         self.base
     }
-    pub fn size(&self) -> u64 {
-        self.size
+    pub fn size(&self) -> usize {
+        self.size as usize
     }
     pub fn end(&self) -> u64 {
         self.base + self.size
+    }
+    pub fn filename(&self) -> Option<&PathBuf> {
+        self.file.iter().next()
     }
 }
 
