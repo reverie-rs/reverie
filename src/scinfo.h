@@ -23,6 +23,7 @@
 struct syscall_info {
   unsigned long no;
   unsigned long args[6];
+  unsigned long __pad;
 };
 
 struct syscall_patch_hook {

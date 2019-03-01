@@ -60,9 +60,11 @@
 _syscall_hook_trampoline:
         /* Save RBX because we need a callee-saves register */
         pushq %rbx
+        mov $0xdeadbeef, %rbx
 
         /* Build a |struct syscall_info| on the stack by pushing the arguments
            and syscall number. */
+        pushq %rbx
         pushq %r9
         pushq %r8
         pushq %r10
@@ -83,8 +85,8 @@ _syscall_hook_trampoline:
 
         /* On entrance, we pushed the %rax, the syscall number. But we don't
            want to |pop %rax|, as that will overwrite our return value. Pop
-           into %r11 instead. */
-        pop %r11
+           into %rbx instead. */
+        pop %rbx
 
         /* We don't really *need* to restore these, since the kernel could have
            trashed them all anyway. But it seems reasonable to do so. */
@@ -94,6 +96,7 @@ _syscall_hook_trampoline:
         pop %r10
         pop %r8
         pop %r9
+        pop %rbx
 
         pop %rbx
 
