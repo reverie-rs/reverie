@@ -203,7 +203,7 @@ impl Task for TracedTask {
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Stopped(signal) => {
-                if signal == signal::SIGSEGV || signal == signal::SIGILL || signal == signal::SIGCHLD {
+                if signal == signal::SIGSEGV || signal == signal::SIGILL {
                     show_fault_context(&task, signal);
                 }
                 task.signal_to_deliver = Some(signal);
