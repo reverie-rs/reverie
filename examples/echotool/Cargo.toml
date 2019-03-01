@@ -10,6 +10,8 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
+libc = "0.2"
+nix = "0.13"
 
 [build-dependencies]
 cc = "1.0.28"
