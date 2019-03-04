@@ -101,6 +101,19 @@ fn from_nix_error(err: nix::Error) -> Error {
 // hardcoded because `libc` does not export
 const ADDR_NO_RANDOMIZE: u64 = 0x0040000;
 
+fn tracee_init_signals() {
+    unsafe {
+        let _ = signal::sigaction(signal::SIGTTIN, &signal::SigAction::new(
+            signal::SigHandler::SigIgn,
+            signal::SaFlags::SA_RESTART,
+            signal::SigSet::empty()));
+        let _ = signal::sigaction(signal::SIGTTOU, &signal::SigAction::new(
+            signal::SigHandler::SigIgn,
+            signal::SaFlags::SA_RESTART,
+            signal::SigSet::empty()));
+    };
+}
+
 fn run_tracee(argv: &Arguments) -> Result<i32> {
     // FIXME: There should NOT be a hardcoded tool name!:
     let libs: Result<Vec<PathBuf>> = ["libechotool.so", "libsystrace.so"]
@@ -123,9 +136,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .and_then(|_| signal::raise(signal::SIGSTOP))
         .map_err(from_nix_error)?;
 
-    let root_pid = unistd::getpid();
-    unistd::setpgid(root_pid, root_pid).expect("setpgid");
-
+    tracee_init_signals();
     // println!("launching program: {} {:?}", &argv.program, &argv.program_args);
 
     // install seccomp-bpf filters
