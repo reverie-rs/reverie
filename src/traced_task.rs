@@ -853,21 +853,9 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 }
 
 fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
-    let sig = task.signal_to_deliver;
     let retval = task.getevent()?;
-    ptrace::step(task.gettid(), sig).expect("ptrace cont");
-    match wait::waitpid(Some(task.gettid()), Some(wait::WaitPidFlag::WNOHANG)) {
-        Ok(WaitStatus::Exited(_pid, _ret)) => Ok(RunTask::Exited(retval as i32)),
-        Ok(WaitStatus::Signaled(pid, sig, _)) => {
-            // ignore error, because task could have been killed already
-            let _ = ptrace::cont(pid, Some(sig));
-            Ok(RunTask::Exited(0x80 | sig as i32)
-        }
-        Ok(WaitStatus::StillAlive) => Ok(RunTask::Blocked(task)),
-        unknown => {
-            panic!("unknown status after ptrace exit: {:?}", unknown)
-        }
-    }
+    ptrace::detach(task.gettid()).unwrap();
+    Ok(RunTask::Exited(retval as i32))
 }
 
 fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
