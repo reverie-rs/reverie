@@ -1,5 +1,5 @@
 use libc;
-use log::{trace, debug, warn};
+use log::{trace, debug, warn, info};
 use nix::sys::socket;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
@@ -399,6 +399,14 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
         ));
     };
     let old_regs = ptrace::getregs(task.gettid()).expect("ptrace getregs");
+    task.syscall_patch_lockset.borrow_mut().try_read_unlock(task.gettid(), rip);
+    if !task.syscall_patch_lockset.borrow_mut().try_write_lock(task.gettid(), rip) {
+        return Err(Error::new(
+            ErrorKind::Other,
+            format!("process {} cannot take write lock@{:x}", task.getpid(), rip),
+            ));
+    }
+
     // NB: when @hook_found, we assuem that we can patch the syscall
     // hence we force kernel skip the pending syscall, by setting
     // syscall no to -1.
@@ -413,8 +421,6 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
     // cont/breakpoint to control tracee's execution.
     skip_seccomp_syscall(task, old_regs)?;
 
-    task.syscall_patch_lockset.borrow_mut().try_read_unlock(task.gettid(), rip);
-    task.syscall_patch_lockset.borrow_mut().try_write_lock(task.gettid(), rip);
     let indirect_jump_address = extended_jump_from_to(task, hook, rip)?;
     task.patched_syscalls.borrow_mut().push(rip);
     patch_syscall_at(task, syscall, hook, indirect_jump_address);
@@ -702,14 +708,54 @@ fn remote_do_syscall_at(
     }
 }
 
+fn ptrace_get_stopsig(tid: Pid) -> libc::siginfo_t {
+    let si = ptrace::getsiginfo(tid).unwrap();
+    si
+}
+
+const ERESTARTSYS:    i32 = 512;
+const ERESTARTNOINTR: i32 = 513;
+const ERESTARTNOHAND: i32 = 514;
+const ERESTARTBLOCK:  i32 = 516;
+
+// PTRACE_SYSCALL may return restarted syscall
+// must restart them conditionally
+fn should_restart_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -> bool {
+    let tid = task.gettid();
+
+    let si = ptrace_get_stopsig(tid);
+    let sig = signal::Signal::from_c_int(si.si_signo).unwrap();
+    assert!(sig == signal::SIGTRAP || sig == signal::SIGCHLD);
+
+    if regs.rax as i64 == -ERESTARTSYS as i64 {
+        true
+    } else if regs.rax as i64 == -ERESTARTNOINTR as i64 {
+        true
+    } else if regs.rax as i64 == -ERESTARTNOHAND as i64 {
+        true
+    } else if regs.rax as i64 == -ERESTARTBLOCK  as i64 {
+        true
+    } else {
+        false
+    }
+}
+
 // PTRACE_SYSCALL stop. task was stopped because of syscall exit.
 // this is desired because some syscalls are blocking
 // we use it to do the read lock unlock
-fn handle_syscall_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
+fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     let regs = task.getregs()?;
     let rip = regs.rip;
     let tid = task.gettid();
     trace!("=== seccomp syscall {:?} @{:x}, return: {:x} ({})", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax, regs.rax as i64);
+
+    if should_restart_syscall(&mut task, regs) {
+        debug!("=== seccomp syscall {:?} @{:x}, restarted", SyscallNo::from(regs.orig_rax as i32), rip);
+        debug_assert_eq!(task.state, TaskState::Syscall(rip));
+        // will re-enter syscall exit, state is TaskState::Syscall
+        return Ok(RunTask::Runnable(task));
+    }
+
     let syscall_end = rip + 9; // TODO: maximum patch is less than 16B
     let mut sig: Option<signal::Signal> = None;
     loop {
