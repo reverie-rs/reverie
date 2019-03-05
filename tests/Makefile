@@ -101,6 +101,5 @@ tests: build-tests
 	timeout 30s $(SYSTRACE_DEBUG) ./threads7
 	timeout 30s $(SYSTRACE_DEBUG) ./forkMany
 	timeout 30s $(SYSTRACE_DEBUG) ./forkMany --block-sigchld
-	SYSTRACE="$(SYSTRACE)" ./build-musl-1.1.21.sh
 
 .PHONY: all tests clean
