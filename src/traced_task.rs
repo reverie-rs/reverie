@@ -327,6 +327,7 @@ fn task_exec_reset(task: &mut TracedTask) {
     task.state = TaskState::Exited(0);
     task.in_vfork = false;
     check_ref_counters(task);
+    *(task.patched_syscalls.borrow_mut()) = Vec::new();
     *(task.unpatchable_syscalls.borrow_mut()) = Vec::new();
     *(task.memory_map.borrow_mut()) = Vec::new();
     *(task.stub_pages.borrow_mut()) = Vec::new();
@@ -376,15 +377,9 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
         ErrorKind::Other,
         format!("libsystrace not loaded"),
     ))?;
-    if task
-        .patched_syscalls
-        .borrow()
-        .iter()
-        .find(|&&pc| pc == rip)
-        .is_some()
-    {
+    if task.is_patched_syscall(rip) {
         // already patched
-        return Ok(());
+        unreachable!("{:?} already patched?", task);
     }
     if task
         .unpatchable_syscalls
@@ -778,6 +773,7 @@ fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         }
     }
     task.syscall_patch_lockset.borrow_mut().try_read_unlock(tid, rip);
+    task.state = TaskState::Running;
     Ok(RunTask::Runnable(task))
 }
 
@@ -869,8 +865,11 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         panic!("unfiltered syscall: {:?}", syscall);
     }
 
+    if task.ldpreload_address.is_none() {
+        task.ldpreload_address = libsystrace_load_address(tid);
+    }
     let hook = find_syscall_hook(&task, regs.rip);
-    trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}", tid, syscall, rip, hook);
+    trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}, preloaded: {}", tid, syscall, rip, hook, task.ldpreload_address.is_some());
 
     // NB: in multi-threaded context, one core could enter ptrace_event_seccomp
     // even another core already patched the very same syscall
@@ -879,7 +878,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     if !is_syscall_insn(tid, rip_before_syscall) {
         let mut new_regs = regs;
         new_regs.rax = regs.orig_rax;
-        trace!("{} seccomp syscall {:?}@{:x} restart because it is already patched, rax: {:x}", tid, syscall, rip, regs.rax);
+        debug!("{} seccomp syscall {:?}@{:x} restart because it is already patched, rax: {:x}", tid, syscall, rip, regs.rax);
         skip_seccomp_syscall(&mut task, new_regs).unwrap();
         synchronize_from(&mut task, rip_before_syscall);
         return Ok(task);
@@ -889,9 +888,6 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         std::thread::sleep(std::time::Duration::from_micros(1000));
     }
 
-    if task.ldpreload_address.is_none() {
-        task.ldpreload_address = libsystrace_load_address(tid);
-    }
     if !(task.ldpreload_address.is_none() || hook.is_none()) {
         let _ = patch_syscall_with(&mut task, hook.unwrap(), syscall, rip);
     }
