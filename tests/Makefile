@@ -8,7 +8,9 @@ CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -f
 TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7 forkMany
 
 SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../lib)
-SYSTRACE := ../bin/systrace --library-path=$(SYSTRACE_LIBRARY_PATH) --debug=4 --
+SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --library-path=$(SYSTRACE_LIBRARY_PATH) --debug=4 --
+SYSTRACE := $(shell realpath ../bin/systrace) --library-path=$(SYSTRACE_LIBRARY_PATH) --debug=0 --
+
 all: $(TARGET)
 
 build-tests: $(TARGET)
@@ -80,24 +82,26 @@ clean:
 
 tests: build-tests
 	./x64-save-return-address
-	$(SYSTRACE) ./openat1
-	$(SYSTRACE) ./open-many > /dev/null
-	$(SYSTRACE) ./write-many
-	$(SYSTRACE) ./getpid
-	$(SYSTRACE) ./nanosleep
-	$(SYSTRACE) ./clock-nanosleep
-	$(SYSTRACE) ./getpid-pie
-	$(SYSTRACE) ./test1.sh
-	$(SYSTRACE) ./test2.sh
-	$(SYSTRACE) ./segfault && exit 1 || exit 0
-	timeout 30s $(SYSTRACE) ./threads1
-	timeout 30s $(SYSTRACE) ./threads2
-	timeout 30s $(SYSTRACE) ./threads3
-	timeout 30s $(SYSTRACE) ./threads4
-	timeout 30s $(SYSTRACE) ./threads5
-	timeout 30s $(SYSTRACE) ./threads6
-	timeout 30s $(SYSTRACE) ./threads7
-	timeout 30s $(SYSTRACE) ./forkMany
-	timeout 30s $(SYSTRACE) ./forkMany --block-sigchld
+	$(SYSTRACE_DEBUG) ./openat1
+	$(SYSTRACE_DEBUG) ./open-many > /dev/null
+	$(SYSTRACE_DEBUG) ./write-many
+	$(SYSTRACE_DEBUG) ./getpid
+	$(SYSTRACE_DEBUG) ./nanosleep
+	$(SYSTRACE_DEBUG) ./clock-nanosleep
+	$(SYSTRACE_DEBUG) ./getpid-pie
+	$(SYSTRACE_DEBUG) ./test1.sh
+	$(SYSTRACE_DEBUG) ./test2.sh
+	$(SYSTRACE_DEBUG) ./segfault && exit 1 || exit 0
+	timeout 30s $(SYSTRACE_DEBUG) ./threads1
+	timeout 30s $(SYSTRACE_DEBUG) ./threads2
+	timeout 30s $(SYSTRACE_DEBUG) ./threads3
+	timeout 30s $(SYSTRACE_DEBUG) ./threads4
+	timeout 30s $(SYSTRACE_DEBUG) ./threads5
+	timeout 30s $(SYSTRACE_DEBUG) ./threads6
+	timeout 30s $(SYSTRACE_DEBUG) ./threads7
+	timeout 30s $(SYSTRACE_DEBUG) ./forkMany
+	timeout 30s $(SYSTRACE_DEBUG) ./forkMany --block-sigchld
+	SYSTRACE="$(SYSTRACE)" ./build-musl-1.1.21.sh
+	SYSTRACE="$(SYSTRACE)" ./build-glibc-2.27.sh
 
 .PHONY: all tests clean
