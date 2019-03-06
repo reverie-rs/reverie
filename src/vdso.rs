@@ -70,7 +70,7 @@ lazy_static! {
         let funcs = &[ __vdso_time,
                        __vdso_clock_gettime,
                        __vdso_getcpu,
-                       __vdso_clock_gettime];
+                       __vdso_gettimeofday];
         VDSO_SYMBOLS.iter().zip(funcs).for_each(|(k,v)| {
             let name = String::from(*k);
             if let Some(&(base, size)) = info.get(&name) {
