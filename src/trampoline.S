@@ -60,11 +60,9 @@
 _syscall_hook_trampoline:
         /* Save RBX because we need a callee-saves register */
         pushq %rbx
-        mov $0xdeadbeef, %rbx
 
         /* Build a |struct syscall_info| on the stack by pushing the arguments
            and syscall number. */
-        pushq %rbx
         pushq %r9
         pushq %r8
         pushq %r10
@@ -96,19 +94,12 @@ _syscall_hook_trampoline:
         pop %r10
         pop %r8
         pop %r9
-        pop %rbx
 
         pop %rbx
 
         /* ...and we're done. */
         ret
         .size _syscall_hook_trampoline, . - _syscall_hook_trampoline
-
-	.global _syscallbuf_final_exit_instruction;
-	.hidden _syscallbuf_final_exit_instruction;
-	.type _syscallbuf_final_exit_instruction, @function;
-_syscallbuf_final_exit_instruction:
-        ret
 
 /**
  * On syscallhook entry, the stack has been switched to the end of per-task
@@ -121,7 +112,7 @@ _syscallbuf_final_exit_instruction:
 name:                              
 
 #define SYSCALLHOOK_END(name)                                   \
-        jmp _syscallbuf_final_exit_instruction;                 \
+	ret				       ;                \
         .size name, .-name
 
 SYSCALLHOOK_START(_syscall_hook_trampoline_48_3d_01_f0_ff_ff)
@@ -148,9 +139,7 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_5a_5e_c3)
         pop (stub_scratch_1)
         pop %rdx
         pop %rsi
-	jmp _syscallbuf_final_exit_instruction
-
-        .size _syscall_hook_trampoline_5a_5e_c3, .-_syscall_hook_trampoline_5a_5e_c3
+SYSCALLHOOK_END(_syscall_hook_trampoline_5a_5e_c3)
 
 SYSCALLHOOK_START(_syscall_hook_trampoline_89_c2_f7_da)
         call __morestack
@@ -190,7 +179,11 @@ SYSCALLHOOK_END(_syscall_hook_trampoline_85_c0_0f_94_c2)
 .hidden __morestack
 .type __morestack, @function
 __morestack:
+	// allocate extra 128-byte to avoid spilling red-zone
+	// because we didn't do stack switch for trampoline
+	sub $0x80, %rsp
 	callq _syscall_hook_trampoline
+	add $0x80, %rsp
 	ret
 .size __morestack, .-__morestack
 
