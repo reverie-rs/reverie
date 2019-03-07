@@ -38,8 +38,10 @@ static volatile int quit = 0;
 
 static void handler(int sig, siginfo_t *info, void *ucontext)
 {
-  printf("[OK] received signal %u\n", sig);
+  static char msg[64];
   quit = 1;
+  size_t n = snprintf(msg, 64, "[OK] received signal %u\n", info->si_signo);
+  write(STDOUT_FILENO, msg, n);
 }
 
 extern int __restore_rt(void);
@@ -53,7 +55,7 @@ int main(int argc, char* argv[])
   memset(&new, 0, sizeof(new));
 
   new.sa__ = (unsigned long)handler;
-  new.flags = SA_RESTART | SA_RESTORER;
+  new.flags = SA_RESTART | SA_RESTORER | SA_SIGINFO;
   new.restorer = (unsigned long)rt_sigreturn;
   
   ret = rt_sigaction(SIGALRM, &new, NULL);
