@@ -20,19 +20,9 @@ void bpf_install(void)
   };
   struct sock_filter filter[] = {
     LOAD_SYSCALL_NR,
-    SYSCALL(__NR_exit, ALLOW),
-    SYSCALL(__NR_exit_group, ALLOW),
-    SYSCALL(__NR_mmap, ALLOW),
-    SYSCALL(__NR_mremap, ALLOW),
-    SYSCALL(__NR_munmap, ALLOW),
-    SYSCALL(__NR_madvise, ALLOW),
-    SYSCALL(__NR_mprotect, ALLOW),
-    SYSCALL(__NR_brk, ALLOW),
-    SYSCALL(__NR_wait4, ALLOW),
     SYSCALL(__NR_clone, ALLOW),
     SYSCALL(__NR_fork, ALLOW),
     SYSCALL(__NR_vfork, ALLOW),
-    SYSCALL(__NR_execve, ALLOW),
     SYSCALL(__NR_rt_sigreturn, ALLOW),
     SYSCALL(__NR_clock_nanosleep, ALLOW),	// this syscall should not be patched
     LOAD_SYSCALL_IP,

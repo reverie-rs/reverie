@@ -224,11 +224,16 @@ impl Task for TracedTask {
     }
 }
 
+// TODO: could check whether or not stack is valid
 fn show_stackframe(tid: Pid, stack: u64, top_size: usize, bot_size: usize) -> String{
+    let mut text = String::new();
+    if stack < top_size as u64 {
+        return text;
+    }
     let sp_top = stack - top_size as u64;
     let sp_bot = stack + bot_size as u64;
     let mut sp = sp_top;
-    let mut text = String::new();
+
     while sp <= sp_bot {
         match ptrace::read(tid, sp as ptrace::AddressType) {
             Err(_) => break,
@@ -933,11 +938,20 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     ptrace::setregs(tid, regs)?;
     ptrace::cont(tid, None)?;
 
-    // second breakpoint after syscall hit
-    let status = wait::waitpid(tid, None)?;
-    assert!(
-        status == wait::WaitStatus::Stopped(tid, signal::SIGTRAP)
-    );
+    // loop until second breakpoint hit after injected syscall
+    loop {
+        let status = wait::waitpid(tid, None)?;
+        match status {
+            wait::WaitStatus::Stopped(tid1, signal::SIGTRAP) if tid1 == tid => break,
+            wait::WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 7) => {
+                ptrace::cont(tid, None)?;
+            }
+            unknown => {
+                panic!("task {} returned unknown status {:?}", tid, unknown);
+            }
+        }
+    }
+
     let ret = ptrace::getregs(tid).and_then(|r| {
         if r.rax > (-4096i64 as u64) {
             let errno = -(r.rax as i64) as i32;
@@ -953,9 +967,7 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     let _ = vdso::vdso_patch(task);
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
-    ptrace::setregs(tid, saved_regs)?;
-
-    Ok(())
+    ptrace::setregs(tid, saved_regs)
 }
 
 fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
