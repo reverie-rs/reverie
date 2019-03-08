@@ -85,6 +85,9 @@ signal2: signal2.o
 signal3: signal3.o
 	$(CC) $^ -o $@ $(CFLAGS) -lrt
 
+sigprocmask1: sigprocmask1.o
+	$(CC) $^ -o $@ $(CFLAGS) -lrt
+
 clean:
 	$(RM) $(OBJS) *.o
 	$(RM) $(TARGET)
@@ -113,5 +116,6 @@ tests: build-tests
 	./signal1
 	./signal2
 	./signal3
+	./sigprocmask1
 
 .PHONY: all tests clean
