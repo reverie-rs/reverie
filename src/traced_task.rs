@@ -63,6 +63,11 @@ pub struct TracedTask {
     // syscall patching.
     in_vfork: bool,
 
+    // we have a patchable syscall on the enter of
+    // seccomp event, and (may) have the patch sequence size
+    // should be used only in seccomp event
+    seccomp_hook_size: Option<usize>,
+
     pub state: TaskState,
     pub ldpreload_address: Option<u64>,
     pub injected_mmap_page: Option<u64>,
@@ -100,6 +105,7 @@ impl Task for TracedTask {
             pgid: unistd::getpgid(Some(pid)).unwrap(),
             state: TaskState::Ready,
             in_vfork: false,
+            seccomp_hook_size: None,
             memory_map: Rc::new(RefCell::new(Vec::new())),
             stub_pages: Rc::new(RefCell::new(Vec::new())),
             trampoline_hooks: &SYSCALL_HOOKS,
@@ -122,6 +128,7 @@ impl Task for TracedTask {
             pgid: self.pgid,
             state: TaskState::Ready,
             in_vfork: false,
+            seccomp_hook_size: None,
             memory_map: self.memory_map.clone(),
             stub_pages: self.stub_pages.clone(),
             trampoline_hooks: &SYSCALL_HOOKS,
@@ -144,6 +151,7 @@ impl Task for TracedTask {
             pgid: self.pgid,
             state: TaskState::Ready,
             in_vfork: false,
+            seccomp_hook_size: None,
             memory_map: {
                 let maps = self.memory_map.borrow().clone();
                 Rc::new(RefCell::new(maps))
@@ -326,6 +334,7 @@ fn task_exec_reset(task: &mut TracedTask) {
     task.signal_to_deliver = None;
     task.state = TaskState::Exited(0);
     task.in_vfork = false;
+    task.seccomp_hook_size = None;
     check_ref_counters(task);
     *(task.patched_syscalls.borrow_mut()) = Vec::new();
     *(task.unpatchable_syscalls.borrow_mut()) = Vec::new();
@@ -751,16 +760,18 @@ fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         return Ok(RunTask::Runnable(task));
     }
 
-    let syscall_end = rip + 9; // TODO: maximum patch is less than 16B
+    let syscall_end = rip + task.seccomp_hook_size.unwrap_or(0) as u64;
+    task.seccomp_hook_size = None;
     let mut sig: Option<signal::Signal> = None;
     loop {
         ptrace::step(tid, sig).expect("ptrace single step");
         match wait::waitpid(Some(tid), None) {
-            Ok(WaitStatus::Stopped(tid1, signal::SIGTRAP)) if tid1 == tid => {
-                sig = None;
-            }
-            Ok(WaitStatus::Stopped(tid1, signal::SIGCHLD)) if tid1 == tid => {
-                sig = Some(signal::SIGCHLD);
+            Ok(WaitStatus::Stopped(tid1, sig1)) if tid1 == tid => {
+                sig = if sig1 == signal::SIGTRAP {
+                    None
+                } else {
+                    Some(sig1)
+                }
             }
             unexpected => {
                 panic!("waitpid({}): unexpected status {:?}, rip {:x}",
@@ -870,6 +881,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     }
     let hook = find_syscall_hook(&task, regs.rip);
     trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}, preloaded: {}", tid, syscall, rip, hook, task.ldpreload_address.is_some());
+    task.seccomp_hook_size = hook.map(|x| x.instructions.len());
 
     // NB: in multi-threaded context, one core could enter ptrace_event_seccomp
     // even another core already patched the very same syscall
