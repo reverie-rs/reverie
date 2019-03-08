@@ -60,6 +60,7 @@ struct Arguments<'a> {
     host_envs: bool,
     envs: HashMap<String, String>,
     namespaces: bool,
+    output: Option<&'a str>,
     program: &'a str,
     program_args: Vec<&'a str>,
 }
@@ -268,24 +269,29 @@ fn main() {
         .arg(
             Arg::with_name("no-host-envs")
                 .long("no-host-envs")
-                .value_name("NO_HOST_ENVS")
-                .help("do not inherit host's environment variables")
+                .help("do not pass-through host's environment variables")
                 .takes_value(false),
         )
         .arg(
             Arg::with_name("env")
                 .long("env")
-                .value_name("ENV")
+                .value_name("ENV=VALUE")
                 .multiple(true)
-                .help("set environment variable")
+                .help("set environment variables, allow using multiple times")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("namespaces")
-                .long("namespaces")
-                .value_name("NAMESPACES")
-                .help("enable namespaces")
+            Arg::with_name("enable-namespace")
+                .long("enable-namespace")
+                .help("enable namespaces, including PID, USER, MOUNT..")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("with-log")
+                .long("with-log")
+                .value_name("OUTPUT")
+                .help("with-log=[filename|stdout|stderr], default is stdout")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("program")
@@ -325,6 +331,7 @@ fn main() {
             })
             .collect(),
         namespaces: matches.is_present("namespaces"),
+        output: matches.value_of("with-log"),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")
@@ -332,7 +339,7 @@ fn main() {
             .unwrap_or_else(|| Vec::new()),
     };
 
-    setup_logger(argv.debug_level).expect("set log level");
+    setup_logger(argv.debug_level, argv.output).expect("set log level");
     std::env::set_var(consts::SYSTRACE_LIBRARY_PATH, &argv.library_path);
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
@@ -340,7 +347,32 @@ fn main() {
     }
 }
 
-fn setup_logger(level: i32) -> Result<()> {
+fn fern_with_output<'a>(output: Option<&'a str>) -> Result<fern::Dispatch> {
+    match output {
+        None => {
+                Ok(fern::Dispatch::new()
+                    .chain(std::io::stdout()))
+        }
+        Some(s) => match s {
+            "stdout" => {
+                Ok(fern::Dispatch::new()
+                    .chain(std::io::stdout()))
+            }
+            "stderr" => {
+                Ok(fern::Dispatch::new()
+                    .chain(std::io::stderr()))
+
+            }
+            output   => {
+                let f = fern::log_file(output)?;
+                Ok(fern::Dispatch::new()
+                   .chain(f))
+            }
+        }
+    }
+}
+
+fn setup_logger<'a>(level: i32, output: Option<&'a str>) -> Result<()> {
     let log_level = match level {
         0 => log::LevelFilter::Off,
         1 => log::LevelFilter::Error,
@@ -351,11 +383,9 @@ fn setup_logger(level: i32) -> Result<()> {
         _ => log::LevelFilter::Trace,
     };
 
-    fern::Dispatch::new()
-        .format(|out, message, _record| out.finish(format_args!("{}", message)))
+    fern_with_output(output)?
         .level(log_level)
-        .chain(std::io::stdout())
-        .chain(fern::log_file("output.log")?)
+        .format(|out, message, _record| out.finish(format_args!("{}", message)))
         .apply()
         .map_err(|e| Error::new(ErrorKind::Other, e))
 }
