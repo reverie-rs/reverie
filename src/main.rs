@@ -57,7 +57,7 @@ fn libsystrace_trampoline_within_first_page() -> Result<()> {
 struct Arguments<'a> {
     debug_level: i32,
     library_path: PathBuf,
-    env_all: bool,
+    host_envs: bool,
     envs: HashMap<String, String>,
     namespaces: bool,
     program: &'a str,
@@ -146,7 +146,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
 
     let mut envs: Vec<String> = Vec::new();
 
-    if argv.env_all {
+    if argv.host_envs {
         std::env::vars().for_each(|(k, v)| {
             envs.push(format!("{}={}", k, v));
         });
@@ -266,10 +266,10 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("env-all")
-                .long("env-all")
-                .value_name("ENV-ALL")
-                .help("inherits all environment variables")
+            Arg::with_name("no-host-envs")
+                .long("no-host-envs")
+                .value_name("NO_HOST_ENVS")
+                .help("do not inherit host's environment variables")
                 .takes_value(false),
         )
         .arg(
@@ -314,7 +314,7 @@ fn main() {
             .or_else(|| PathBuf::from("lib").canonicalize().ok())
             .or_else(|| PathBuf::from(".").canonicalize().ok())
             .expect("cannot find library path"),
-        env_all: matches.is_present("env-all"),
+        host_envs: !matches.is_present("-no-host-envs"),
         envs: matches
             .values_of("env")
             .unwrap_or_default()
