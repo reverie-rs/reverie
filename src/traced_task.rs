@@ -205,7 +205,7 @@ impl Task for TracedTask {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
                 let _ = ptrace::cont(task.gettid(), Some(signal));
-                Ok(RunTask::Exited(0x80 | signal as i32)
+                Ok(RunTask::Exited(0x80 | signal as i32))
             }
             TaskState::Ready => {
                 Ok(RunTask::Runnable(task))
