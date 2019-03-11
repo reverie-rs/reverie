@@ -57,6 +57,7 @@ fn libsystrace_trampoline_within_first_page() -> Result<()> {
 struct Arguments<'a> {
     debug_level: i32,
     library_path: PathBuf,
+    tool_name: &'a str,
     host_envs: bool,
     envs: HashMap<String, String>,
     namespaces: bool,
@@ -116,13 +117,12 @@ fn tracee_init_signals() {
 }
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
-    // FIXME: There should NOT be a hardcoded tool name!:
-    let libs: Result<Vec<PathBuf>> = ["libechotool.so", "libsystrace.so"]
-        .iter()
-        .map(|so| argv.library_path.join(so).canonicalize())
-        .collect();
+    let library_path = &argv.library_path;
+    let tool = library_path.join(&argv.tool_name);
+    let systrace_so = library_path.join("libsystrace.so");
+    let libs: Vec<PathBuf> = vec![tool, systrace_so];
     let ldpreload = String::from("LD_PRELOAD=")
-        + &libs?
+        + &libs
             .iter()
             .map(|p| p.to_str().unwrap())
             .collect::<Vec<_>>()
@@ -262,8 +262,14 @@ fn main() {
             Arg::with_name("library-path")
                 .long("library-path")
                 .value_name("LIBRARY_PATH")
-                // FIXME: There should NOT be a hardcoded tool name!:
-                .help("set library search path for libsystrace.so, libechotool.so")
+                .help("set library search path for libsystrace.so, libTOOL.so")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("tool")
+                .long("tool")
+                .value_name("TOOL")
+                .help("choose which tool (libTOOL.so) to run")
                 .takes_value(true),
         )
         .arg(
@@ -281,9 +287,9 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("enable-namespace")
-                .long("enable-namespace")
-                .help("enable namespaces, including PID, USER, MOUNT..")
+            Arg::with_name("with-namespace")
+                .long("with-namespace")
+                .help("enable namespaces, including PID, USER, MOUNT.. default is false")
                 .takes_value(false),
         )
         .arg(
@@ -309,17 +315,20 @@ fn main() {
         )
         .get_matches();
 
+    let rpath = match matches.value_of("library-path") {
+        Some(path) => PathBuf::from(path).canonicalize(),
+        None => PathBuf::from("lib")
+            .canonicalize()
+            .or_else(|_| PathBuf::from(".").canonicalize()),
+    }.expect("invalid library-path");
+
     let argv = Arguments {
         debug_level: matches
             .value_of("debug")
             .and_then(|x| x.parse::<i32>().ok())
             .unwrap_or(0),
-        library_path: matches
-            .value_of("library-path")
-            .and_then(|p| PathBuf::from(p).canonicalize().ok())
-            .or_else(|| PathBuf::from("lib").canonicalize().ok())
-            .or_else(|| PathBuf::from(".").canonicalize().ok())
-            .expect("cannot find library path"),
+        tool_name: matches.value_of("tool").unwrap(),
+        library_path: rpath,
         host_envs: !matches.is_present("-no-host-envs"),
         envs: matches
             .values_of("env")
@@ -330,7 +339,7 @@ fn main() {
                 (t[0].to_string(), t[1..].join("="))
             })
             .collect(),
-        namespaces: matches.is_present("namespaces"),
+        namespaces: matches.is_present("with-namespace"),
         output: matches.value_of("with-log"),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
