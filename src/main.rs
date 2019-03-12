@@ -251,6 +251,27 @@ fn run_app(argv: &Arguments) -> Result<i32> {
     }
 }
 
+fn populate_rpath(hint: Option<&str>, so: &str) -> Result<PathBuf> {
+    let mut exe_path = env::current_exe()?;
+    exe_path.pop();
+    let search_path = vec![PathBuf::from("."), PathBuf::from("lib"), exe_path];
+    let rpath = match hint {
+        Some(path) => PathBuf::from(path).canonicalize().ok(),
+        None => search_path
+            .iter()
+            .find(|p| {
+                match p.join(so).canonicalize() {
+                    Ok(fp) => fp.exists(),
+                    Err(_) => false,
+                }
+            })
+            .map(|p| p.clone()),
+    };
+    log::trace!("[main] library search path: {:?}", search_path);
+    log::info!("[main] library-path chosen: {:?}", rpath);
+    rpath.ok_or(Error::new(ErrorKind::NotFound, "cannot find a valid library path"))
+}
+
 fn main() {
     let matches = App::new("systrace - a fast syscall tracer and interceper")
         .version("0.0.1")
@@ -265,7 +286,8 @@ fn main() {
             Arg::with_name("library-path")
                 .long("library-path")
                 .value_name("LIBRARY_PATH")
-                .help("set library search path for libtrampoline.so, libTOOL.so")
+                .help("set library search path for libtrampoline.so, libTOOL.so\n\
+                       if not specified, search [cwd, cwd/lib, exe_path]")
                 .takes_value(true),
         )
         .arg(
@@ -318,20 +340,25 @@ fn main() {
         )
         .get_matches();
 
-    let rpath = match matches.value_of("library-path") {
-        Some(path) => PathBuf::from(path).canonicalize(),
-        None => PathBuf::from("lib")
-            .canonicalize()
-            .or_else(|_| PathBuf::from(".").canonicalize()),
-    }.expect("invalid library-path");
+    let log_level = matches
+        .value_of("debug")
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(0);
+    let log_output = matches.value_of("with-log");
+    setup_logger(log_level, log_output).expect("set log level");
+
+    let tool = matches.value_of("tool").expect("tool not specified");
+    let plugin = if tool.starts_with("lib") && tool.ends_with(".so") {
+        String::from(tool)
+    } else {
+        String::from("lib") + tool + ".so"
+    };
+    let rpath = populate_rpath(matches.value_of("library-path"), &plugin);
 
     let argv = Arguments {
-        debug_level: matches
-            .value_of("debug")
-            .and_then(|x| x.parse::<i32>().ok())
-            .unwrap_or(0),
-        tool_name: matches.value_of("tool").unwrap(),
-        library_path: rpath,
+        debug_level: log_level,
+        tool_name: &plugin,
+        library_path: rpath.expect("cannot find shared libraries under library_path"),
         host_envs: !matches.is_present("-no-host-envs"),
         envs: matches
             .values_of("env")
@@ -343,7 +370,7 @@ fn main() {
             })
             .collect(),
         namespaces: matches.is_present("with-namespace"),
-        output: matches.value_of("with-log"),
+        output: log_output,
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")
@@ -351,7 +378,6 @@ fn main() {
             .unwrap_or_else(|| Vec::new()),
     };
 
-    setup_logger(argv.debug_level, argv.output).expect("set log level");
     std::env::set_var(consts::LIBTRAMPOLINE_LIBRARY_PATH, &argv.library_path);
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
