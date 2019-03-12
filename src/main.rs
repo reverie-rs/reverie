@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
+use std::env;
 
 mod consts;
 mod hooks;
@@ -41,14 +42,16 @@ extern "C" {
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
-    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from("lib").join(consts::SYSTRACE_SO))?;
+    let library_path = PathBuf::from("target").join("debug");
+    let parsed = hooks::resolve_syscall_hooks_from(library_path.join(consts::LIBTRAMPOLINE_SO))?;
     assert_ne!(parsed.len(), 0);
     Ok(())
 }
 
 #[test]
-fn libsystrace_trampoline_within_first_page() -> Result<()> {
-    let parsed = hooks::resolve_syscall_hooks_from(PathBuf::from("lib").join(consts::SYSTRACE_SO))?;
+fn libtrampoline_trampoline_within_first_page() -> Result<()> {
+    let library_path = PathBuf::from("target").join("debug");
+    let parsed = hooks::resolve_syscall_hooks_from(library_path.join(consts::LIBTRAMPOLINE_SO))?;
     let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x1000).collect();
     assert_eq!(parsed.len(), filtered.len());
     Ok(())
@@ -119,8 +122,8 @@ fn tracee_init_signals() {
 fn run_tracee(argv: &Arguments) -> Result<i32> {
     let library_path = &argv.library_path;
     let tool = library_path.join(&argv.tool_name);
-    let systrace_so = library_path.join("libsystrace.so");
-    let libs: Vec<PathBuf> = vec![tool, systrace_so];
+    let so = library_path.join(consts::LIBTRAMPOLINE_SO);
+    let libs: Vec<PathBuf> = vec![tool, so];
     let ldpreload = String::from("LD_PRELOAD=")
         + &libs
             .iter()
@@ -262,7 +265,7 @@ fn main() {
             Arg::with_name("library-path")
                 .long("library-path")
                 .value_name("LIBRARY_PATH")
-                .help("set library search path for libsystrace.so, libTOOL.so")
+                .help("set library search path for libtrampoline.so, libTOOL.so")
                 .takes_value(true),
         )
         .arg(
@@ -349,7 +352,7 @@ fn main() {
     };
 
     setup_logger(argv.debug_level, argv.output).expect("set log level");
-    std::env::set_var(consts::SYSTRACE_LIBRARY_PATH, &argv.library_path);
+    std::env::set_var(consts::LIBTRAMPOLINE_LIBRARY_PATH, &argv.library_path);
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
         err => panic!("run app failed with error: {:?}", err),

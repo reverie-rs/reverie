@@ -1,8 +1,5 @@
-pub const SYSTRACE_LIBRARY_PATH: &'static str = "SYSTRACE_LIBRARY_PATH";
-pub const SYSTRACE_SO: &'static str = "libsystrace.so";
-
-// FIXME: There should NOT be a hardcoded tool name!
-pub const DET_SO: &'static str = "libechotool.so";
+pub const LIBTRAMPOLINE_LIBRARY_PATH: &'static str = "LIBTRAMPOLINE_LIBRARY_PATH";
+pub const LIBTRAMPOLINE_SO: &'static str = "libtrampoline.so";
 
 pub const SYSCALL_INSN_SIZE: usize = 2;
 pub const SYSCALL_INSN_MASK: u64 = 0xffff;

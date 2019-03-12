@@ -18,26 +18,16 @@ else
 endif
 
 all:
-	$(MAKE) -C src all
 	$(MAKE) -C tests all
 	@cargo build $(WAY)
-	@cargo build $(WAY) --manifest-path=examples/echotool/Cargo.toml
-#	@cargo build $(WAY) --manifest-path=examples/counttool/Cargo.toml
-	@cp -v src/libsystrace.so lib/
-	@cp -v examples/echotool/target/$(TARGETDIR)/libechotool.so lib/
+	@cp -v target/$(TARGETDIR)/libtrampoline.so lib/
+	@cp -v target/$(TARGETDIR)/libechotool.so lib/
 	@cp -v target/$(TARGETDIR)/systrace bin/
-# @if [ "$(WAY)" == "--release" ]; \
-        #   then cp -v examples/echotool/target/release/libechotool.so lib/; \
-        #        cp -v target/release/systrace bin/; \
-        #   else cp -v examples/echotool/target/debug/libechotool.so lib/; \
-        #        cp -v target/debug/systrace bin/; fi
 clean:
-	$(MAKE) -C src clean
 	$(MAKE) -C tests clean
-	$(RM) lib/libechotool.so lib/libsystrace.so
+	$(RM) lib/libechotool.so lib/libtrampoline.so
 	$(RM) bin/systrace
 	@cargo clean
-	@cargo clean --manifest-path=examples/echotool/Cargo.toml
 
 test: tests
 tests: all

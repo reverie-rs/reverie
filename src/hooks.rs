@@ -13,7 +13,7 @@ pub struct SyscallHook {
 }
 
 /// resolve syscall hooks from (LD) preload library
-/// @preload should be `libsystrace.so`
+/// @preload should be `libtrampoline.so`
 /// which has symbols for syscall hooks
 pub fn resolve_syscall_hooks_from(preload: PathBuf) -> Result<Vec<SyscallHook>> {
     let mut bytes: Vec<u8> = Vec::new();

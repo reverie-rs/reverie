@@ -11,8 +11,6 @@
 
 #include "bpf-helper.h"
 
-#include "scinfo.h"
-
 void bpf_install(void)
 {
   struct bpf_labels l = {

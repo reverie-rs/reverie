@@ -27,7 +27,7 @@ use crate::task::*;
 use crate::remote_rwlock::*;
 use crate::vdso;
 
-fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
+fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
         pid,
         consts::DET_TLS_SYSCALL_TRAMPOLINE as ptrace::AddressType,
@@ -39,11 +39,11 @@ fn libsystrace_load_address(pid: unistd::Pid) -> Option<u64> {
 
 lazy_static! {
     static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        let systrace_lib_path = std::env::var(consts::SYSTRACE_LIBRARY_PATH).unwrap();
+        let trampoline_lib_path = std::env::var(consts::LIBTRAMPOLINE_LIBRARY_PATH).unwrap();
         hooks::resolve_syscall_hooks_from(
-            PathBuf::from(systrace_lib_path).join(consts::SYSTRACE_SO),
+            PathBuf::from(trampoline_lib_path).join(consts::LIBTRAMPOLINE_SO),
         )
-        .expect(&format!("unable to load {}", consts::SYSTRACE_SO))
+        .expect(&format!("unable to load {}", consts::LIBTRAMPOLINE_SO))
     };
 }
 
@@ -109,7 +109,7 @@ impl Task for TracedTask {
             memory_map: Rc::new(RefCell::new(Vec::new())),
             stub_pages: Rc::new(RefCell::new(Vec::new())),
             trampoline_hooks: &SYSCALL_HOOKS,
-            ldpreload_address: libsystrace_load_address(pid),
+            ldpreload_address: libtrampoline_load_address(pid),
             injected_mmap_page: None,
             signal_to_deliver: None,
             unpatchable_syscalls: Rc::new(RefCell::new(Vec::new())),
@@ -389,7 +389,7 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
 
     task.ldpreload_address.ok_or(Error::new(
         ErrorKind::Other,
-        format!("libsystrace not loaded"),
+        format!("libtrampoline not loaded"),
     ))?;
     if task.is_patched_syscall(rip) {
         // already patched
@@ -513,7 +513,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
 
     let preload_address = task.ldpreload_address.ok_or(Error::new(
         ErrorKind::Other,
-        format!("{} not loaded", consts::SYSTRACE_SO),
+        format!("{} not loaded", consts::LIBTRAMPOLINE_SO),
     ))?;
     let stubs = stubs::gen_extended_jump_stubs(task.trampoline_hooks, preload_address);
     task.stub_pages.borrow_mut().push(SyscallStubPage {
@@ -882,7 +882,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     }
 
     if task.ldpreload_address.is_none() {
-        task.ldpreload_address = libsystrace_load_address(tid);
+        task.ldpreload_address = libtrampoline_load_address(tid);
     }
     let hook = find_syscall_hook(&task, regs.rip);
     trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}, preloaded: {}", tid, syscall, rip, hook, task.ldpreload_address.is_some());
