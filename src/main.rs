@@ -141,12 +141,6 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .map_err(from_nix_error)?;
 
     tracee_init_signals();
-    // println!("launching program: {} {:?}", &argv.program, &argv.program_args);
-
-    // install seccomp-bpf filters
-    // NB: the only syscall beyond this point should be
-    // execvpe only.
-    unsafe { bpf_install() };
 
     let mut envs: Vec<String> = Vec::new();
 
@@ -177,6 +171,13 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .into_iter()
         .map(|s| CString::new(s.as_bytes()).unwrap())
         .collect();
+
+    log::info!("[main] launching: {} {:?}", &argv.program, &argv.program_args);
+    // install seccomp-bpf filters
+    // NB: the only syscall beyond this point should be
+    // execvpe only.
+    unsafe { bpf_install() };
+
     unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
