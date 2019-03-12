@@ -90,7 +90,6 @@ fn build_trampoline(){
 fn main() {
     build_trampoline();
     gen_syscall_nrs(PathBuf::from("src").join("nr.rs")).unwrap();
-    gen_syscall_nrs(PathBuf::from("syscalls").join("src").join("nr.rs")).unwrap();
     cc::Build::new()
         .file("src/bpf.c")
         .file("src/bpf-helper.c")
