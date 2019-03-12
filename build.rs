@@ -8,7 +8,7 @@ use std::process::Command;
 use cc;
 
 fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
-    let mut f = File::create(&dest)?;
+    let mut f = File::create(dest)?;
     writeln!(f, "pub use self::SyscallNo::*;")?;
 
     writeln!(
