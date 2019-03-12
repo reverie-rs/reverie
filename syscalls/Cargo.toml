@@ -1,0 +1,11 @@
+[package]
+name = "syscalls"
+version = "0.1.0"
+authors = ["Baojun Wang <wangbj@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "syscalls"
+path = "src/lib.rs"
+
+[dependencies]
