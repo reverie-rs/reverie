@@ -19,7 +19,7 @@ endif
 
 all:
 	$(MAKE) -C tests all
-	@cargo build $(WAY)
+	@cargo build $(WAY) --all
 	@cp -v target/$(TARGETDIR)/libtrampoline.so lib/
 	@cp -v target/$(TARGETDIR)/libechotool.so lib/
 	@cp -v target/$(TARGETDIR)/systrace bin/
@@ -27,7 +27,7 @@ clean:
 	$(MAKE) -C tests clean
 	$(RM) lib/libechotool.so lib/libtrampoline.so
 	$(RM) bin/systrace
-	@cargo clean
+	@cargo clean --all
 
 test: tests
 tests: all

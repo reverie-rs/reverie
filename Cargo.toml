@@ -5,7 +5,7 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members= [".", "examples/echotool"]
+members= [".", "syscalls", "examples/echotool"]
 default-members = ["."]
 
 [[bin]]

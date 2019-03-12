@@ -1,15 +1,14 @@
 use std::fs::File;
 use std::io::{Result, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::env;
 use sysnum::gen_syscalls;
 use std::process::Command;
 
 use cc;
 
-fn gen_syscall_nrs() -> Result<()> {
-    let dest_path = Path::new("src").join("nr.rs");
-    let mut f = File::create(&dest_path)?;
+fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
+    let mut f = File::create(&dest)?;
     writeln!(f, "pub use self::SyscallNo::*;")?;
 
     writeln!(
@@ -90,7 +89,8 @@ fn build_trampoline(){
 
 fn main() {
     build_trampoline();
-    gen_syscall_nrs().unwrap();
+    gen_syscall_nrs(PathBuf::from("src").join("nr.rs")).unwrap();
+    gen_syscall_nrs(PathBuf::from("syscalls").join("src").join("nr.rs")).unwrap();
     cc::Build::new()
         .file("src/bpf.c")
         .file("src/bpf-helper.c")
