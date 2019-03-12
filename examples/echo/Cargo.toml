@@ -1,11 +1,11 @@
 [package]
-name = "echotool"
+name = "echo"
 version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [lib]
-name = "echotool"
+name = "echo"
 crate-type = ["cdylib"]
 path = "src/lib.rs"
 

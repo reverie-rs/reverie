@@ -5,8 +5,8 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members= [".", "syscalls", "examples/echotool", "examples/none"]
-default-members = [".", "syscalls", "examples/echotool", "examples/none"]
+members= [".", "syscalls", "examples/echo", "examples/none"]
+default-members = [".", "syscalls"]
 
 [[bin]]
 name = "systrace"

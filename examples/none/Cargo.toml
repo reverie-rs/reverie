@@ -1,0 +1,16 @@
+[package]
+name = "none"
+version = "0.1.0"
+authors = ["Baojun Wang <wangbj@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "none"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+syscalls = { path = "../../syscalls" }
+
+[build-dependencies]
+cc = "1.0.28"
