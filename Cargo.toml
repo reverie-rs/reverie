@@ -8,6 +8,10 @@ edition = "2018"
 members= [".", "syscalls", "examples/echo", "examples/none"]
 default-members = [".", "syscalls"]
 
+[lib]
+name = "systrace"
+path = "src/lib.rs"
+
 [[bin]]
 name = "systrace"
 path = "src/main.rs"

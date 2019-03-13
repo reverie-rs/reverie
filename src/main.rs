@@ -17,23 +17,10 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::env;
 
-mod consts;
-mod hooks;
-mod nr;
-mod ns;
-mod proc;
-mod remote;
-mod remote_rwlock;
-mod sched;
-mod sched_wait;
-mod stubs;
-mod vdso;
-mod task;
-mod traced_task;
-
-use sched::Scheduler;
-use sched_wait::SchedWait;
-use task::{RunTask, Task};
+use systrace::{ns, consts, task, hooks};
+use systrace::sched::Scheduler;
+use systrace::sched_wait::SchedWait;
+use systrace::task::{RunTask, Task};
 
 // install seccomp-bpf filters
 extern "C" {
@@ -69,25 +56,8 @@ struct Arguments<'a> {
     program_args: Vec<&'a str>,
 }
 
-fn run_tracer_main(sched: &mut SchedWait) -> Result<i32> {
-    let mut exit_code = 0i32;
-    while let Some(task) = sched.next() {
-        let run_result = task.run()?;
-        match run_result {
-            RunTask::Exited(_code) => exit_code = _code,
-            RunTask::Blocked(task1) => {
-                sched.add_blocked(task1);
-            }
-            RunTask::Runnable(task1) => {
-                sched.add_and_schedule(task1);
-            }
-            RunTask::Forked(parent, child) => {
-                sched.add(child);
-                sched.add_and_schedule(parent);
-            }
-        }
-    }
-    Ok(exit_code)
+fn run_tracer_main(sched: &mut SchedWait) -> i32 {
+    sched.event_loop()
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -218,7 +188,7 @@ fn run_tracer(
             let tracee = task::Task::new(child);
             let mut sched: SchedWait = Scheduler::new();
             sched.add(tracee);
-            run_tracer_main(&mut sched)
+            Ok(run_tracer_main(&mut sched))
         }
     }
 }
@@ -403,7 +373,8 @@ fn fern_with_output<'a>(output: Option<&'a str>) -> Result<fern::Dispatch> {
 
             }
             output   => {
-                let f = fern::log_file(output)?;
+                let f = std::fs::OpenOptions::new()
+                    .write(true).truncate(true).create(true).open(output)?;
                 Ok(fern::Dispatch::new()
                    .chain(f))
             }
