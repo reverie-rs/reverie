@@ -5,6 +5,7 @@ use nix::sys::{ptrace, signal, wait};
 use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind, Result};
+use std::path::PathBuf;
 
 use crate::consts;
 use crate::nr::*;
@@ -51,9 +52,9 @@ impl Scheduler<TracedTask> for SchedWait {
         self.tasks.insert(tid, task);
         self.run_queue.push_front(tid);
         if is_seccomp {
-            ptrace::syscall(tid).expect(&format!("add_and_schedule, syscall {}", tid));
+            let _ = ptrace::syscall(tid);
         } else {
-            ptrace::cont(tid, sig).expect(&format!("add_and_schedule, resume {}", tid));
+            let _ = ptrace::cont(tid, sig);
         }
     }
     fn remove(&mut self, task: &mut TracedTask) {
@@ -64,6 +65,9 @@ impl Scheduler<TracedTask> for SchedWait {
     }
     fn size(&self) -> usize {
         self.tasks.len()
+    }
+    fn event_loop(&mut self) -> i32 {
+        sched_wait_event_loop(self)
     }
 }
 
@@ -93,26 +97,19 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
             return None;
         }
         let tid = tid_.unwrap();
-        if log::log_enabled!(Trace) {
-            let mut debug_string = format!("[sched]: {:?}, task queue:", tid);
-            tasks
-                .tasks
-                .iter()
-                .for_each(|(k, _)| debug_string += &format!(" {}", k));
-            log::trace!("{}", debug_string);
-        }
-        while let Ok(status) = wait::waitpid(Some(tid), Some(WaitPidFlag::WNOHANG)) {
-            retry = status == WaitStatus::StillAlive;
+        loop {
+            let status = wait::waitpid(Some(tid), Some(WaitPidFlag::WNOHANG));
+            retry = status == Ok(WaitStatus::StillAlive);
             if !retry {
                 log::trace!("[sched] {} {:?}", tid, status);
             }
             match status {
                 // no status change, TODO: dead lock detection?
-                WaitStatus::StillAlive => {
+                Ok(WaitStatus::StillAlive) => {
                     tasks.blocked_queue.push_back(tid);
                     break;
                 }
-                WaitStatus::Signaled(_pid, signal, _core) => {
+                Ok(WaitStatus::Signaled(_pid, signal, _core)) => {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
@@ -120,14 +117,14 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     task.state = TaskState::Signaled(signal);
                     return Some(task);
                 }
-                WaitStatus::Continued(_pid) => {
+                Ok(WaitStatus::Continued(_)) => {
                     let task = tasks
                         .tasks
                         .remove(&tid)
                         .expect(&format!("unknown pid {:}", tid));
                     return Some(task);
                 }
-                WaitStatus::PtraceEvent(_pid, signal, event) if signal == signal::SIGTRAP => {
+                Ok(WaitStatus::PtraceEvent(_, sig, event)) if sig == signal::SIGTRAP => {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
@@ -135,14 +132,13 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     task.state = TaskState::Event(event as u64);
                     return Some(task);
                 }
-                WaitStatus::PtraceSyscall(pid) => {
+                Ok(WaitStatus::PtraceSyscall(pid)) => {
                     assert!(pid == tid);
                     let mut task = tasks.tasks.remove(&tid).unwrap();
-                    let regs = task.getregs().unwrap();
-                    task.state = TaskState::Syscall(regs.rip);
+                    task.state = TaskState::Syscall;
                     return Some(task);
                 }
-                WaitStatus::Stopped(pid, sig) => {
+                Ok(WaitStatus::Stopped(pid, sig)) => {
                     // ignore group-stop
                     if !is_ptrace_group_stop(pid, sig) {
                         // NB: we use TaskState::Ready for the intial SIGSTOP
@@ -156,13 +152,93 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         return Some(task);
                     }
                 }
-                WaitStatus::Exited(pid, _retval) => {
+                Ok(WaitStatus::Exited(pid, _retval)) => {
                     tasks.tasks.remove(&pid);
                     retry = true;
+                    break;
+                }
+                Err(nix::Error::Sys(nix::errno::Errno::ECHILD)) => {
+                    // a non-awaited child
+                    log::debug!("[sched] waitpid {} => ECHILD", tid);
+                    retry = true;
+                    break;
                 }
                 otherwise => panic!("unknown status: {:?}", otherwise),
             }
         }
     }
     None
+}
+
+pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
+    let mut exit_code = 0i32;
+    while let Some(task) = sched.next() {
+        let tid = task.gettid();
+        let run_result = task.run();
+        match run_result {
+            Ok(RunTask::Exited(_code)) => exit_code = _code,
+            Ok(RunTask::Blocked(task1)) => {
+                sched.add_blocked(task1);
+            }
+            Ok(RunTask::Runnable(task1)) => {
+                sched.add_and_schedule(task1);
+            }
+            Ok(RunTask::Forked(parent, child)) => {
+                sched.add(child);
+                sched.add_and_schedule(parent);
+            }
+            // task.run could fail when ptrace failed, this *can* happen
+            // when we received a PtraceEvent (such as seccomp), then
+            // immediately some other thread called `exit_group`; then
+            // current task received `SIGKILL` (sent by kernel), because
+            // we have no way to trap `SIGKILL`, so at the time when we
+            // handle the pending ptrace event, the task could have been
+            // killed already. please see more details in:
+            // https://github.com/strace/strace/blob/e0f0071b36215de8a592bf41ec007a794b550d45/strace.c#L2569
+            //
+            // we assume the task is gone if this happens.
+            // below is a example of such scenario:
+            //
+            // === seccomp syscall SYS_pselect6 @4521d3, return: 0 (0)
+            // [sched] 27604 PtraceEvent(Pid(27604), SIGTRAP, 7)
+            // 27604 seccomp syscall SYS_exit_group@4520ab, hook: None, preloaded: false
+            // [sched] 27607 PtraceEvent(Pid(27607), SIGTRAP, 7)
+            // [main] 27607 failed to run, assuming killed
+            // [sched] 27606 PtraceEvent(Pid(27606), SIGTRAP, 6)
+            // [sched] 27608 PtraceEvent(Pid(27608), SIGTRAP, 6)
+            // [sched] 27605 PtraceEvent(Pid(27605), SIGTRAP, 6)
+            // [sched] 27604 PtraceEvent(Pid(27604), SIGTRAP, 6)
+            // (all task exited)
+            Err(_) => {
+                // task not to be re-queued, assuming exited/killed.
+                log::debug!("[sched] {} failed to run, assuming killed", tid);
+                let file = PathBuf::from("/proc")
+                    .join(&format!("{}", tid.as_raw() as i32))
+                    .join("stat");
+                if file.exists() {
+                    // see BUGS in man 2 ptrace
+                    // 
+                    // A  SIGKILL  signal  may  still cause a PTRACE_EVENT_EXIT stop before
+                    // actual signal death.  This may be changed in the future; SIGKILL is
+                    // meant to always immediately kill tasks even under ptrace.
+                    // Last confirmed on Linux 3.13.
+                    //
+                    // Apparently this applies to kernel 4.15 as well
+                    //
+                    let stat = std::fs::read_to_string(file).unwrap_or(String::new());
+                    println!("[sched] task {} refused to be traced while alive, stat: {}", tid, stat);
+                    let regs = ptrace::getregs(tid);
+                    println!("rsp = {:x?},  rip = {:x?}", regs.map(|r| r.rsp), regs.map(|r| r.rip));
+                    let status = wait::waitpid(Some(tid), None);
+                    assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
+                    //
+                    // NB: we *MUST* let the task to run
+                    // this is WHY this ptrace BUG matters, after all.
+                    //
+                    let _ = ptrace::detach(tid);
+                }
+            }
+        }
+    }
+    exit_code
 }

@@ -218,7 +218,7 @@ impl Task for TracedTask {
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(_ev) => handle_ptrace_event(task),
-            TaskState::Syscall(_at) => handle_syscall_exit(task),
+            TaskState::Syscall => handle_syscall_exit(task),
             TaskState::Exited(_exit_code) => unreachable!("run task which is already exited"),
         }
     }
@@ -362,9 +362,13 @@ fn find_syscall_hook(task: &TracedTask, rip: u64) -> Option<&'static hooks::Sysc
         let remote_ptr = RemotePtr::new(
             (rip + i * std::mem::size_of::<u64>() as u64) as *mut u64
         );
-        let u: u64 = task.peek(remote_ptr).unwrap();
-        let raw: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(u) };
-        raw.iter().for_each(|c| bytes.push(*c));
+        match task.peek(remote_ptr).ok() {
+            None => return None,
+            Some(u) => {
+                let raw: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(u) };
+                raw.iter().for_each(|c| bytes.push(*c));
+            }
+        }
     }
 
     let mut it = task.trampoline_hooks.iter().filter(|hook| {
@@ -543,7 +547,7 @@ impl Remote for TracedTask {
     fn peek_bytes(&self, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>> {
         if size <= std::mem::size_of::<u64>() {
             let raw_ptr = addr.as_ptr();
-            let x = ptrace::read(self.tid, raw_ptr as ptrace::AddressType).expect("ptrace peek");
+            let x = ptrace::read(self.tid, raw_ptr as ptrace::AddressType).map_err(from_nix_error)?;
             let bytes: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(x) };
             let res: Vec<u8> = bytes.iter().cloned().take(size).collect();
             Ok(res)
@@ -555,7 +559,7 @@ impl Remote for TracedTask {
             }];
             let mut res = vec![0; size];
             let local_iov = &[uio::IoVec::from_mut_slice(res.as_mut_slice())];
-            uio::process_vm_readv(self.tid, local_iov, remote_iov).expect("process_vm_readv");
+            uio::process_vm_readv(self.tid, local_iov, remote_iov).map_err(from_nix_error)?;
             Ok(res)
         }
     }
@@ -565,7 +569,7 @@ impl Remote for TracedTask {
         if size <= std::mem::size_of::<u64>() {
             let raw_ptr = addr.as_ptr();
             let mut u64_val = if size < std::mem::size_of::<u64>() {
-                ptrace::read(self.tid, raw_ptr as ptrace::AddressType).expect("ptrace peek") as u64
+                ptrace::read(self.tid, raw_ptr as ptrace::AddressType).map_err(from_nix_error)? as u64
             } else {
                 0u64
             };
@@ -595,39 +599,36 @@ impl Remote for TracedTask {
                 len: size,
             }];
             let local_iov = &[uio::IoVec::from_slice(bytes)];
-            uio::process_vm_writev(self.tid, local_iov, remote_iov).expect("process_vm_writev");
+            uio::process_vm_writev(self.tid, local_iov, remote_iov).map_err(from_nix_error)?;
             return Ok(());
         }
     }
 
     fn getregs(&self) -> Result<libc::user_regs_struct> {
-        let regs = ptrace::getregs(self.tid).expect(&format!("pid {}: ptrace getregs", self.tid));
-        Ok(regs)
+        let regs = ptrace::getregs(self.tid).map_err(from_nix_error);
+        regs
     }
 
     fn setregs(&self, regs: libc::user_regs_struct) -> Result<()> {
-        ptrace::setregs(self.tid, regs).expect(&format!("pid {}: ptrace getregs", self.tid));
-        Ok(())
+        ptrace::setregs(self.tid, regs).map_err(from_nix_error)
     }
 
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()> {
-        ptrace::cont(self.tid, sig).expect(&format!("task {:?}: ptrace cont", self));
-        Ok(())
+        ptrace::cont(self.tid, sig).map_err(from_nix_error)
     }
 
     fn step(&self, sig: Option<signal::Signal>) -> Result<()> {
-        ptrace::step(self.tid, sig).expect(&format!("task {:?}: ptrace cont", self));
-        Ok(())
+        ptrace::step(self.tid, sig).map_err(from_nix_error)
     }
 
     fn getsiginfo(&self) -> Result<libc::siginfo_t> {
-        let siginfo = ptrace::getsiginfo(self.tid).expect(&format!("task {:?}: getsiginfo", self));
-        Ok(siginfo)
+        let siginfo = ptrace::getsiginfo(self.tid).map_err(from_nix_error);
+        siginfo
     }
 
     fn getevent(&self) -> Result<i64> {
-        let ev = ptrace::getevent(self.tid).expect(&format!("task {:?}: ptrace getevent", self));
-        Ok(ev)
+        let ev = ptrace::getevent(self.tid).map_err(from_nix_error);
+        ev
     }
 }
 
@@ -731,61 +732,67 @@ const ERESTARTBLOCK:  i32 = 516;
 // must restart them conditionally
 fn should_restart_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -> bool {
     let tid = task.gettid();
-
-    let si = ptrace_get_stopsig(tid);
-    let sig = signal::Signal::from_c_int(si.si_signo).unwrap();
-    assert!(sig == signal::SIGTRAP || sig == signal::SIGCHLD);
-
+    let mut res = false;
     if regs.rax as i64 == -ERESTARTSYS as i64 {
-        true
+        res = true
     } else if regs.rax as i64 == -ERESTARTNOINTR as i64 {
-        true
+        res = true
     } else if regs.rax as i64 == -ERESTARTNOHAND as i64 {
-        true
+        res = true
     } else if regs.rax as i64 == -ERESTARTBLOCK  as i64 {
-        true
+        res = false; // to be restarted by SYS_restart_syscall
     } else {
-        false
     }
+
+    if res {
+        let si = ptrace_get_stopsig(tid);
+        let sig = signal::Signal::from_c_int(si.si_signo).unwrap();
+        assert!(sig == signal::SIGTRAP || sig == signal::SIGCHLD);
+    }
+    res
 }
 
 // PTRACE_SYSCALL stop. task was stopped because of syscall exit.
 // this is desired because some syscalls are blocking
 // we use it to do the read lock unlock
 fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
+    let tid = task.gettid();
+    trace!("{} handle_syscall_exit", tid);
     let regs = task.getregs()?;
     let rip = regs.rip;
-    let tid = task.gettid();
+
     trace!("=== seccomp syscall {:?} @{:x}, return: {:x} ({})", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax, regs.rax as i64);
 
     if should_restart_syscall(&mut task, regs) {
         debug!("=== seccomp syscall {:?} @{:x}, restarted", SyscallNo::from(regs.orig_rax as i32), rip);
-        debug_assert_eq!(task.state, TaskState::Syscall(rip));
+        debug_assert_eq!(task.state, TaskState::Syscall);
         // will re-enter syscall exit, state is TaskState::Syscall
         return Ok(RunTask::Runnable(task));
     }
 
-    let syscall_end = rip + task.seccomp_hook_size.unwrap_or(0) as u64;
-    task.seccomp_hook_size = None;
     let mut sig: Option<signal::Signal> = None;
-    loop {
-        ptrace::step(tid, sig).expect("ptrace single step");
-        match wait::waitpid(Some(tid), None) {
-            Ok(WaitStatus::Stopped(tid1, sig1)) if tid1 == tid => {
-                sig = if sig1 == signal::SIGTRAP {
-                    None
-                } else {
-                    Some(sig1)
+    if let Some(hook_size) = task.seccomp_hook_size {
+        task.seccomp_hook_size = None;
+        let syscall_end = rip + hook_size as u64;
+        loop {
+            ptrace::step(tid, sig).expect("ptrace single step");
+            match wait::waitpid(Some(tid), None) {
+                Ok(WaitStatus::Stopped(tid1, sig1)) if tid1 == tid => {
+                    sig = if sig1 == signal::SIGTRAP {
+                        None
+                    } else {
+                        Some(sig1)
+                    }
+                }
+                unexpected => {
+                    panic!("waitpid({}): unexpected status {:?}, rip {:x}",
+                           tid, unexpected, rip);
                 }
             }
-            unexpected => {
-                panic!("waitpid({}): unexpected status {:?}, rip {:x}",
-                       tid, unexpected, rip);
+            let new_regs = ptrace::getregs(tid).expect(&format!("tid {} ptrace getregs", tid));
+            if !(new_regs.rip > regs.rip && new_regs.rip < syscall_end) {
+                break;
             }
-        }
-        let new_regs = ptrace::getregs(tid).expect(&format!("tid {} ptrace getregs", tid));
-        if !(new_regs.rip > regs.rip && new_regs.rip < syscall_end) {
-            break;
         }
     }
     task.syscall_patch_lockset.borrow_mut().try_read_unlock(tid, rip);
@@ -865,14 +872,15 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 }
 
 fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
+    let _sig = task.signal_to_deliver;
     let retval = task.getevent()?;
-    ptrace::detach(task.gettid()).unwrap();
+    let _ = ptrace::detach(task.gettid());
     Ok(RunTask::Exited(retval as i32))
 }
 
 fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
-    let ev = ptrace::getevent(task.gettid()).map_err(from_nix_error)?;
-    let regs = ptrace::getregs(task.gettid()).map_err(from_nix_error)?;
+    let regs = task.getregs()?;
+    let ev = task.getevent()?;
     let rip = regs.rip;
     let rip_before_syscall = regs.rip - consts::SYSCALL_INSN_SIZE as u64;
     let tid = task.gettid();
@@ -886,13 +894,14 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     }
     let hook = find_syscall_hook(&task, regs.rip);
     trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}, preloaded: {}", tid, syscall, rip, hook, task.ldpreload_address.is_some());
-    task.seccomp_hook_size = hook.map(|x| x.instructions.len());
+    task.seccomp_hook_size = task.ldpreload_address
+        .and_then(|_|hook.map(|x| x.instructions.len()));
 
     // NB: in multi-threaded context, one core could enter ptrace_event_seccomp
     // even another core already patched the very same syscall
     // we skip the (seccomp) syscall, do a synchronization, and let
     // it rerun from the begining of the patched instruction.
-    if !is_syscall_insn(tid, rip_before_syscall) {
+    if !is_syscall_insn(tid, rip_before_syscall)? {
         let mut new_regs = regs;
         new_regs.rax = regs.orig_rax;
         debug!("{} seccomp syscall {:?}@{:x} restart because it is already patched, rax: {:x}", tid, syscall, rip, regs.rax);
@@ -913,6 +922,11 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
 
 fn from_nix_error(err: nix::Error) -> Error {
     Error::new(ErrorKind::Other, err)
+}
+
+fn from_nix_error_with(err: nix::Error, msg: &str) -> Error {
+    let my_error = format!("{}: {:?}", msg, err);
+    Error::new(ErrorKind::Other, my_error)
 }
 
 fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
@@ -1010,7 +1024,7 @@ fn skip_seccomp_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -> 
     Ok(())
 }
 
-fn is_syscall_insn(tid: unistd::Pid, rip: u64) -> bool {
-    let insn = ptrace::read(tid, rip as ptrace::AddressType).expect("ptrace peek failed") as u64;
-    insn & SYSCALL_INSN_MASK as u64 == SYSCALL_INSN
+fn is_syscall_insn(tid: unistd::Pid, rip: u64) -> Result<bool> {
+    let insn = ptrace::read(tid, rip as ptrace::AddressType).map_err(from_nix_error)? as u64;
+    Ok(insn & SYSCALL_INSN_MASK as u64 == SYSCALL_INSN)
 }
