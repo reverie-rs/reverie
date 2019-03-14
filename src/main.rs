@@ -265,7 +265,7 @@ fn main() {
             Arg::with_name("tool")
                 .long("tool")
                 .value_name("TOOL")
-                .help("choose which tool (libTOOL.so) to run")
+                .help("choose which tool (libTOOL.so) to run, default to none if not specified")
                 .takes_value(true),
         )
         .arg(
@@ -318,7 +318,10 @@ fn main() {
     let log_output = matches.value_of("with-log");
     setup_logger(log_level, log_output).expect("set log level");
 
-    let tool = matches.value_of("tool").expect("tool not specified");
+    let tool = matches.value_of("tool").unwrap_or_else(||{
+        log::info!("[main] tool not specified, default to none");
+        "none"
+    });
     let plugin = if tool.starts_with("lib") && tool.ends_with(".so") {
         String::from(tool)
     } else {
