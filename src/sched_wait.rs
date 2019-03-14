@@ -212,7 +212,7 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
             Err(_) => {
                 // task not to be re-queued, assuming exited/killed.
                 log::debug!("[sched] {} failed to run, assuming killed", tid);
-                if log::log_enabled!(Trace) {
+                if log::log_enabled!(log::Level::Trace) {
                     let file = PathBuf::from("/proc")
                         .join(&format!("{}", tid.as_raw() as i32))
                         .join("stat");
@@ -222,24 +222,24 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
                         let regs = ptrace::getregs(tid);
                         log::trace!("rsp = {:x?},  rip = {:x?}", regs.map(|r| r.rsp), regs.map(|r| r.rip));
                     }
-                    // see BUGS in man 2 ptrace
-                    // 
-                    // A  SIGKILL  signal  may  still cause a PTRACE_EVENT_EXIT stop before
-                    // actual signal death.  This may be changed in the future; SIGKILL is
-                    // meant to always immediately kill tasks even under ptrace.
-                    // Last confirmed on Linux 3.13.
-                    //
-                    // Apparently this applies to kernel 4.15 as well
-                    //
-                    let status = wait::waitpid(Some(tid), None);
-                    log::debug!("[sched] {} {:?}", tid, status);
-                    assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
-                    //
-                    // NB: we *MUST* let the task to run
-                    // this is WHY this ptrace BUG matters, after all.
-                    //
-                    let _ = ptrace::detach(tid);
                 }
+                // see BUGS in man 2 ptrace
+                //
+                // A  SIGKILL  signal  may  still cause a PTRACE_EVENT_EXIT stop before
+                // actual signal death.  This may be changed in the future; SIGKILL is
+                // meant to always immediately kill tasks even under ptrace.
+                // Last confirmed on Linux 3.13.
+                //
+                // Apparently this applies to kernel 4.15 as well
+                //
+                let status = wait::waitpid(Some(tid), None);
+                log::trace!("[sched] {} {:?}", tid, status);
+                assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
+                //
+                // NB: we *MUST* let the task to run
+                // this is WHY this ptrace BUG matters, after all.
+                //
+                let _ = ptrace::detach(tid);
             }
         }
     }
