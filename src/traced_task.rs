@@ -757,7 +757,6 @@ fn should_restart_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -
 // we use it to do the read lock unlock
 fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     let tid = task.gettid();
-    trace!("{} handle_syscall_exit", tid);
     let regs = task.getregs()?;
     let rip = regs.rip;
 

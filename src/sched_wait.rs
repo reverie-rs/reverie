@@ -212,10 +212,16 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
             Err(_) => {
                 // task not to be re-queued, assuming exited/killed.
                 log::debug!("[sched] {} failed to run, assuming killed", tid);
-                let file = PathBuf::from("/proc")
-                    .join(&format!("{}", tid.as_raw() as i32))
-                    .join("stat");
-                if file.exists() {
+                if log::log_enabled!(Trace) {
+                    let file = PathBuf::from("/proc")
+                        .join(&format!("{}", tid.as_raw() as i32))
+                        .join("stat");
+                    if file.exists() {
+                        let stat = std::fs::read_to_string(file).unwrap_or(String::new());
+                        log::trace!("[sched] task {} refused to be traced while alive, stat: {}", tid, stat);
+                        let regs = ptrace::getregs(tid);
+                        log::trace!("rsp = {:x?},  rip = {:x?}", regs.map(|r| r.rsp), regs.map(|r| r.rip));
+                    }
                     // see BUGS in man 2 ptrace
                     // 
                     // A  SIGKILL  signal  may  still cause a PTRACE_EVENT_EXIT stop before
@@ -225,11 +231,8 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
                     //
                     // Apparently this applies to kernel 4.15 as well
                     //
-                    let stat = std::fs::read_to_string(file).unwrap_or(String::new());
-                    println!("[sched] task {} refused to be traced while alive, stat: {}", tid, stat);
-                    let regs = ptrace::getregs(tid);
-                    println!("rsp = {:x?},  rip = {:x?}", regs.map(|r| r.rsp), regs.map(|r| r.rip));
                     let status = wait::waitpid(Some(tid), None);
+                    log::debug!("[sched] {} {:?}", tid, status);
                     assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
                     //
                     // NB: we *MUST* let the task to run
