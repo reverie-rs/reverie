@@ -763,7 +763,7 @@ fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     trace!("=== seccomp syscall {:?} @{:x}, return: {:x} ({})", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax, regs.rax as i64);
 
     if should_restart_syscall(&mut task, regs) {
-        debug!("=== seccomp syscall {:?} @{:x}, restarted", SyscallNo::from(regs.orig_rax as i32), rip);
+        debug!("=== seccomp syscall {:?} @{:x} to be restarted", SyscallNo::from(regs.orig_rax as i32), rip);
         debug_assert_eq!(task.state, TaskState::Syscall);
         // will re-enter syscall exit, state is TaskState::Syscall
         return Ok(RunTask::Runnable(task));
