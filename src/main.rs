@@ -52,6 +52,7 @@ struct Arguments<'a> {
     envs: HashMap<String, String>,
     namespaces: bool,
     output: Option<&'a str>,
+    disable_monkey_patcher: bool,
     program: &'a str,
     program_args: Vec<&'a str>,
 }
@@ -265,7 +266,7 @@ fn main() {
             Arg::with_name("tool")
                 .long("tool")
                 .value_name("TOOL")
-                .help("choose which tool (libTOOL.so) to run, default to none if not specified")
+                .help("choose which tool (lib<TOOL>.so) to run, default to none (will expand to libnone.so) if not specified. ")
                 .takes_value(true),
         )
         .arg(
@@ -295,6 +296,11 @@ fn main() {
                 .help("with-log=[filename|stdout|stderr], default is stdout")
                 .takes_value(true),
         )
+        .arg(Arg::with_name("disable-monkey-patcher")
+             .long("disable-monkey-patcher")
+             .help("do not patch any syscalls, handle all syscalls by seccomp")
+             .takes_value(false)
+        )
         .arg(
             Arg::with_name("program")
                 .value_name("PROGRAM")
@@ -322,7 +328,7 @@ fn main() {
         log::info!("[main] tool not specified, default to none");
         "none"
     });
-    let plugin = if tool.starts_with("lib") && tool.ends_with(".so") {
+    let plugin = if tool.ends_with(".so") {
         String::from(tool)
     } else {
         String::from("lib") + tool + ".so"
@@ -345,6 +351,7 @@ fn main() {
             .collect(),
         namespaces: matches.is_present("with-namespace"),
         output: log_output,
+        disable_monkey_patcher: matches.is_present("disable-monkey-patcher"),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")
