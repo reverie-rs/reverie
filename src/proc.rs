@@ -23,6 +23,17 @@ pub struct ProcMapsEntry {
     file: Option<PathBuf>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum LinuxTaskState {
+    Running,
+    SleepInterruptible,
+    SleepUninterruptible,
+    Zombine,
+    Stopped,
+    Ptraced,
+    Dead,
+}
+
 impl ProcMapsEntry {
     pub fn base(&self) -> u64 {
         self.base
@@ -231,7 +242,7 @@ where
 pub fn decode_proc_maps(pid: Pid) -> Result<Vec<ProcMapsEntry>> {
     let filepath = PathBuf::from("/proc")
         .join(&format!("{}", pid))
-        .join(PathBuf::from("maps"));
+        .join("maps");
     let mut file = File::open(filepath)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -242,10 +253,41 @@ pub fn decode_proc_maps(pid: Pid) -> Result<Vec<ProcMapsEntry>> {
     ents.into_iter().collect()
 }
 
+/// get task (`pid`) state by reading procfs
+/// kernel 3.13+ is required, prior to 3.13, there're
+/// more states, which we don't plan to support
+pub fn proc_get_task_state(pid: Pid) -> Result<LinuxTaskState> {
+    let stat = PathBuf::from("/proc")
+        .join(&format!("{}", pid))
+        .join("status");
+    let err = Error::new(ErrorKind::Other,
+                         format!("could not read {:?}", &stat));
+    let contents = std::fs::read_to_string(stat)?;
+    contents.lines().nth(2).and_then(|s| {
+        match s.split_ascii_whitespace().nth(1) {
+            Some("R") => Some(LinuxTaskState::Running),
+            Some("S") => Some(LinuxTaskState::SleepInterruptible),
+            Some("D") => Some(LinuxTaskState::SleepUninterruptible),
+            Some("T") => Some(LinuxTaskState::Stopped),
+            Some("t") => Some(LinuxTaskState::Ptraced),
+            Some("X") => Some(LinuxTaskState::Dead),
+            Some("Z") => Some(LinuxTaskState::Zombine),
+            _         => None,
+        }
+    }).ok_or(err)
+}
+
 #[test]
 fn can_decode_proc_self_maps() -> Result<()> {
     let my_pid = unistd::getpid();
     let decoded = decode_proc_maps(my_pid)?;
     assert!(decoded.len() > 0);
     Ok(())
+}
+
+#[test]
+fn can_decode_proc_self_state() {
+    let pid = unistd::getpid();
+    let decoded = proc_get_task_state(pid);
+    assert!(decoded.is_ok());
 }
