@@ -11,6 +11,7 @@ By default we setup seccomp to filter most syscalls except few blacklisted ones 
 in a way the filtered syscalls will enter ptrace stop, please see `man 2 seccomp`, section `SECCOMP_RET_TRACE`
 for more details; we also allow syscall going through (without any stop) based on program counter
 (*PC*, or *rip* in x86_64).
+```
                                          +---------------+
                          blacklisted?    | going through |
                       +----------------->+---------------+
@@ -22,6 +23,7 @@ for more details; we also allow syscall going through (without any stop) based o
                       +----------------->+---------------+
 					                     | *ptraced*     |
                                          +---------------+
+```
 ## seccomp stops
 With above setup, we'll enter syscall enter stop, that is *PC*=`rip_at_syscal+2`, but the `syscall`
 is yet to run by the kernel; there two most sensible options to resume control flow: either by
