@@ -21,7 +21,7 @@ for more details; we also allow syscall going through (without any stop) based o
   +---------+         |                  +---------------+
                       | otherwise
                       +----------------->+---------------+
-					                     | *ptraced*     |
+                                         | *ptraced*     |
                                          +---------------+
 ```
 ## seccomp stops
@@ -63,6 +63,9 @@ We can replace above syscall site, with a single jump, i.e.: `callq <stub_pcrel3
 03: <a_new_function>: ; a new function prologe
 ```
   This have a similar impact as the first case.
+
+Afer patching, the syscall instruction will be relocated into a special page with a specific address,
+so that it won't trigger further seccomp event.
 
 ## two level jumping to the trampoline
 After we identify patchable syscall site, we can generate stub page(s) to jump into, the stub page(s)
