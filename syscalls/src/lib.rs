@@ -1,4 +1,4 @@
-#![feature(asm)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod helper;
 pub mod nr;
