@@ -1,5 +1,5 @@
 pub const LIBTRAMPOLINE_LIBRARY_PATH: &'static str = "LIBTRAMPOLINE_LIBRARY_PATH";
-pub const LIBTRAMPOLINE_SO: &'static str = "libtrampoline.so";
+pub const LIBTRAMPOLINE_SO: &'static str = "libsystrace-trampoline.so";
 
 pub const SYSCALL_INSN_SIZE: usize = 2;
 pub const SYSCALL_INSN_MASK: u64 = 0xffff;

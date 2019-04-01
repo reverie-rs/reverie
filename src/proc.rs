@@ -264,7 +264,7 @@ pub fn proc_get_task_state(pid: Pid) -> Result<LinuxTaskState> {
                          format!("could not read {:?}", &stat));
     let contents = std::fs::read_to_string(stat)?;
     contents.lines().nth(2).and_then(|s| {
-        match s.split_ascii_whitespace().nth(1) {
+        match s.split_whitespace().nth(1) {
             Some("R") => Some(LinuxTaskState::Running),
             Some("S") => Some(LinuxTaskState::SleepInterruptible),
             Some("D") => Some(LinuxTaskState::SleepUninterruptible),

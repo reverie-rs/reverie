@@ -20,13 +20,13 @@ endif
 all:
 	$(MAKE) -C tests all
 	@cargo build $(WAY) --all
-	@cp -v target/$(TARGETDIR)/libtrampoline.so lib/
+	@cp -v target/$(TARGETDIR)/libsystrace-trampoline.so lib/
 	@cp -v target/$(TARGETDIR)/libecho.so lib/
 	@cp -v target/$(TARGETDIR)/libnone.so lib/
 	@cp -v target/$(TARGETDIR)/systrace bin/
 clean:
 	$(MAKE) -C tests clean
-	$(RM) lib/libecho.so lib/libnone.so lib/libtrampoline.so
+	$(RM) lib/libecho.so lib/libnone.so lib/libsystrace-trampoline.so
 	$(RM) bin/systrace
 	@cargo clean --all
 

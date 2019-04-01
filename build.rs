@@ -74,7 +74,7 @@ fn build_trampoline(){
     let srcs = &[ "trampoline.S", "raw_syscall.S", "route.c" ];
     let output = PathBuf::from("target")
         .join(env::var("PROFILE").unwrap())
-        .join("libtrampoline.so");
+        .join("libsystrace-trampoline.so");
     srcs.iter().for_each(|src| {
         let path = PathBuf::from("trampoline").join(src);
         cc.arg(path);

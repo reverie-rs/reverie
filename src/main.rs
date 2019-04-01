@@ -92,7 +92,7 @@ fn tracee_init_signals() {
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
     let library_path = &argv.library_path;
-    let tool = library_path.join(&argv.tool_name);
+    let tool = PathBuf::from(argv.tool_name);
     let so = library_path.join(consts::LIBTRAMPOLINE_SO);
     let libs: Vec<PathBuf> = vec![tool, so];
     let ldpreload = String::from("LD_PRELOAD=")
@@ -258,15 +258,14 @@ fn main() {
             Arg::with_name("library-path")
                 .long("library-path")
                 .value_name("LIBRARY_PATH")
-                .help("set library search path for libtrampoline.so, libTOOL.so\n\
-                       if not specified, search [cwd, cwd/lib, exe_path]")
+                .help("set library search path for systrace libraries such as libsystrace-trampoline.so")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("tool")
                 .long("tool")
                 .value_name("TOOL")
-                .help("choose which tool (lib<TOOL>.so) to run, default to none (will expand to libnone.so) if not specified. ")
+                .help("choose which tool (/path/to/lib<TOOL>.so) to run, default to none (libnone.so) if not specified. ")
                 .takes_value(true),
         )
         .arg(
@@ -328,16 +327,11 @@ fn main() {
         log::info!("[main] tool not specified, default to none");
         "none"
     });
-    let plugin = if tool.ends_with(".so") {
-        String::from(tool)
-    } else {
-        String::from("lib") + tool + ".so"
-    };
-    let rpath = populate_rpath(matches.value_of("library-path"), &plugin);
+    let rpath = matches.value_of("library-path").map(|p| PathBuf::from(p));
 
     let argv = Arguments {
         debug_level: log_level,
-        tool_name: &plugin,
+        tool_name: &tool,
         library_path: rpath.expect("cannot find shared libraries under library_path"),
         host_envs: !matches.is_present("-no-host-envs"),
         envs: matches
