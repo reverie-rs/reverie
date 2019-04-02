@@ -1,5 +1,17 @@
 use syscalls::*;
+use tools_helper::logger;
+use log::{info};
+
+#[allow(unused_imports)]
 use std::ffi::CStr;
+
+#[cfg_attr(target_os = "linux", link_section = ".ctors")]
+pub static ECHO_DSO_CTORS: extern fn() = {
+    extern fn echo_ctor() {
+        let _ = logger::init();
+    };
+    echo_ctor
+};
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(
@@ -12,9 +24,6 @@ pub extern "C" fn captured_syscall(
     _a5: i64,
 ) -> i64 {
     let ret = unsafe { untraced_syscall(_no, _a0, _a1, _a2, _a3, _a4, _a5) };
-    if _no == SYS_openat as i32 {
-        let path = unsafe { CStr::from_ptr(_a1 as *const i8) };
-        println!("openat {:?}", path);
-    }
+    info!("{:?} = {:x?}", syscalls::SyscallNo::from(_no), ret);
     ret
 }
