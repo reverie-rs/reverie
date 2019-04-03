@@ -279,7 +279,7 @@ fn main() {
                 .long("env")
                 .value_name("ENV=VALUE")
                 .multiple(true)
-                .help("set environment variables, allow using multiple times")
+                .help("set environment variables, can be used multiple times")
                 .takes_value(true),
         )
         .arg(

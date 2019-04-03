@@ -932,6 +932,26 @@ fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
     ptrace::cont(pid, sig).map_err(from_nix_error)
 }
 
+// set tool library log level
+fn systool_set_log_level(task: &TracedTask) {
+    let systool_log_ptr = consts::DET_TLS_SYSTOOL_LOG_LEVEL as *mut i64;
+    let rptr = RemotePtr::new(systool_log_ptr);
+    let lvl = std::env::var(consts::SYSTOOL_LOG_KEY).map(|s| match &s[..] {
+        "error" => 1,
+        "warn" => 2,
+        "info" => 3,
+        "debug" => 4,
+        "trace" => 5,
+        _ => 0,
+    });
+    match lvl {
+        Ok(x) if x >=1 && x <= 5 => {
+            let _ = task.poke(rptr, &x);
+        }
+        _ => (),
+    }
+}
+
 fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     let tid = task.gettid();
     let mut regs = ptrace::getregs(tid)?;
@@ -973,6 +993,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
             Ok(r.rax)
         }
     })?;
+
+    systool_set_log_level(task);
 
     assert_eq!(ret, page_addr);
     remote::gen_syscall_sequences_at(tid, page_addr)?;

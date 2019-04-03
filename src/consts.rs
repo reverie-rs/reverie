@@ -1,6 +1,8 @@
 pub const LIBTRAMPOLINE_LIBRARY_PATH: &'static str = "LIBTRAMPOLINE_LIBRARY_PATH";
 pub const LIBTRAMPOLINE_SO: &'static str = "libsystrace-trampoline.so";
 
+pub const SYSTOOL_LOG_KEY: &'static str = "SYSTOOL_LOG";
+
 pub const SYSCALL_INSN_SIZE: usize = 2;
 pub const SYSCALL_INSN_MASK: u64 = 0xffff;
 pub const SYSCALL_INSN: u64 = 0x050f;
@@ -25,6 +27,9 @@ pub const DET_TLS_SYSTOOL_HOOK: u64 =
 pub const DET_TLS_SYSCALL_PATCH_LOCK: u64 =
     DET_TLS_SYSTOOL_HOOK + std::mem::size_of::<u64>() as u64;
 
+pub const DET_TLS_SYSTOOL_LOG_LEVEL: u64 =
+    DET_TLS_SYSCALL_PATCH_LOCK + std::mem::size_of::<u64>() as u64;
+
 #[test]
 fn det_tls_sanity_check() {
     assert_eq!(DET_TLS_SYSCALL_HOOK_SIZE, DET_PAGE_TLS + 0);
@@ -34,4 +39,5 @@ fn det_tls_sanity_check() {
     assert_eq!(DET_TLS_SYSCALL_TRAMPOLINE, DET_PAGE_TLS + 32);
     assert_eq!(DET_TLS_SYSTOOL_HOOK, DET_PAGE_TLS + 40);
     assert_eq!(DET_TLS_SYSCALL_PATCH_LOCK, DET_PAGE_TLS + 48);
+    assert_eq!(DET_TLS_SYSTOOL_LOG_LEVEL, DET_PAGE_TLS + 56);
 }

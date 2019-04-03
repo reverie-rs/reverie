@@ -6,4 +6,3 @@ edition = "2018"
 
 [dependencies]
 syscalls = { path = "../syscalls" }
-log = "0.4"
