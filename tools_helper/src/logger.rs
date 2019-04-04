@@ -156,10 +156,10 @@ where
     F: Fn(i32, *const u8, usize),
 {
     match core::slice::memchr::memrchr('\n' as u8, s.as_bytes()) {
-        None => update_buffer(rb, s.as_ptr(), s.len() as isize, false),
+        None => update_buffer(rb, s.as_ptr(), s.bytes().len() as isize, false),
         Some(i) => {
             let i = 1 + i;
-            let j = s.len() - i;
+            let j = s.bytes().len() - i;
             let first = s.as_ptr();
             let second = unsafe { first.offset(1 + i as isize) };
             update_buffer(rb, first, i as isize, false);
