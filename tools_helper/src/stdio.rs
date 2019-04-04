@@ -9,7 +9,7 @@ struct RawStdio {
 impl Write for RawStdio {
     fn write_str(&mut self, s: &str) -> Result<(), Error> {
         let fd = self.fileno;
-        let len = s.bytes().len();
+        let len = s.len();
         let buf: *const u8 = s.as_ptr();
         unsafe {
             untraced_syscall(SYS_write as i32, fd as i64, buf as i64, len as i64, 0, 0, 0)
