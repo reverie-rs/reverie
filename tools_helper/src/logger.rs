@@ -103,9 +103,9 @@ macro_rules! __log_format_args {
 }
 
 #[macro_export(local_inner_macros)]
-macro_rules! logmsg {
+macro_rules! msg {
     ($($arg:tt)*) => ({
-        $crate::logger::rb_eprint(__log_format_args!($($arg)*));
+        $crate::logger::__internal_ring_buffer_eprint(__log_format_args!($($arg)*));
     })
 }
 
@@ -135,7 +135,7 @@ impl Log for RingBufferLogger {
     fn log(&self, record: &Record) {
         enter_critical_section();
         if self.enabled(record.metadata()) {
-            logmsg!(
+            msg!(
                 "[{:<5}] {}",
                 log_level_str(record.level()),
                 record.args());
@@ -213,7 +213,7 @@ impl Write for RingBuffer {
     }
 }
 
-fn rb_eprint(args: Arguments) {
+pub fn __internal_ring_buffer_eprint(args: Arguments) {
     unsafe {
         rb_print_to(args, &mut RING_BUFFER)
     };
@@ -224,8 +224,9 @@ fn rb_print_to(args: Arguments, file: &mut RingBuffer)
     core::fmt::write(file, args).expect("write failed");
 }
 
+/// print to stderr, *NOT* thread-safe
 #[macro_export(local_inner_macros)]
-macro_rules! msg {
+macro_rules! unsafe_msg {
     ($($arg:tt)*) => ({
         $crate::stdio::_eprint(__log_format_args!($($arg)*));
     })

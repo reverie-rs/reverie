@@ -7,7 +7,7 @@ use log::*;
 #[allow(unused_imports)]
 use std::ffi::CStr;
 
-#[cfg_attr(target_os = "linux", link_section = ".ctors")]
+#[link_section = ".init_array"]
 pub static ECHO_DSO_CTORS: extern fn() = {
     extern "C" fn echo_ctor() {
 	let _ = logger::init();
@@ -29,7 +29,7 @@ pub extern "C" fn captured_syscall(
     if ret as u64 >= -4096i64 as u64 {
         warn!("{:?} = {}", syscalls::SyscallNo::from(_no), ret);
     } else {
-        info!("{:?} = {:x}", syscalls::SyscallNo::from(_no), ret);
+        msg!("{:?} = {:x}", syscalls::SyscallNo::from(_no), ret);
     }
     ret
 }
