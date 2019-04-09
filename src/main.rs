@@ -160,6 +160,26 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
 
+fn show_perf_stats(state: &SystraceState) {
+    log::info!("Systrace global statistics (tracer + tracees):");
+    let lines: Vec<String> = format!("{:#?}", state)
+        .lines()
+        .map(|s| String::from(s))
+        .collect();
+    for i in 1..lines.len()-1 {
+        log::info!("{}", lines[i]);
+    }
+
+    let syscalls = state.nr_syscalls.load(Ordering::SeqCst);
+    let syscalls_ptraced = state.nr_syscalls_ptraced.load(Ordering::SeqCst);
+    let syscalls_captured = state.nr_syscalls_captured.load(Ordering::SeqCst);
+    let syscalls_patched = state.nr_syscalls_patched.load(Ordering::SeqCst);
+
+    log::info!("syscalls ptraced (slow): {:.2}%", 100.0 * syscalls_ptraced as f64 / syscalls as f64);
+    log::info!("syscalls captured(w/ patching): {:.2}%", 100.0 * syscalls_captured as f64 / syscalls as f64);
+    log::info!("syscalls captured(wo/ patching): {:.2}%", 100.0 * (syscalls_captured - syscalls_patched) as f64 / syscalls as f64);
+}
+
 fn run_tracer(
     starting_pid: unistd::Pid,
     starting_uid: unistd::Uid,
@@ -198,7 +218,7 @@ fn run_tracer(
             let mut state = get_systrace_state();
             let res = run_tracer_main(&mut sched, &mut state);
             if argv.show_perf_stats {
-                println!("{:#?}", state);
+                show_perf_stats(state);
             }
             Ok(res)
         }
@@ -313,7 +333,7 @@ fn main() {
         )
         .arg(Arg::with_name("show-perf-stats")
              .long("show-perf-stats")
-             .help("show systrace softare performance counter statistics")
+             .help("show systrace softare performance counter statistics, --debug must be >= 3")
              .takes_value(false)
         )
         .arg(

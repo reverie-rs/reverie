@@ -172,7 +172,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     None
 }
 
-pub fn sched_wait_event_loop(sched: &mut SchedWait, state: &mut SystraceState) -> i32 {
+pub fn sched_wait_event_loop(sched: &mut SchedWait, _state: &mut SystraceState) -> i32 {
     let mut exit_code = 0i32;
     while let Some(task) = sched.next() {
         let tid = task.gettid();
@@ -188,9 +188,6 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait, state: &mut SystraceState) -
             Ok(RunTask::Forked(parent, child)) => {
                 sched.add(child);
                 sched.add_and_schedule(parent);
-                state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-                state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-                state.nr_cloned.fetch_add(1, Ordering::SeqCst);
             }
             // task.run could fail when ptrace failed, this *can* happen
             // when we received a PtraceEvent (such as seccomp), then

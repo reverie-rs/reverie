@@ -25,7 +25,7 @@ pub fn systrace_state_allocate() -> *mut SystraceState {
         unistd::ftruncate(fd, size as i64).unwrap();
         let void_p = mmap(0 as *mut _, size,
                           ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
-                          MapFlags::MAP_SHARED | MapFlags::MAP_ANONYMOUS,
+                          MapFlags::MAP_SHARED,
                           fd, 0).unwrap();
         void_p as *mut SystraceState
     }

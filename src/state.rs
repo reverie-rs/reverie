@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicUsize;
 pub struct SystraceState {
     pub nr_syscalls: AtomicUsize,
     pub nr_syscalls_ptraced: AtomicUsize,
+    pub nr_syscalls_patched: AtomicUsize,
     pub nr_syscalls_captured: AtomicUsize,
     pub nr_read_retries: AtomicUsize,
     pub nr_write_retries: AtomicUsize,
@@ -21,6 +22,8 @@ pub struct SystraceState {
     pub nr_rdtsc_events: AtomicUsize,
     pub nr_rdtscp_events: AtomicUsize,
     pub nr_cloned: AtomicUsize,
+    pub nr_forked: AtomicUsize,
+    pub nr_exited: AtomicUsize,
     pub nr_process_spawns: AtomicUsize,
 }
 
