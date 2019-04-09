@@ -9,7 +9,8 @@ use tools_helper::*;
 use syscalls::*;
 
 #[cfg_attr(target_os = "linux", link_section = ".ctors")]
-pub static ECHO_DSO_CTORS: extern fn() = {
+#[used]
+static ECHO_DSO_CTORS: extern fn() = {
     extern "C" fn echo_ctor() {
 	let _ = logger::init();
     };
