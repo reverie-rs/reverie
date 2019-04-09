@@ -11,16 +11,22 @@ use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
 use nix::unistd::ForkResult;
+use nix::sys::mman;
+use nix::sys::stat::Mode;
+use nix::fcntl::{OFlag};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
+use std::sync::atomic::{Ordering, AtomicUsize};
 use std::env;
 
 use systrace::{ns, consts, task, hooks};
 use systrace::sched::Scheduler;
 use systrace::sched_wait::SchedWait;
 use systrace::task::{RunTask, Task};
+use systrace::state::SystraceState;
+use systrace::state_tracer::*;
 
 // install seccomp-bpf filters
 extern "C" {
@@ -53,12 +59,13 @@ struct Arguments<'a> {
     namespaces: bool,
     output: Option<&'a str>,
     disable_monkey_patcher: bool,
+    show_perf_stats: bool,
     program: &'a str,
     program_args: Vec<&'a str>,
 }
 
-fn run_tracer_main(sched: &mut SchedWait) -> i32 {
-    sched.event_loop()
+fn run_tracer_main(sched: &mut SchedWait, state: &mut SystraceState) -> i32 {
+    sched.event_loop(state)
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -183,13 +190,17 @@ fn run_tracer(
                     | ptrace::Options::PTRACE_O_TRACEEXIT
                     | ptrace::Options::PTRACE_O_TRACESECCOMP
                     | ptrace::Options::PTRACE_O_TRACESYSGOOD,
-            )
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            ).map_err(|e| Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None).map_err(|e| Error::new(ErrorKind::Other, e))?;
             let tracee = task::Task::new(child);
             let mut sched: SchedWait = Scheduler::new();
             sched.add(tracee);
-            Ok(run_tracer_main(&mut sched))
+            let mut state = get_systrace_state();
+            let res = run_tracer_main(&mut sched, &mut state);
+            if argv.show_perf_stats {
+                println!("{:#?}", state);
+            }
+            Ok(res)
         }
     }
 }
@@ -300,6 +311,11 @@ fn main() {
              .help("do not patch any syscalls, handle all syscalls by seccomp")
              .takes_value(false)
         )
+        .arg(Arg::with_name("show-perf-stats")
+             .long("show-perf-stats")
+             .help("show systrace softare performance counter statistics")
+             .takes_value(false)
+        )
         .arg(
             Arg::with_name("program")
                 .value_name("PROGRAM")
@@ -346,6 +362,7 @@ fn main() {
         namespaces: matches.is_present("with-namespace"),
         output: log_output,
         disable_monkey_patcher: matches.is_present("disable-monkey-patcher"),
+        show_perf_stats: matches.is_present("show-perf-stats"),
         program: matches.value_of("program").unwrap_or(""),
         program_args: matches
             .values_of("program_args")

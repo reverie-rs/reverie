@@ -26,6 +26,8 @@ use crate::stubs;
 use crate::task::*;
 use crate::remote_rwlock::*;
 use crate::vdso;
+use crate::state::SystraceState;
+use crate::state_tracer::*;
 
 fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
@@ -68,9 +70,12 @@ pub struct TracedTask {
     // should be used only in seccomp event
     seccomp_hook_size: Option<usize>,
 
+    pub systrace_state: &'static mut SystraceState,
+
     pub state: TaskState,
     pub ldpreload_address: Option<u64>,
     pub injected_mmap_page: Option<u64>,
+    pub injected_shared_page: Option<u64>,
     pub signal_to_deliver: Option<signal::Signal>,
     pub trampoline_hooks: &'static Vec<hooks::SyscallHook>,
     //
@@ -103,6 +108,7 @@ impl Task for TracedTask {
             pid,
             ppid: pid,
             pgid: unistd::getpgid(Some(pid)).unwrap(),
+            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -111,6 +117,7 @@ impl Task for TracedTask {
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: libtrampoline_load_address(pid),
             injected_mmap_page: None,
+            injected_shared_page: None,
             signal_to_deliver: None,
             unpatchable_syscalls: Rc::new(RefCell::new(Vec::new())),
             patched_syscalls: Rc::new(RefCell::new(Vec::new())),
@@ -126,6 +133,7 @@ impl Task for TracedTask {
             pid: self.pid,
             ppid: self.pid,
             pgid: self.pgid,
+            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -134,6 +142,7 @@ impl Task for TracedTask {
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: self.ldpreload_address.clone(),
             injected_mmap_page: self.injected_mmap_page.clone(),
+            injected_shared_page: self.injected_shared_page.clone(),
             signal_to_deliver: None,
             unpatchable_syscalls: self.unpatchable_syscalls.clone(),
             patched_syscalls: self.patched_syscalls.clone(),
@@ -149,6 +158,7 @@ impl Task for TracedTask {
             pid: child,
             ppid: self.pid,
             pgid: self.pgid,
+            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -163,6 +173,7 @@ impl Task for TracedTask {
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: self.ldpreload_address,
             injected_mmap_page: self.injected_mmap_page,
+            injected_shared_page: self.injected_shared_page,
             signal_to_deliver: None,
             unpatchable_syscalls: {
                 let unpatchables = self.unpatchable_syscalls.borrow().clone();
@@ -993,12 +1004,11 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
             Ok(r.rax)
         }
     })?;
+    assert_eq!(ret, page_addr);
 
     systool_set_log_level(task);
 
-    assert_eq!(ret, page_addr);
     remote::gen_syscall_sequences_at(tid, page_addr)?;
-
     let _ = vdso::vdso_patch(task);
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
@@ -1025,6 +1035,15 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         saved as *mut libc::c_void,
     )?;
     task_exec_reset(task);
+    let _at = task.untraced_syscall(SYS_mmap,
+                                    consts::SYSTRACE_GLOBAL_STATE_ADDR as i64,
+                                    consts::SYSTRACE_GLOBAL_STATE_SIZE as i64,
+                                    (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as i64,
+                                    (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as i64,
+                                    consts::SYSTRACE_GLOBAL_STATE_FD as i64,
+                                    0).unwrap();
+    assert_eq!(_at, consts::SYSTRACE_GLOBAL_STATE_ADDR as i64);
+    ptrace::write(tid, consts::DET_TLS_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
     Ok(())
 }
 

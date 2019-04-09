@@ -5,7 +5,7 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members= [".", "syscalls", "tools_helper", "examples/echo", "examples/none"]
+members= [".", "syscalls", "tools_helper", "examples/echo", "examples/none", "examples/counter"]
 default-members = [".", "syscalls", "tools_helper"]
 
 [lib]
