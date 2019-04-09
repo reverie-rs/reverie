@@ -1045,11 +1045,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     systool_set_log_level(task);
 
     remote::gen_syscall_sequences_at(tid, page_addr)?;
-    let _ = vdso::vdso_patch(task);
 
-    // there're only four vDSOs
-    let state = get_systrace_state();
-    state.nr_syscalls_patched.fetch_add(4, Ordering::SeqCst);
+    let _ = vdso::vdso_patch(task);
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
     ptrace::setregs(tid, saved_regs)

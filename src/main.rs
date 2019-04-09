@@ -175,9 +175,13 @@ fn show_perf_stats(state: &SystraceState) {
     let syscalls_captured = state.nr_syscalls_captured.load(Ordering::SeqCst);
     let syscalls_patched = state.nr_syscalls_patched.load(Ordering::SeqCst);
 
-    log::info!("syscalls ptraced (slow): {:.2}%", 100.0 * syscalls_ptraced as f64 / syscalls as f64);
-    log::info!("syscalls captured(w/ patching): {:.2}%", 100.0 * syscalls_captured as f64 / syscalls as f64);
-    log::info!("syscalls captured(wo/ patching): {:.2}%", 100.0 * (syscalls_captured - syscalls_patched) as f64 / syscalls as f64);
+    log::info!("syscalls ptraced (slow): {:.2}%",
+               100.0 * syscalls_ptraced as f64 / syscalls as f64);
+    log::info!("syscalls captured(w/ patching): {:.2}%",
+               100.0 * syscalls_captured as f64 / syscalls as f64);
+    log::info!("syscalls captured(wo/ patching): {:.2}%",
+               100.0 * (syscalls_captured - syscalls_patched) as f64
+               / syscalls as f64);
 }
 
 fn run_tracer(

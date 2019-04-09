@@ -12,13 +12,13 @@ use std::ffi::CStr;
 use crate::consts;
 use crate::state::SystraceState;
 
-pub fn systrace_state_allocate() -> *mut SystraceState {
+fn systrace_state_allocate() -> *mut SystraceState {
     unsafe {
         let size = consts::SYSTRACE_GLOBAL_STATE_SIZE as usize;
+        let path = CStr::from_ptr(consts::SYSTRACE_GLOBAL_STATE_FILE
+                                  .as_ptr() as *const i8);
         // no CLOEXEC
-        let fd0 = memfd_create(CStr::from_ptr(
-            consts::SYSTRACE_GLOBAL_STATE_FILE.as_ptr() as *const i8),
-                               MemFdCreateFlag::empty()).unwrap();
+        let fd0 = memfd_create(path, MemFdCreateFlag::empty()).unwrap();
         let fd = consts::SYSTRACE_GLOBAL_STATE_FD;
         unistd::dup2(fd0, fd).unwrap();
         unistd::close(fd0).unwrap();
@@ -31,14 +31,15 @@ pub fn systrace_state_allocate() -> *mut SystraceState {
     }
 }
 
-pub static mut SYSTRACE_STATE: Option<NonNull<SystraceState>> = None;
+static mut SYSTRACE_STATE: Option<NonNull<SystraceState>> = None;
 
+#[cfg(not(test))]
 #[link_section = ".init_array"]
 #[used]
-static INITIALIZER: extern "C" fn() = rust_stats_ctor;
+static INITIALIZER: extern "C" fn() = rust_state_ctor;
 
 #[no_mangle]
-extern "C" fn rust_stats_ctor() {
+extern "C" fn rust_state_ctor() {
     unsafe {
         let ptr = systrace_state_allocate();
         SYSTRACE_STATE = Some(NonNull::new_unchecked(ptr));
