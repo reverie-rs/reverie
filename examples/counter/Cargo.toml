@@ -1,0 +1,18 @@
+[package]
+name = "counter"
+version = "0.1.0"
+authors = ["Baojun Wang <wangbj@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "counter"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+syscalls = { path = "../../syscalls" }
+tools_helper = { path = "../../tools_helper" }
+log = { version = "0.4", default-features = false }
+
+[build-dependencies]
+cc = "1.0.28"

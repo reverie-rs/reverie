@@ -12,6 +12,7 @@ use std::rc::Rc;
 use std::cell::{RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::Ordering;
 
 use crate::consts;
 use crate::consts::*;
@@ -26,6 +27,8 @@ use crate::stubs;
 use crate::task::*;
 use crate::remote_rwlock::*;
 use crate::vdso;
+use crate::state::SystraceState;
+use crate::state_tracer::*;
 
 fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
@@ -68,9 +71,12 @@ pub struct TracedTask {
     // should be used only in seccomp event
     seccomp_hook_size: Option<usize>,
 
+    pub systrace_state: &'static mut SystraceState,
+
     pub state: TaskState,
     pub ldpreload_address: Option<u64>,
     pub injected_mmap_page: Option<u64>,
+    pub injected_shared_page: Option<u64>,
     pub signal_to_deliver: Option<signal::Signal>,
     pub trampoline_hooks: &'static Vec<hooks::SyscallHook>,
     //
@@ -103,6 +109,7 @@ impl Task for TracedTask {
             pid,
             ppid: pid,
             pgid: unistd::getpgid(Some(pid)).unwrap(),
+            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -111,6 +118,7 @@ impl Task for TracedTask {
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: libtrampoline_load_address(pid),
             injected_mmap_page: None,
+            injected_shared_page: None,
             signal_to_deliver: None,
             unpatchable_syscalls: Rc::new(RefCell::new(Vec::new())),
             patched_syscalls: Rc::new(RefCell::new(Vec::new())),
@@ -126,6 +134,7 @@ impl Task for TracedTask {
             pid: self.pid,
             ppid: self.pid,
             pgid: self.pgid,
+            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -134,6 +143,7 @@ impl Task for TracedTask {
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: self.ldpreload_address.clone(),
             injected_mmap_page: self.injected_mmap_page.clone(),
+            injected_shared_page: self.injected_shared_page.clone(),
             signal_to_deliver: None,
             unpatchable_syscalls: self.unpatchable_syscalls.clone(),
             patched_syscalls: self.patched_syscalls.clone(),
@@ -149,6 +159,7 @@ impl Task for TracedTask {
             pid: child,
             ppid: self.pid,
             pgid: self.pgid,
+            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -163,6 +174,7 @@ impl Task for TracedTask {
             trampoline_hooks: &SYSCALL_HOOKS,
             ldpreload_address: self.ldpreload_address,
             injected_mmap_page: self.injected_mmap_page,
+            injected_shared_page: self.injected_shared_page,
             signal_to_deliver: None,
             unpatchable_syscalls: {
                 let unpatchables = self.unpatchable_syscalls.borrow().clone();
@@ -854,12 +866,24 @@ fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
 fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let new_task = task.cloned();
     wait_sigstop(&new_task)?;
+
+    let state = get_systrace_state();
+    state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.nr_cloned.fetch_add(1, Ordering::SeqCst);
+
     Ok((task, new_task))
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let new_task = task.forked();
     wait_sigstop(&new_task)?;
+
+    let state = get_systrace_state();
+    state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.nr_forked.fetch_add(1, Ordering::SeqCst);
+
     Ok((task, new_task))
 }
 
@@ -867,13 +891,22 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let mut new_task = task.forked();
     new_task.in_vfork = true;
     wait_sigstop(&new_task)?;
+
+    let state = get_systrace_state();
+    state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.nr_forked.fetch_add(1, Ordering::SeqCst);
+
     Ok((task, new_task))
 }
 
 fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let _sig = task.signal_to_deliver;
     let retval = task.getevent()?;
+    let state = get_systrace_state();
+    state.nr_exited.fetch_add(1, Ordering::SeqCst);
     let _ = ptrace::detach(task.gettid());
+
     Ok(RunTask::Exited(retval as i32))
 }
 
@@ -913,9 +946,23 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         std::thread::sleep(std::time::Duration::from_micros(1000));
     }
 
+    let mut patched = false;
     if !(task.ldpreload_address.is_none() || hook.is_none()) {
-        let _ = patch_syscall_with(&mut task, hook.unwrap(), syscall, rip);
+        match patch_syscall_with(&mut task, hook.unwrap(), syscall, rip) {
+            Err(_) => patched = false,
+            Ok(_) => patched = true,
+        }
     }
+
+    let state = get_systrace_state();
+    if !patched {
+        state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+        state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    } else {
+        // others fields are updated in tracee instead.
+        state.nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
+    }
+
     Ok(task)
 }
 
@@ -993,13 +1040,16 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
             Ok(r.rax)
         }
     })?;
+    assert_eq!(ret, page_addr);
 
     systool_set_log_level(task);
 
-    assert_eq!(ret, page_addr);
     remote::gen_syscall_sequences_at(tid, page_addr)?;
-
     let _ = vdso::vdso_patch(task);
+
+    // there're only four vDSOs
+    let state = get_systrace_state();
+    state.nr_syscalls_patched.fetch_add(4, Ordering::SeqCst);
 
     saved_regs.rip = saved_regs.rip - 1; // bp size
     ptrace::setregs(tid, saved_regs)
@@ -1025,6 +1075,19 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         saved as *mut libc::c_void,
     )?;
     task_exec_reset(task);
+    let _at = task
+        .untraced_syscall(SYS_mmap,
+                          consts::SYSTRACE_GLOBAL_STATE_ADDR as i64,
+                          consts::SYSTRACE_GLOBAL_STATE_SIZE as i64,
+                          (libc::PROT_READ | libc::PROT_WRITE) as i64,
+                          (libc::MAP_SHARED | libc::MAP_FIXED) as i64,
+                          consts::SYSTRACE_GLOBAL_STATE_FD as i64,
+                          0).unwrap();
+    assert_eq!(_at, consts::SYSTRACE_GLOBAL_STATE_ADDR as i64);
+    let _ = unistd::close(consts::SYSTRACE_GLOBAL_STATE_FD);
+    ptrace::write(tid, consts::DET_TLS_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
+    let state = get_systrace_state();
+    state.nr_process_spawns.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 

@@ -6,6 +6,7 @@ use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
+use std::sync::atomic::{Ordering, AtomicUsize};
 
 use crate::consts;
 use crate::nr::*;
@@ -15,6 +16,7 @@ use crate::sched::*;
 use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
+use crate::state::SystraceState;
 
 pub struct SchedWait {
     tasks: HashMap<Pid, TracedTask>,
@@ -66,8 +68,8 @@ impl Scheduler<TracedTask> for SchedWait {
     fn size(&self) -> usize {
         self.tasks.len()
     }
-    fn event_loop(&mut self) -> i32 {
-        sched_wait_event_loop(self)
+    fn event_loop(&mut self, state: &mut SystraceState) -> i32 {
+        sched_wait_event_loop(self, state)
     }
 }
 
@@ -170,7 +172,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     None
 }
 
-pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
+pub fn sched_wait_event_loop(sched: &mut SchedWait, _state: &mut SystraceState) -> i32 {
     let mut exit_code = 0i32;
     while let Some(task) = sched.next() {
         let tid = task.gettid();
