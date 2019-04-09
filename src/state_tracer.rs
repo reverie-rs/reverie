@@ -34,6 +34,7 @@ pub fn systrace_state_allocate() -> *mut SystraceState {
 pub static mut SYSTRACE_STATE: Option<NonNull<SystraceState>> = None;
 
 #[link_section = ".init_array"]
+#[used]
 static INITIALIZER: extern "C" fn() = rust_stats_ctor;
 
 #[no_mangle]

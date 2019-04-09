@@ -8,6 +8,7 @@ use log::*;
 use std::ffi::CStr;
 
 #[link_section = ".init_array"]
+#[used]
 pub static ECHO_DSO_CTORS: extern fn() = {
     extern "C" fn echo_ctor() {
 	let _ = logger::init();
