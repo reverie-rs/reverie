@@ -32,5 +32,7 @@ cargo build --all # build `systrace` and tool libraries
 systrace --library-path=/path/to/libsystrace-trampoline_so/ --tool=/path/to/libecho.so -- /path/to/X [X_command_arguments]
 ```
 
+Tool log can be enabled by pass `TOOL_LOG=<level>` as environment variables (with `systrace`).
+
 ## Test
 tests are under `tests` directory, you can run `make test` to run them.
