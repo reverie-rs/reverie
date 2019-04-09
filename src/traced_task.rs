@@ -33,7 +33,7 @@ use crate::state_tracer::*;
 fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
         pid,
-        consts::DET_TLS_SYSCALL_TRAMPOLINE as ptrace::AddressType,
+        consts::SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE as ptrace::AddressType,
     ) {
         Ok(addr) if addr != 0 => Some(addr as u64 & !0xfff),
         _otherwise => None,
@@ -981,9 +981,9 @@ fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
 
 // set tool library log level
 fn systool_set_log_level(task: &TracedTask) {
-    let systool_log_ptr = consts::DET_TLS_SYSTOOL_LOG_LEVEL as *mut i64;
+    let systool_log_ptr = consts::SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL as *mut i64;
     let rptr = RemotePtr::new(systool_log_ptr);
-    let lvl = std::env::var(consts::SYSTOOL_LOG_KEY).map(|s| match &s[..] {
+    let lvl = std::env::var(consts::SYSTRACE_ENV_TOOL_LOG_KEY).map(|s| match &s[..] {
         "error" => 1,
         "warn" => 2,
         "info" => 3,
@@ -1003,8 +1003,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     let tid = task.gettid();
     let mut regs = ptrace::getregs(tid)?;
     let mut saved_regs = regs.clone();
-    let page_addr = consts::DET_PAGE_OFFSET;
-    let page_size = consts::DET_PAGE_SIZE;
+    let page_addr = consts::SYSTRACE_PRIVATE_PAGE_OFFSET;
+    let page_size = consts::SYSTRACE_PRIVATE_PAGE_SIZE;
 
     regs.orig_rax = SYS_mmap as u64;
     regs.rax = regs.orig_rax;
@@ -1085,7 +1085,7 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
                           0).unwrap();
     assert_eq!(_at, consts::SYSTRACE_GLOBAL_STATE_ADDR as i64);
     let _ = unistd::close(consts::SYSTRACE_GLOBAL_STATE_FD);
-    ptrace::write(tid, consts::DET_TLS_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
+    ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
     let state = get_systrace_state();
     state.nr_process_spawns.fetch_add(1, Ordering::SeqCst);
     Ok(())
