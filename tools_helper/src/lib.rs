@@ -8,6 +8,7 @@ pub mod spinlock;
 pub mod consts;
 pub mod state;
 pub mod counter;
+pub mod perf;
 
 pub use counter::note_syscall;
 pub use counter::NoteInfo;

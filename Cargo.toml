@@ -28,6 +28,7 @@ colored = "1.7"
 chrono = "0.4"
 log = "0.4"
 fern = "0.5"
+bitfield = "0.13"
 
 [build-dependencies]
 cc = "1.0.28"

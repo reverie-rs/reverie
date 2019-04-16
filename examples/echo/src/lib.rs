@@ -27,6 +27,10 @@ pub extern "C" fn captured_syscall(
     _a5: i64,
 ) -> i64 {
     note_syscall(_no, NoteInfo::SyscallEntry);
+
+    // use _desched RAII.
+    let _desched = perf::DeschedEvent::new();
+
     let ret = unsafe { untraced_syscall(_no, _a0, _a1, _a2, _a3, _a4, _a5) };
     if ret as u64 >= -4096i64 as u64 {
         warn!("{:?} = {}", syscalls::SyscallNo::from(_no), ret);

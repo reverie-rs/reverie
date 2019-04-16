@@ -19,3 +19,5 @@ pub mod task;
 pub mod traced_task;
 pub mod state;
 pub mod state_tracer;
+pub mod perf_event;
+pub mod perf_desched;

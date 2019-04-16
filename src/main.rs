@@ -27,6 +27,7 @@ use systrace::sched_wait::SchedWait;
 use systrace::task::{RunTask, Task};
 use systrace::state::SystraceState;
 use systrace::state_tracer::*;
+use systrace::perf_desched;
 
 // install seccomp-bpf filters
 extern "C" {
@@ -74,6 +75,17 @@ fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
             Ok(())
         }
         _ => Err(Error::new(ErrorKind::Other, "expect SIGSTOP")),
+    }
+}
+
+fn tracer_init_signals() {
+    let handler = signal::SigHandler::SigAction(perf_desched::desched_event_signal_handler);
+    let action = signal::SigAction::new(
+        handler,
+        signal::SaFlags::SA_RESTART | signal::SaFlags::SA_SIGINFO,
+        signal::SigSet::empty());
+    unsafe {
+        let _ = signal::sigaction(signal::SIGPWR, &action);
     }
 }
 
@@ -216,6 +228,7 @@ fn run_tracer(
                     | ptrace::Options::PTRACE_O_TRACESYSGOOD,
             ).map_err(|e| Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None).map_err(|e| Error::new(ErrorKind::Other, e))?;
+            tracer_init_signals();
             let tracee = task::Task::new(child);
             let mut sched: SchedWait = Scheduler::new();
             sched.add(tracee);

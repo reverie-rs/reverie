@@ -3,8 +3,9 @@ use log::{trace, debug, warn, info};
 use nix::sys::socket;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
-use nix::unistd;
+use nix::{fcntl, unistd};
 use nix::unistd::Pid;
+use nix::fcntl::{FcntlArg, OFlag};
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -29,6 +30,7 @@ use crate::remote_rwlock::*;
 use crate::vdso;
 use crate::state::SystraceState;
 use crate::state_tracer::*;
+use crate::perf_event::*;
 
 fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
     match ptrace::read(
@@ -979,6 +981,82 @@ fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
     ptrace::cont(pid, sig).map_err(from_nix_error)
 }
 
+#[allow(non_camel_case_types)]
+struct f_owner_ex {
+    f_type: i32,
+    f_pid: u32,
+}
+
+#[test]
+fn f_owner_ex_sanity() {
+    assert_eq!(8, std::mem::size_of::<f_owner_ex>());
+}
+
+/// open desched event for tracee
+/// tracee still needs to call enable/disable event
+fn open_desched_event(task: &mut TracedTask, parent: Pid) {
+    let attr: perf_event_attr = *perf_count_sw_context_switches();
+    let mut regs = task.getregs().unwrap();
+    let alignment = 0x10;
+    let allocated =
+        (std::mem::size_of_val(&attr) + alignment - 1) & (!(alignment-1));
+    debug_assert!(regs.rsp > allocated as u64);
+    let rsp = regs.rsp - allocated as u64;
+    regs.rsp = rsp;
+    task.setregs(regs)
+        .expect("open_desched_event: allocate stack for perf_event_attr");
+    let rptr: RemotePtr<perf_event_attr> = RemotePtr::new(rsp as *mut perf_event_attr);
+    task.poke(rptr, &attr).expect("open_desched_event: poke perf_event_attr");
+    let fd = consts::SYSTRACE_CTSW_SIGNAL_FD;
+    let oldfd = task.untraced_syscall(
+        SYS_perf_event_open,
+        rsp as i64,
+        0i64,
+        -1i64, -1i64, 8i64, 0)
+        .expect("open_desched_event: perf_event_open failed");
+    regs.rsp = regs.rsp + allocated as u64;
+    task.setregs(regs).unwrap();
+
+    task.untraced_syscall(SYS_dup2, oldfd, fd as i64, 0, 0, 0, 0)
+        .expect("open_desched_event: dup2 failed");
+    task.untraced_syscall(SYS_close, oldfd, 0, 0, 0, 0, 0)
+        .expect("open_desched_event: close failed");
+    task.untraced_syscall(SYS_ioctl, fd as i64,
+                          PERF_EVENT_IOC_RESET as i64, 0, 0, 0, 0)
+        .expect("open_desched_event: ioctl failed");
+    task.untraced_syscall(SYS_fcntl, fd as i64,
+                          4i64, // O_SETFL
+                          libc::O_ASYNC as i64,
+                          0, 0, 0)
+        .expect("open_desched_event: fcntl setfl failed");
+    let owner_ex = f_owner_ex {
+        f_type: 1, // F_OWNER_PID
+        f_pid: parent.as_raw() as u32, // notify parent
+    };
+    let allocated =
+        (std::mem::size_of_val(&owner_ex) + alignment - 1) & (!(alignment-1));
+    let rsp = regs.rsp - allocated as u64;
+    regs.rsp = rsp as u64;
+    task.setregs(regs)
+        .expect("open_desched_event: allocate stack for f_owner_ex");
+    let rip: RemotePtr<f_owner_ex> = RemotePtr::new(rsp as *mut f_owner_ex);
+    task.poke(rip, &owner_ex)
+        .expect("open_desched_event: poke f_owner_ex");
+    task.untraced_syscall(SYS_fcntl, fd as i64,
+                          15i64, // F_SETOWN_EX
+                          rsp as i64,
+                          0, 0, 0)
+        .expect("open_desched_event: fcntl setown_ex failed");
+    regs.rsp += allocated as u64;
+    task.setregs(regs).unwrap();
+
+    task.untraced_syscall(SYS_fcntl, fd as i64,
+                          10i64, // F_SETSIG
+                          libc::SIGPWR as i64,
+                          0, 0, 0)
+        .expect("open_desched_event: fcntl setsig failed");
+}
+
 // set tool library log level
 fn systool_set_log_level(task: &TracedTask) {
     let systool_log_ptr = consts::SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL as *mut i64;
@@ -1085,6 +1163,7 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
     let state = get_systrace_state();
     state.nr_process_spawns.fetch_add(1, Ordering::SeqCst);
+    open_desched_event(task, unistd::getpid());
     Ok(())
 }
 
