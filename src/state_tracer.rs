@@ -38,7 +38,6 @@ static mut SYSTRACE_STATE: Option<NonNull<SystraceState>> = None;
 #[used]
 static INITIALIZER: extern "C" fn() = rust_state_ctor;
 
-#[no_mangle]
 extern "C" fn rust_state_ctor() {
     unsafe {
         let ptr = systrace_state_allocate();
