@@ -17,7 +17,7 @@ static ECHO_DSO_CTORS: extern fn() = {
     echo_ctor
 };
 
-
+#[no_mangle]
 pub extern "C" fn captured_syscall(
     _no: i32,
     _a0: i64,
