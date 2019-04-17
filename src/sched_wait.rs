@@ -19,6 +19,7 @@ use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 use crate::state::SystraceState;
+use crate::proc::*;
 
 pub struct SchedWait {
     tasks: HashMap<Pid, TracedTask>,
@@ -114,12 +115,13 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
             }
             match status {
                 Ok(WaitStatus::StillAlive) => {
-                    match procfs::Process::new(tid.as_raw()).and_then(|p|p.status().map(|x|x.state.chars().nth(0).unwrap())) {
-                        Ok('S') => {
+                    match proc_get_task_state(tid) {
+                        Ok(LinuxTaskState::SleepInterruptible) |
+                        Ok(LinuxTaskState::SleepUninterruptible) => {
                             tasks.blocked_queue.push_back(tid);
                         }
-                        Ok('R') => continue,
-                        Ok('t') => continue,
+                        Ok(LinuxTaskState::Running) => continue,
+                        Ok(LinuxTaskState::Ptraced) => continue,
                         unknown => panic!("unknown state: {:?}", unknown),
                     }
                     break;
