@@ -8,6 +8,8 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
+use procfs;
+
 use crate::consts;
 use crate::nr::*;
 use crate::remote;
@@ -111,9 +113,15 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                 log::trace!("[sched] {} {:?}", tid, status);
             }
             match status {
-                // no status change, TODO: dead lock detection?
                 Ok(WaitStatus::StillAlive) => {
-                    tasks.blocked_queue.push_back(tid);
+                    match procfs::Process::new(tid.as_raw()).and_then(|p|p.status().map(|x|x.state.chars().nth(0).unwrap())) {
+                        Ok('S') => {
+                            tasks.blocked_queue.push_back(tid);
+                        }
+                        Ok('R') => continue,
+                        Ok('t') => continue,
+                        unknown => panic!("unknown state: {:?}", unknown),
+                    }
                     break;
                 }
                 Ok(WaitStatus::Signaled(_pid, signal, _core)) => {
@@ -220,12 +228,8 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
                 // task not to be re-queued, assuming exited/killed.
                 log::debug!("[sched] {} failed to run, assuming killed", tid);
                 if log::log_enabled!(log::Level::Trace) {
-                    let file = PathBuf::from("/proc")
-                        .join(&format!("{}", tid.as_raw() as i32))
-                        .join("stat");
-                    if file.exists() {
-                        let stat = std::fs::read_to_string(file).unwrap_or(String::new());
-                        log::trace!("[sched] task {} refused to be traced while alive, stat: {}", tid, stat);
+                    if let Ok(status) = procfs::Process::new(tid.as_raw()).and_then(|p| p.status()) {
+                        log::trace!("[sched] task {} refused to be traced while alive, {:?}", tid, status);
                         let regs = ptrace::getregs(tid);
                         log::trace!("rsp = {:x?},  rip = {:x?}", regs.map(|r| r.rsp), regs.map(|r| r.rip));
                     }
