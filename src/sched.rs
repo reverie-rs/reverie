@@ -19,5 +19,5 @@ pub trait Scheduler<Task> {
     fn remove(&mut self, task: &mut Task);
     fn next(&mut self) -> Option<Task>;
     fn size(&self) -> usize;
-    fn event_loop(&mut self, state: &mut SystraceState) -> i32;
+    fn event_loop(&mut self) -> i32;
 }

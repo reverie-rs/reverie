@@ -64,8 +64,8 @@ struct Arguments<'a> {
     program_args: Vec<&'a str>,
 }
 
-fn run_tracer_main(sched: &mut SchedWait, state: &mut SystraceState) -> i32 {
-    sched.event_loop(state)
+fn run_tracer_main(sched: &mut SchedWait) -> i32 {
+    sched.event_loop()
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -219,9 +219,9 @@ fn run_tracer(
             let tracee = task::Task::new(child);
             let mut sched: SchedWait = Scheduler::new();
             sched.add(tracee);
-            let mut state = get_systrace_state();
-            let res = run_tracer_main(&mut sched, &mut state);
+            let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {
+                let state = get_systrace_state();
                 show_perf_stats(state);
             }
             Ok(res)

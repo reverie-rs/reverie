@@ -22,6 +22,7 @@ pub struct SchedWait {
     tasks: HashMap<Pid, TracedTask>,
     run_queue: VecDeque<Pid>,
     blocked_queue: VecDeque<Pid>,
+    task_tree: HashMap<Pid, Pid>,
 }
 
 impl Scheduler<TracedTask> for SchedWait {
@@ -30,10 +31,12 @@ impl Scheduler<TracedTask> for SchedWait {
             tasks: HashMap::new(),
             run_queue: VecDeque::new(),
             blocked_queue: VecDeque::new(),
+            task_tree: HashMap::new(),
         }
     }
     fn add(&mut self, task: TracedTask) {
         let tid = Task::gettid(&task);
+        self.task_tree.insert(task.gettid(), task.getppid());
         self.tasks.insert(tid, task);
         self.run_queue.push_back(tid);
     }
@@ -51,6 +54,7 @@ impl Scheduler<TracedTask> for SchedWait {
             // signal is to be delivered
             task.signal_to_deliver = None;
         }
+        self.task_tree.insert(tid, task.getppid());
         self.tasks.insert(tid, task);
         self.run_queue.push_front(tid);
         if is_seccomp {
@@ -60,6 +64,7 @@ impl Scheduler<TracedTask> for SchedWait {
         }
     }
     fn remove(&mut self, task: &mut TracedTask) {
+        self.task_tree.remove(&Task::getpid(task));
         self.tasks.remove(&Task::getpid(task));
     }
     fn next(&mut self) -> Option<TracedTask> {
@@ -68,8 +73,8 @@ impl Scheduler<TracedTask> for SchedWait {
     fn size(&self) -> usize {
         self.tasks.len()
     }
-    fn event_loop(&mut self, state: &mut SystraceState) -> i32 {
-        sched_wait_event_loop(self, state)
+    fn event_loop(&mut self) -> i32 {
+        sched_wait_event_loop(self)
     }
 }
 
@@ -172,7 +177,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     None
 }
 
-pub fn sched_wait_event_loop(sched: &mut SchedWait, _state: &mut SystraceState) -> i32 {
+pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
     let mut exit_code = 0i32;
     while let Some(task) = sched.next() {
         let tid = task.gettid();
