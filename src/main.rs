@@ -35,25 +35,24 @@ extern "C" {
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
-    let library_path = PathBuf::from("target").join("debug");
-    let parsed = hooks::resolve_syscall_hooks_from(library_path.join(consts::LIBTRAMPOLINE_SO))?;
+    let so = PathBuf::from("target").join("debug").join("libecho.so").canonicalize()?;
+    let parsed = hooks::resolve_syscall_hooks_from(so)?;
     assert_ne!(parsed.len(), 0);
     Ok(())
 }
 
 #[test]
 fn libtrampoline_trampoline_within_first_page() -> Result<()> {
-    let library_path = PathBuf::from("target").join("debug");
-    let parsed = hooks::resolve_syscall_hooks_from(library_path.join(consts::LIBTRAMPOLINE_SO))?;
-    let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x1000).collect();
+    let so = PathBuf::from("target").join("debug").join("libecho.so").canonicalize()?;
+    let parsed = hooks::resolve_syscall_hooks_from(so)?;
+    let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x10000).collect();
     assert_eq!(parsed.len(), filtered.len());
     Ok(())
 }
 
 struct Arguments<'a> {
     debug_level: i32,
-    library_path: PathBuf,
-    tool_name: &'a str,
+    tool_path: PathBuf,
     host_envs: bool,
     envs: HashMap<String, String>,
     namespaces: bool,
@@ -98,10 +97,8 @@ fn tracee_init_signals() {
 }
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
-    let library_path = &argv.library_path;
-    let tool = PathBuf::from(argv.tool_name);
-    let so = library_path.join(consts::LIBTRAMPOLINE_SO);
-    let libs: Vec<PathBuf> = vec![tool, so];
+    let tool = &argv.tool_path;
+    let libs: Vec<_> = vec![tool];
     let ldpreload = String::from("LD_PRELOAD=")
         + &libs
             .iter()
@@ -363,16 +360,17 @@ fn main() {
     let log_output = matches.value_of("with-log");
     setup_logger(log_level, log_output).expect("set log level");
 
-    let tool = matches.value_of("tool").unwrap_or_else(||{
-        log::info!("[main] tool not specified, default to none");
-        "none"
-    });
-    let rpath = matches.value_of("library-path").map(|p| PathBuf::from(p));
+    let tool = matches
+        .value_of("tool")
+        .expect("[main] tool not specified, default to none");
+
+    let tool_path = PathBuf::from(tool)
+        .canonicalize()
+        .expect(&format!("[main] cannot locate {}", tool));
 
     let argv = Arguments {
         debug_level: log_level,
-        tool_name: &tool,
-        library_path: rpath.expect("cannot find shared libraries under library_path"),
+        tool_path: tool_path.clone(),
         host_envs: !matches.is_present("-no-host-envs"),
         envs: matches
             .values_of("env")
@@ -394,7 +392,7 @@ fn main() {
             .unwrap_or_else(|| Vec::new()),
     };
 
-    std::env::set_var(consts::LIBTRAMPOLINE_LIBRARY_PATH, &argv.library_path);
+    std::env::set_var(consts::SYSTRACE_TRACEE_PRELOAD, tool_path.as_os_str());
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
         err => panic!("run app failed with error: {:?}", err),

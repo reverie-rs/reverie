@@ -30,23 +30,39 @@ use crate::vdso;
 use crate::state::SystraceState;
 use crate::state_tracer::*;
 
+fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
+    let ents = decode_proc_maps(pid).ok()?;
+    ents.iter().filter(|e| {
+        if let Some(soname) = e.filename().and_then(|s|s.to_str()) {
+            soname == so
+        } else {
+            false
+        }
+    }).next().map(|e|e.base())
+}
+
+/// our tool library has been fully loaded
 fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
-    match ptrace::read(
+    let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).ok()?;
+    ptrace::read(
         pid,
         consts::SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE as ptrace::AddressType,
-    ) {
-        Ok(addr) if addr != 0 => Some(addr as u64 & !0xfff),
-        _otherwise => None,
-    }
+    ).ok().and_then(|addr| {
+        if addr == 0 {
+            None
+        } else {
+            dso_load_address(pid, &so)
+        }
+    })
 }
 
 lazy_static! {
     static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        let trampoline_lib_path = std::env::var(consts::LIBTRAMPOLINE_LIBRARY_PATH).unwrap();
+        let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).unwrap();
         hooks::resolve_syscall_hooks_from(
-            PathBuf::from(trampoline_lib_path).join(consts::LIBTRAMPOLINE_SO),
+            PathBuf::from(so.clone())
         )
-        .expect(&format!("unable to load {}", consts::LIBTRAMPOLINE_SO))
+        .expect(&format!("unable to load {}", so))
     };
 }
 
@@ -527,9 +543,11 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
     )?;
     assert!(at == allocated_at);
 
+    let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).unwrap();
+
     let preload_address = task.ldpreload_address.ok_or(Error::new(
         ErrorKind::Other,
-        format!("{} not loaded", consts::LIBTRAMPOLINE_SO),
+        format!("{} not loaded", so)
     ))?;
     let stubs = stubs::gen_extended_jump_stubs(task.trampoline_hooks, preload_address);
     task.stub_pages.borrow_mut().push(SyscallStubPage {

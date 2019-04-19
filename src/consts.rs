@@ -1,5 +1,4 @@
-pub const LIBTRAMPOLINE_LIBRARY_PATH: &'static str = "LIBTRAMPOLINE_LIBRARY_PATH";
-pub const LIBTRAMPOLINE_SO: &'static str = "libsystrace-trampoline.so";
+pub const SYSTRACE_TRACEE_PRELOAD: &'static str = "SYSTRACE_TRACEE_PRELOAD";
 
 pub const SYSTRACE_ENV_TOOL_LOG_KEY: &'static str = "TOOL_LOG";
 
