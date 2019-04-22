@@ -127,6 +127,7 @@ tests: build-tests
 	./signal2
 	./signal3
 	./sigprocmask1
-	$(SYSTRACE_DEBUG) ./pthread8-cond-wait
+	$(SYSTRACE_DEBUG) ./thread8-cond-wait
+	$(SYSTRACE_DEBUG) ./thread9-cond-bcast
 
 .PHONY: all tests clean
