@@ -98,7 +98,7 @@ clean:
 
 tests: build-tests
 	./x64-save-return-address
-	$(SYSTRACE_DEBUG) ./openat1
+	$(SYSTRACE_DEBUG) RUST_BACKTRACE=1 ./openat1
 	$(SYSTRACE_DEBUG) ./open-many > /dev/null
 	$(SYSTRACE_DEBUG) ./write-many
 	$(SYSTRACE_DEBUG) ./getpid
