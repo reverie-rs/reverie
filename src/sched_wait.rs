@@ -127,6 +127,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                             let status = wait::waitpid(Some(tid), None);
                             log::trace!("[sched] {} {:?}", tid, status);
                             assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
+                            let _ = tasks.tasks.remove(&tid);
                             let _ = ptrace::detach(tid);
                         }
                         unknown => panic!("unknown state: {:?}", unknown),
