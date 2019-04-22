@@ -9,8 +9,8 @@ TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec 
 
 SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../target/debug)
 SYSTRACE_TOOL         := $(shell realpath $(shell pwd)/../target/debug/libnone.so)
-SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --library-path=$(SYSTRACE_LIBRARY_PATH) --tool=$(SYSTRACE_TOOL) --debug=4 --
-SYSTRACE       := $(shell realpath ../bin/systrace) --library-path=$(SYSTRACE_LIBRARY_PATH) --tool=$(SYSTRACE_TOOL) --debug=0 --
+SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=4 --
+SYSTRACE       := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=0 --
 
 all: $(TARGET)
 

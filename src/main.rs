@@ -287,13 +287,6 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("library-path")
-                .long("library-path")
-                .value_name("LIBRARY_PATH")
-                .help("set library search path for systrace libraries such as libsystrace-trampoline.so")
-                .takes_value(true),
-        )
-        .arg(
             Arg::with_name("tool")
                 .long("tool")
                 .value_name("TOOL")
