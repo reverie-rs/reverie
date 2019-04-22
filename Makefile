@@ -25,9 +25,9 @@ all:
 	@cp -v target/$(TARGETDIR)/systrace bin/
 clean:
 	$(MAKE) -C tests clean
-	$(RM) lib/libecho.so lib/libnone.so
+	$(RM) lib/lib*.so
 	$(RM) bin/systrace
-	@cargo clean --all
+	@cargo clean
 
 test: tests
 tests: all
