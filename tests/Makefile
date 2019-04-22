@@ -5,7 +5,7 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7 forkMany signal1 signal2 signal3 signal4 sigprocmask1 thread8-cond-wait.c thread9-cond-bcast
+TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7 forkMany signal1 signal2 signal3 signal4 sigprocmask1 thread8-cond-wait thread9-cond-bcast
  
 SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../target/debug)
 SYSTRACE_TOOL         := $(shell realpath $(shell pwd)/../target/debug/libnone.so)
