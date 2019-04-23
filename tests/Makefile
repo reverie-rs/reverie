@@ -5,12 +5,12 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7 forkMany signal1 signal2 signal3 signal4 sigprocmask1
-
+TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7 forkMany signal1 signal2 signal3 signal4 sigprocmask1 thread8-cond-wait thread9-cond-bcast
+ 
 SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../target/debug)
 SYSTRACE_TOOL         := $(shell realpath $(shell pwd)/../target/debug/libnone.so)
-SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --library-path=$(SYSTRACE_LIBRARY_PATH) --tool=$(SYSTRACE_TOOL) --debug=4 --
-SYSTRACE       := $(shell realpath ../bin/systrace) --library-path=$(SYSTRACE_LIBRARY_PATH) --tool=$(SYSTRACE_TOOL) --debug=0 --
+SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=4 --
+SYSTRACE       := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=0 --
 
 all: $(TARGET)
 
@@ -74,6 +74,12 @@ threads6: threads6.o
 threads7: threads7.o
 	$(CC) $^ -o $@ $(CFLAGS) -lrt -lpthread
 
+thread8-cond-wait: thread8-cond-wait.o
+	$(CC) $^ -o $@ $(CFLAGS) -lrt -lpthread
+
+thread9-cond-bcast: thread9-cond-bcast.o
+	$(CC) $^ -o $@ $(CFLAGS) -lrt -lpthread
+
 segfault: segfault.o
 	$(CC) $^ -o $@ $(CFLAGS) -lrt -lpthread
 
@@ -98,7 +104,7 @@ clean:
 
 tests: build-tests
 	./x64-save-return-address
-	$(SYSTRACE_DEBUG) ./openat1
+	RUST_BACKTRACE=1 $(SYSTRACE_DEBUG) ./openat1
 	$(SYSTRACE_DEBUG) ./open-many > /dev/null
 	$(SYSTRACE_DEBUG) ./write-many
 	$(SYSTRACE_DEBUG) ./getpid
@@ -121,5 +127,7 @@ tests: build-tests
 	./signal2
 	./signal3
 	./sigprocmask1
+	$(SYSTRACE_DEBUG) ./thread8-cond-wait
+	$(SYSTRACE_DEBUG) ./thread9-cond-bcast
 
 .PHONY: all tests clean

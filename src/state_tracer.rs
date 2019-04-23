@@ -3,6 +3,7 @@ use nix::sys::mman::{ProtFlags, MapFlags, mmap, munmap};
 use nix::sys::memfd::{memfd_create, MemFdCreateFlag};
 use nix::fcntl::{SealFlag, fcntl};
 use nix::unistd;
+use nix::Result;
 use std::cell::UnsafeCell;
 use std::sync::Once;
 use std::sync::Arc;
@@ -12,23 +13,29 @@ use std::ffi::CStr;
 use crate::consts;
 use crate::state::SystraceState;
 
+fn init_shared_mmap(path: &str, raw_fd: i32, size: usize) -> Result<*mut SystraceState> {
+    let raw_path = unsafe {
+        CStr::from_ptr(path.as_ptr() as *const i8)
+    };
+    let fd0 = memfd_create(raw_path, MemFdCreateFlag::empty())?;
+    unistd::dup2(fd0, raw_fd)?;
+    unistd::close(fd0)?;
+    unistd::ftruncate(raw_fd, size as i64)?;
+    let void_p = unsafe {
+        mmap(0 as *mut _, size,
+             ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
+             MapFlags::MAP_SHARED,
+             raw_fd, 0)
+    }?;
+    let res = void_p as *mut SystraceState;
+    Ok(res)
+}
+
 fn systrace_state_allocate() -> *mut SystraceState {
-    unsafe {
-        let size = consts::SYSTRACE_GLOBAL_STATE_SIZE as usize;
-        let path = CStr::from_ptr(consts::SYSTRACE_GLOBAL_STATE_FILE
-                                  .as_ptr() as *const i8);
-        // no CLOEXEC
-        let fd0 = memfd_create(path, MemFdCreateFlag::empty()).unwrap();
-        let fd = consts::SYSTRACE_GLOBAL_STATE_FD;
-        unistd::dup2(fd0, fd).unwrap();
-        unistd::close(fd0).unwrap();
-        unistd::ftruncate(fd, size as i64).unwrap();
-        let void_p = mmap(0 as *mut _, size,
-                          ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
-                          MapFlags::MAP_SHARED,
-                          fd, 0).unwrap();
-        void_p as *mut SystraceState
-    }
+    init_shared_mmap(consts::SYSTRACE_GLOBAL_STATE_FILE,
+                     consts::SYSTRACE_GLOBAL_STATE_FD,
+                     consts::SYSTRACE_GLOBAL_STATE_SIZE as usize)
+        .expect("systrace_state_allocate failed")
 }
 
 static mut SYSTRACE_STATE: Option<NonNull<SystraceState>> = None;

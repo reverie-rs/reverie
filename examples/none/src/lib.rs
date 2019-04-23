@@ -1,5 +1,8 @@
 use syscalls::*;
 
+#[allow(unused_imports)]
+use tools_helper::*;
+
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     _no: i32,

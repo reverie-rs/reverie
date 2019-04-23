@@ -11,5 +11,6 @@ path = "src/lib.rs"
 
 [dependencies]
 syscalls = { path = "../../syscalls" }
+tools_helper = { path = "../../tools_helper" }
 
 [build-dependencies]
