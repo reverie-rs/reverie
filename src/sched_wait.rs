@@ -115,23 +115,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
             }
             match status {
                 Ok(WaitStatus::StillAlive) => {
-                    match proc_get_task_state(tid) {
-                        Ok(LinuxTaskState::SleepInterruptible) |
-                        Ok(LinuxTaskState::SleepUninterruptible) => {
-                            tasks.blocked_queue.push_back(tid);
-                        }
-                        Ok(LinuxTaskState::Running) => continue,
-                        Ok(LinuxTaskState::Ptraced) => continue,
-                        Err(_)                      => {
-                            log::debug!("[sched] {} vanished, assuming killed", tid);
-                            let status = wait::waitpid(Some(tid), None);
-                            log::trace!("[sched] {} {:?}", tid, status);
-                            assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
-                            let _ = tasks.tasks.remove(&tid);
-                            let _ = ptrace::detach(tid);
-                        }
-                        unknown => panic!("unknown state: {:?}", unknown),
-                    }
+                    tasks.blocked_queue.push_back(tid);
                     break;
                 }
                 Ok(WaitStatus::Signaled(_pid, signal, _core)) => {
