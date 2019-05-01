@@ -108,8 +108,8 @@ pub struct TracedTask {
     // as a result they should share below data as well
     pub memory_map: Rc<RefCell<Vec<procfs::MemoryMap>>>,
     pub stub_pages: Rc<RefCell<Vec<SyscallStubPage>>>,
-    pub unpatchable_syscalls: Rc<RefCell<Vec<u64>>>,
-    pub patched_syscalls: Rc<RefCell<Vec<u64>>>,
+    pub unpatchable_syscalls: Rc<RefCell<HashSet<u64>>>,
+    pub patched_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
 }
 
@@ -165,8 +165,8 @@ impl Task for TracedTask {
             injected_mmap_page: None,
             injected_shared_page: None,
             signal_to_deliver: None,
-            unpatchable_syscalls: Rc::new(RefCell::new(Vec::new())),
-            patched_syscalls: Rc::new(RefCell::new(Vec::new())),
+            unpatchable_syscalls: Rc::new(RefCell::new(HashSet::new())),
+            patched_syscalls: Rc::new(RefCell::new(HashSet::new())),
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
         }
     }
@@ -359,8 +359,7 @@ impl TracedTask {
     pub fn is_patched_syscall(&self, rip: u64) -> bool {
         self.patched_syscalls
             .borrow()
-            .iter()
-            .find(|&&pc| pc == rip)
+            .get(&rip)
             .is_some()
     }
     pub fn task_state_is_seccomp(&self) -> bool {
@@ -399,8 +398,8 @@ fn task_exec_reset(task: &mut TracedTask) {
     task.in_vfork = false;
     task.seccomp_hook_size = None;
     check_ref_counters(task);
-    *(task.patched_syscalls.borrow_mut()) = Vec::new();
-    *(task.unpatchable_syscalls.borrow_mut()) = Vec::new();
+    *(task.patched_syscalls.borrow_mut()) = HashSet::new();
+    *(task.unpatchable_syscalls.borrow_mut()) = HashSet::new();
     *(task.memory_map.borrow_mut()) = Vec::new();
     *(task.stub_pages.borrow_mut()) = Vec::new();
     *(task.syscall_patch_lockset.borrow_mut()) = RemoteRWLock::new();
@@ -494,7 +493,7 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
     skip_seccomp_syscall(task, old_regs)?;
 
     let indirect_jump_address = extended_jump_from_to(task, hook, rip)?;
-    task.patched_syscalls.borrow_mut().push(rip);
+    task.patched_syscalls.borrow_mut().insert(rip);
     patch_syscall_at(task, syscall, hook, indirect_jump_address);
     task.syscall_patch_lockset.borrow_mut().try_write_unlock(task.gettid(), rip);
     Ok(())
