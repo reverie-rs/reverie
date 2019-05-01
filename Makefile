@@ -34,6 +34,9 @@ tests: all
 	cargo test $(WAY) -- --nocapture
 	$(MAKE) -C tests tests
 
+bench: all
+	$(MAKE) -C benchmark bench
+
 docker:
 	docker build -t $(DOCKER_NAME) .
 
