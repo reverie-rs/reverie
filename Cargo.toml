@@ -20,7 +20,7 @@ path = "src/main.rs"
 libc = { version = "0.2", default-features = false }
 nix = "0.13"
 goblin = "0.0"
-procfs = "0.4"
+procfs = "0.5"
 clap = "2.32"
 combine = "3.6"
 lazy_static = "1.2"

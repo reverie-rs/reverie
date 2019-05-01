@@ -1,4 +1,5 @@
 use libc;
+use procfs;
 use log::{trace, debug, warn, info};
 use nix::sys::socket;
 use nix::sys::wait::WaitStatus;
@@ -18,7 +19,6 @@ use crate::consts;
 use crate::consts::*;
 use crate::hooks;
 use crate::nr::*;
-use crate::proc::*;
 use crate::remote;
 use crate::remote::*;
 use crate::sched::Scheduler;
@@ -31,14 +31,18 @@ use crate::state::SystraceState;
 use crate::state_tracer::*;
 
 fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
-    let ents = decode_proc_maps(pid).ok()?;
-    ents.iter().filter(|e| {
-        if let Some(soname) = e.filename().and_then(|s|s.to_str()) {
-            soname == so
-        } else {
-            false
-        }
-    }).next().map(|e|e.base())
+    let path = PathBuf::from(so);
+    procfs::Process::new(pid.as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new())
+        .iter().filter(|e| {
+            match &e.pathname {
+                procfs::MMapPath::Path(soname) => {
+                    soname == &path
+                }
+                _ => false,
+            }
+        }).next().map(|e|e.address.0)
 }
 
 /// our tool library has been fully loaded
@@ -102,11 +106,36 @@ pub struct TracedTask {
     // each process should have its own copy of below data
     // however, threads do resides in the same address space
     // as a result they should share below data as well
-    pub memory_map: Rc<RefCell<Vec<ProcMapsEntry>>>,
+    pub memory_map: Rc<RefCell<Vec<procfs::MemoryMap>>>,
     pub stub_pages: Rc<RefCell<Vec<SyscallStubPage>>>,
     pub unpatchable_syscalls: Rc<RefCell<Vec<u64>>>,
     pub patched_syscalls: Rc<RefCell<Vec<u64>>>,
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
+}
+
+// procfs::MemoryMap does not have `Clone` instance!
+fn clone_mmap(vec: &Vec<procfs::MemoryMap>) -> Vec<procfs::MemoryMap> {
+    let mut res = Vec::new();
+    vec.iter().for_each(|e| {
+        let v = procfs::MemoryMap {
+            address: e.address,
+            perms: e.perms.clone(),
+            offset: e.offset,
+            dev: e.dev,
+            inode: e.inode,
+            pathname: match &e.pathname {
+                procfs::MMapPath::Path(p) => procfs::MMapPath::Path(p.clone()),
+                procfs::MMapPath::Heap => procfs::MMapPath::Heap,
+                procfs::MMapPath::Stack => procfs::MMapPath::Stack,
+                procfs::MMapPath::TStack(x) => procfs::MMapPath::TStack(x.clone()),
+                procfs::MMapPath::Vdso => procfs::MMapPath::Vdso,
+                procfs::MMapPath::Anonymous => procfs::MMapPath::Anonymous,
+                procfs::MMapPath::Other(s) => procfs::MMapPath::Other(s.clone()),
+            }
+        };
+        res.push(v);
+    });
+    res
 }
 
 impl std::fmt::Debug for TracedTask {
@@ -180,7 +209,7 @@ impl Task for TracedTask {
             in_vfork: false,
             seccomp_hook_size: None,
             memory_map: {
-                let maps = self.memory_map.borrow().clone();
+                let maps = clone_mmap(&self.memory_map.borrow());
                 Rc::new(RefCell::new(maps))
             },
             stub_pages: {
@@ -319,8 +348,9 @@ fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
         }
     }
 
-    decode_proc_maps(task.gettid())
-        .unwrap()
+    procfs::Process::new(task.getpid().as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new())
         .iter()
         .for_each(|e| { debug!("{:x?}", e);});
 }
@@ -379,8 +409,9 @@ fn task_exec_reset(task: &mut TracedTask) {
 fn update_memory_map(task: &mut TracedTask) {
     // update memory mapping from /proc/[pid]/maps
     // NB: we must use `pid` here.
-    *(task.memory_map.borrow_mut()) = decode_proc_maps(task.getpid())
-        .unwrap_or_else(|_|Vec::new());
+    *(task.memory_map.borrow_mut()) = procfs::Process::new(task.getpid().as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new());
 }
 
 fn find_syscall_hook(task: &TracedTask, rip: u64) -> Option<&'static hooks::SyscallHook> {

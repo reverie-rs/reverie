@@ -19,7 +19,6 @@ use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 use crate::state::SystraceState;
-use crate::proc::*;
 
 pub struct SchedWait {
     tasks: HashMap<Pid, TracedTask>,

@@ -8,7 +8,6 @@ pub mod consts;
 pub mod hooks;
 pub mod nr;
 pub mod ns;
-pub mod proc;
 pub mod remote;
 pub mod remote_rwlock;
 pub mod sched;

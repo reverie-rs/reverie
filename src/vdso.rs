@@ -1,4 +1,6 @@
 use libc;
+use procfs;
+
 use std::io::{Result, Error, ErrorKind};
 use std::path::PathBuf;
 use std::collections::HashMap;
@@ -8,7 +10,6 @@ use nix::unistd::Pid;
 use goblin::elf::Elf;
 use log::{debug};
 
-use crate::proc::*;
 use crate::task::Task;
 use crate::remote::*;
 use crate::traced_task::TracedTask;
@@ -87,17 +88,17 @@ lazy_static! {
 // so that we don't have to decode vdso for each process
 fn vdso_get_symbols_info() -> HashMap<String, (u64, usize)> {
     let mut res: HashMap<String, (u64, usize)> = HashMap::new();
-    decode_proc_maps(unistd::getpid())
+    procfs::Process::new(unistd::getpid().as_raw())
+        .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .filter(|e| e.filename() == Some(&PathBuf::from("[vdso]")))
-        .cloned()
+        .filter(|e| e.pathname == procfs::MMapPath::Vdso)
         .next()
         .and_then(|vdso| {
             let slice = unsafe {
                 std::slice::from_raw_parts(
-                    vdso.base() as *mut u8,
-                    vdso.size())
+                    vdso.address.0 as *mut u8,
+                    (vdso.address.1 - vdso.address.0) as usize)
             };
             Elf::parse(slice).map(|elf| {
                 let strtab = elf.dynstrtab;
@@ -115,22 +116,14 @@ fn vdso_get_symbols_info() -> HashMap<String, (u64, usize)> {
     res
 }
 
-fn patch_vdso(pid: Pid) -> Result<()> {
-    decode_proc_maps(pid)?
-        .iter()
-        .filter(|e| e.filename() == Some(&PathBuf::from("[vdso]")))
-        .cloned()
-        .next()
-        .map(|_vdso| {
-            
-        });
-    Ok(())
-}
-
 #[test]
 fn can_find_vdso() {
-    let vdso = decode_proc_maps(unistd::getpid());
-    assert!(vdso.is_ok());
+    assert!(procfs::Process::new(unistd::getpid().as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new())
+        .iter()
+        .filter(|e| e.pathname == procfs::MMapPath::Vdso)
+        .next().is_some());
 }
 
 #[test]
@@ -149,21 +142,21 @@ fn vdso_patch_info_is_valid() {
 /// patch vdso when enabled
 /// @task must be in stopped state
 pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
-    decode_proc_maps(
-        task.getpid())?
+    procfs::Process::new(task.getpid().as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new())
         .iter()
-        .filter(|e| e.filename() == Some(&PathBuf::from("[vdso]")))
-        .cloned()
+        .filter(|e| e.pathname == procfs::MMapPath::Vdso)
         .next()
         .map(|vdso| {
             task.untraced_syscall(
                 SYS_mprotect,
-                vdso.base() as i64,
-                vdso.size() as i64,
+                vdso.address.0 as i64,
+                (vdso.address.1 - vdso.address.0) as i64,
                 (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as i64,
                 0, 0, 0).unwrap();
             for (name, (offset, size, bytes)) in VDSO_PATCH_INFO.iter() {
-                let start = vdso.base() + offset;
+                let start = vdso.address.0 + offset;
                 assert!(bytes.len() <= *size);
                 let rptr = RemotePtr::new(start as *mut u8);
                 task.poke_bytes(rptr, bytes).unwrap();
@@ -171,8 +164,8 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
             }
             task.untraced_syscall(
                 SYS_mprotect,
-                vdso.base() as i64,
-                vdso.size() as i64,
+                vdso.address.0 as i64,
+                (vdso.address.1 - vdso.address.0) as i64,
                 (libc::PROT_READ | libc::PROT_EXEC) as i64,
                 0, 0, 0).unwrap();
         });

@@ -1,4 +1,5 @@
 use libc;
+use procfs;
 use log::{debug};
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal};
@@ -14,7 +15,6 @@ use crate::hooks;
 use crate::nr;
 use crate::nr::SyscallNo;
 use crate::nr::SyscallNo::*;
-use crate::proc::*;
 use crate::stubs;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
@@ -276,7 +276,9 @@ pub fn patch_syscall_at(
 // search for spare page(s) which can be allocated (mmap) within the
 // range of @addr_hint +/- 2GB.
 pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
-    let mappings = decode_proc_maps(pid)?;
+    let mappings = procfs::Process::new(pid.as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new());
     let page_size: u64 = 0x1000;
     let one_mb: u64 = 0x100000;
     let almost_2gb: u64 = 2u64.wrapping_shl(30) - 0x100000;
@@ -286,10 +288,10 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
     ranges_from.push((one_mb - page_size, one_mb));
     mappings
         .iter()
-        .for_each(|e| ranges_from.push((e.base(), e.end())));
+        .for_each(|e| ranges_from.push((e.address.0, e.address.1)));
     mappings
         .iter()
-        .for_each(|e| ranges_to.push((e.base(), e.end())));
+        .for_each(|e| ranges_to.push((e.address.0, e.address.1)));
     ranges_to.push((0xffffffff_ffff_8000u64, 0xffffffff_ffff_f000u64));
     debug_assert_eq!(ranges_from.len(), ranges_to.len());
 
@@ -327,15 +329,17 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
 #[test]
 fn can_find_stub_page() {
     let pid = unistd::getpid();
-    let ranges: Vec<(u64, u64)> = decode_proc_maps(pid)
-        .unwrap()
+    let ranges: Vec<_> = procfs::Process::new(pid.as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new())
         .iter()
-        .map(|e| (e.base(), e.end()))
+        .map(|e| e.address)
         .collect();
-    let addr_hints: Vec<u64> = decode_proc_maps(pid)
-        .unwrap()
+    let addr_hints: Vec<u64> = procfs::Process::new(pid.as_raw())
+        .and_then(|p| p.maps())
+        .unwrap_or_else(|_| Vec::new())
         .iter()
-        .map(|e| e.base() + 0x234)
+        .map(|e| e.address.0 + 0x234)
         .collect();
     let two_gb = 2u64.wrapping_shl(30);
     for hint in addr_hints {
