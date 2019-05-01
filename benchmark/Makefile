@@ -40,8 +40,9 @@ clean:
 benchmark: build-benchmark
 	-@$(ECHO) -ne "getpid..               " && ./getpid
 	-@$(ECHO) -ne "getpid (systrace)..    " && $(SYSTRACE) ./getpid
-	-@$(ECHO) -ne "getpid-many..               " && ./getpid-many
-	-@$(ECHO) -ne "getpid-many (systrace)..    " && $(SYSTRACE) ./getpid-many
+	-@$(ECHO) -ne "getpid-many..               " && ./getpid-many 10000
+	-@$(ECHO) -ne "getpid-many (systrace)..    " && $(SYSTRACE) ./getpid-many 10000
+	-@$(ECHO) -ne "getpid-many (systrace)..    " && $(SYSTRACE) ./getpid-many 100000
 
 bench: benchmark
 

@@ -7,15 +7,13 @@
 #include <assert.h>
 #include <string.h>
 
-#define NTESTS 10000
+#define NTESTS 100000
 
 #define ALIGN_UP(__x, __align) ( ( (__x) + (__align) - 1) & -(__align) )
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) ( sizeof(x) / sizeof((x)[0]) )
 #endif
-
-#define ALLOC_SIZE ALIGN_UP((NTESTS * sizeof(getpid_body) + sizeof(getpid_return)), 0x1000)
 
 static unsigned char getpid_body[] = {
   0xb8, 0x27, 0x00, 0x00, 0x00,       // mov, $0x27, %eax
@@ -39,13 +37,21 @@ typedef int (*getpid_many_pfn)(void);
 
 int main(int argc, char* argv[])
 {
-  void* pages = mmap(0, ALLOC_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC,
+  int ntests = NTESTS;
+
+  if (argc == 2) {
+    ntests = atoi(argv[1]);
+  }
+
+  size_t alloc_size = ALIGN_UP(ntests * sizeof(getpid_body) + sizeof(getpid_return), 0x1000);
+  
+  void* pages = mmap(0, alloc_size, PROT_READ | PROT_WRITE | PROT_EXEC,
 		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   assert (pages != (void*)-1);
 
   unsigned char* curr = pages;
   
-  for (int i = 0; i < NTESTS; i++) {
+  for (int i = 0; i < ntests; i++) {
     memcpy(curr, getpid_body, sizeof(getpid_body));
     curr += sizeof(getpid_body);
   }
@@ -62,11 +68,11 @@ int main(int argc, char* argv[])
   clock_gettime(CLOCK_MONOTONIC, &end);
 
   long long diff = diff_time(&start, &end);
-  double time_per_call = (double) diff / NTESTS;
+  double time_per_call = (double) diff / ntests;
 
-  printf("getpid-many returned: %u, total time: %lluus, time per-syscall: %gus\n", pid, diff, time_per_call);
+  printf("getpid-many returned: %u for %u times, total time: %lluus, time per-syscall: %gus\n", pid, ntests, diff, time_per_call);
 
-  munmap(pages, ALLOC_SIZE);
+  munmap(pages, alloc_size);
 
   return 0;
 }
