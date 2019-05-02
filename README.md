@@ -29,7 +29,7 @@ cargo build --all # build `systrace` and tool libraries
 `systrace` needs both `libsystrace-trampoline.so` and a tool, such as `libecho.so`, to run command *X*, you can do it by:
 
 ```
-systrace --library-path=/path/to/libsystrace-trampoline_so/ --tool=/path/to/libecho.so -- /path/to/X [X_command_arguments]
+systrace --tool=/path/to/libecho.so -- /path/to/X [X_command_arguments]
 ```
 
 Tool log can be enabled by pass `TOOL_LOG=<level>` as environment variables (with `systrace`).
