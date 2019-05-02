@@ -1,6 +1,13 @@
-use core::ffi::c_void;
+/// ffi.rs: re-exports trampoline symbols.
+///
+/// NB: rust (as of today's nightly) doesn't export symbols from .c/.S files,
+/// also rust doesn't seem to have visibility controls such as
+/// __attribute__((visibility("hidden"))), there's no good way to workaround
+/// this, see rust issue ##36342 for more details.
+/// As a result, we re-export all the needed C/ASM symbols to make sure our
+/// cdylib is built correctly.
 
-use crate::consts;
+use core::ffi::c_void;
 
 static SYSCALL_UNTRACED: u64 = 0x7000_0000;
 static SYSCALL_TRACED: u64 = 0x7000_0004;
@@ -112,15 +119,3 @@ unsafe extern "C" fn untraced_syscall(
     _raw_syscall(syscallno, arg0, arg1, arg2, arg3, arg4, arg5,
                  SYSCALL_UNTRACED as *mut _, 0, 0)
 }
-
-#[link_section = ".init_array"]
-#[used]
-static _NOTIFY_TOOL_DSO_LOADED: extern fn() = {
-    extern "C" fn entry_ctor() {
-        let ptr = consts::SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE as *mut u64;
-        unsafe {
-            core::ptr::write(ptr, 1);
-        };
-    };
-    entry_ctor
-};
