@@ -7,7 +7,7 @@ ECHO	 = /bin/echo
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-TARGET  := getpid getpid-many
+TARGET  := getpid getpid-many getpid-many-threaded gettime-many
 
 SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../target/debug)
 SYSTRACE_TOOL         := $(shell realpath $(shell pwd)/../target/debug/libnone.so)
@@ -31,6 +31,12 @@ getpid: getpid.o
 	$(CC) $^ -o $@ $(CFLAGS)
 
 getpid-many: getpid-many.o
+	$(CC) $^ -o $@ $(CFLAGS)
+
+getpid-many-threaded: getpid-many-threaded.o
+	$(CC) $^ -o $@ $(CFLAGS) -lpthread
+
+gettime-many: gettime-many.o
 	$(CC) $^ -o $@ $(CFLAGS)
 
 clean:
