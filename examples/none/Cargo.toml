@@ -14,3 +14,4 @@ syscalls = { path = "../../syscalls" }
 tools_helper = { path = "../../tools_helper" }
 
 [build-dependencies]
+cc = "1.0"

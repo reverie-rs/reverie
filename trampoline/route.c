@@ -150,11 +150,3 @@ static struct syscall_patch_hook syscall_patch_hooks[] = {
       { 0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00 },
       (uintptr_t)_syscall_hook_trampoline_90_90_90 },
   };
-
-__attribute__((constructor, visibility("hidden"))) void __preload_init(void)
-{
-  unsigned long* tls = (unsigned long*)PRELOAD_THREAD_LOCALS_ADDR;
-  tls[0] = sizeof(syscall_patch_hooks) / sizeof(syscall_patch_hooks[0]);
-  tls[1] = (unsigned long)syscall_patch_hooks;
-  tls[4] = (unsigned long)_syscall_hook_trampoline;
-}
