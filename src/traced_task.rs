@@ -113,31 +113,6 @@ pub struct TracedTask {
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
 }
 
-// procfs::MemoryMap does not have `Clone` instance!
-fn clone_mmap(vec: &Vec<procfs::MemoryMap>) -> Vec<procfs::MemoryMap> {
-    let mut res = Vec::new();
-    vec.iter().for_each(|e| {
-        let v = procfs::MemoryMap {
-            address: e.address,
-            perms: e.perms.clone(),
-            offset: e.offset,
-            dev: e.dev,
-            inode: e.inode,
-            pathname: match &e.pathname {
-                procfs::MMapPath::Path(p) => procfs::MMapPath::Path(p.clone()),
-                procfs::MMapPath::Heap => procfs::MMapPath::Heap,
-                procfs::MMapPath::Stack => procfs::MMapPath::Stack,
-                procfs::MMapPath::TStack(x) => procfs::MMapPath::TStack(x.clone()),
-                procfs::MMapPath::Vdso => procfs::MMapPath::Vdso,
-                procfs::MMapPath::Anonymous => procfs::MMapPath::Anonymous,
-                procfs::MMapPath::Other(s) => procfs::MMapPath::Other(s.clone()),
-            }
-        };
-        res.push(v);
-    });
-    res
-}
-
 impl std::fmt::Debug for TracedTask {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Task {{ tid: {}, pid: {}, ppid: {}, \
@@ -209,7 +184,7 @@ impl Task for TracedTask {
             in_vfork: false,
             seccomp_hook_size: None,
             memory_map: {
-                let maps = clone_mmap(&self.memory_map.borrow());
+                let maps = self.memory_map.borrow().clone();
                 Rc::new(RefCell::new(maps))
             },
             stub_pages: {
