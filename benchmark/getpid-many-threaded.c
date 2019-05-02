@@ -83,7 +83,7 @@ int main(int argc, char* argv[])
 
   if (argc == 3) {
     nthreads = atoi(argv[1]);
-    ntests = atoi(argv[1]);
+    ntests = atoi(argv[2]);
   }
 
   pthread_t *threads = alloca((1+nthreads) * sizeof(pthread_t));
