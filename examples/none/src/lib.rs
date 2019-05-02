@@ -1,7 +1,10 @@
-use syscalls::*;
+#![allow(unused_imports)]
+#![allow(unused_attributes)]
 
-#[allow(unused_imports)]
+use syscalls::*;
 use tools_helper::*;
+
+pub mod ffi;
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(

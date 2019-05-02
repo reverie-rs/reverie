@@ -1,4 +1,5 @@
 #![feature(format_args_nl)]
+#![allow(unused_attributes)]
 
 use tools_helper::*;
 use syscalls::*;
@@ -6,6 +7,8 @@ use log::*;
 
 #[allow(unused_imports)]
 use std::ffi::CStr;
+
+pub mod ffi;
 
 #[link_section = ".init_array"]
 #[used]
@@ -35,3 +38,9 @@ pub extern "C" fn captured_syscall(
     }
     ret
 }
+
+extern "C" {
+    #[no_mangle]
+    pub fn syscall_patch_hooks();
+}
+

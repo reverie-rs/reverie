@@ -1,12 +1,15 @@
 #![feature(format_args_nl)]
 
 #![allow(dead_code)]
+#![allow(unused_attributes)]
 
 #[allow(unused_imports)]
 use std::ffi::CStr;
 
 use tools_helper::*;
 use syscalls::*;
+
+pub mod ffi;
 
 #[cfg_attr(target_os = "linux", link_section = ".ctors")]
 #[used]
