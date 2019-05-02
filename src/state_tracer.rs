@@ -9,15 +9,13 @@ use std::sync::Once;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::ptr::NonNull;
-use std::ffi::CStr;
+use std::ffi::CString;
 use crate::consts;
 use crate::state::SystraceState;
 
 fn init_shared_mmap(path: &str, raw_fd: i32, size: usize) -> Result<*mut SystraceState> {
-    let raw_path = unsafe {
-        CStr::from_ptr(path.as_ptr() as *const i8)
-    };
-    let fd0 = memfd_create(raw_path, MemFdCreateFlag::empty())?;
+    let raw_path = CString::new(path).expect("CString::new()");
+    let fd0 = memfd_create(&raw_path, MemFdCreateFlag::empty())?;
     unistd::dup2(fd0, raw_fd)?;
     unistd::close(fd0)?;
     unistd::ftruncate(raw_fd, size as i64)?;
