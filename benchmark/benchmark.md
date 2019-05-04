@@ -1,5 +1,9 @@
 On ubuntu-18.04, i5-4670 (4-core), using benchmark `getpid-many.c`:
 
+The benchmark focuses on the worse case metrics, that is, every syscalls
+are getting patched. i.e.: `getpid-many` create a big chunk of `getpid`
+syscall sequence and each sequence will cause patching.
+
 * `getpid` syscall takes about 260ns
 
 * patched `getpid` (including the syscall itself) takes about 80us
