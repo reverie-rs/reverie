@@ -306,6 +306,8 @@ fn show_proc_maps(maps: &procfs::MemoryMap) -> String {
     let fp = match &maps.pathname {
         procfs::MMapPath::Path(path) => String::from(path.to_str().unwrap_or("")),
         procfs::MMapPath::Vdso => String::from("[vdso]"),
+        procfs::MMapPath::Vvar => String::from("[vvar]"),
+        procfs::MMapPath::Vsyscall => String::from("[vsyscall]"),
         procfs::MMapPath::Stack => String::from("[stack]"),
         procfs::MMapPath::Other(s) => s.clone(),
         _ => String::from(""),
