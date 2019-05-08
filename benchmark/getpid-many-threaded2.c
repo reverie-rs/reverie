@@ -12,6 +12,14 @@
 #define NTESTS 10000
 #define NTHREADS 16
 
+typedef int (*getpid_many_pfn)(void);
+
+struct thread_param {
+  int ntests;
+  int id;
+  getpid_many_pfn pfn;
+};
+
 #define ALIGN_UP(__x, __align) ( ( (__x) + (__align) - 1) & -(__align) )
 
 #ifndef ARRAY_SIZE
@@ -36,27 +44,12 @@ static long long diff_time(const struct timespec* begin,
   return r/1000;
 }
 
-typedef int (*getpid_many_pfn)(void);
-
 void* thread_routine(void* param) {
-  long ntests = (long)param >> 32;
-  long id = (int)param;
+  struct thread_param* p = param;
 
-  size_t alloc_size = ALIGN_UP(ntests * sizeof(getpid_body) + sizeof(getpid_return), 0x1000);
-  
-  void* pages = mmap(0, alloc_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  assert (pages != (void*)-1);
-
-  unsigned char* curr = pages;
-  
-  for (int i = 0; i < ntests; i++) {
-    memcpy(curr, getpid_body, sizeof(getpid_body));
-    curr += sizeof(getpid_body);
-  }
-  memcpy(curr, getpid_return, sizeof(getpid_return));
-
-  getpid_many_pfn getpid_many = pages;
+  long ntests = p->ntests;
+  long id = p->id;
+  getpid_many_pfn getpid_many = p->pfn;
 
   struct timespec start, end;
   pid_t pid;
@@ -71,8 +64,6 @@ void* thread_routine(void* param) {
 
   printf("thread[#%lu]getpid-many returned: %u for %lu times, total time: %lluus, time per-syscall: %gus\n", id, pid, ntests, diff, time_per_call);
 
-  munmap(pages, alloc_size);
-
   return NULL;
 }
 
@@ -86,15 +77,41 @@ int main(int argc, char* argv[])
     ntests = atoi(argv[2]);
   }
 
-  pthread_t *threads = alloca((1+nthreads) * sizeof(pthread_t));
+  size_t alloc_size = ALIGN_UP(ntests * sizeof(getpid_body) + sizeof(getpid_return), 0x1000);
+  void* pages = mmap(0, alloc_size, PROT_READ | PROT_WRITE | PROT_EXEC,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  assert (pages != (void*)-1);
+
+  unsigned char* curr = pages;
+  
+  for (int i = 0; i < ntests; i++) {
+    memcpy(curr, getpid_body, sizeof(getpid_body));
+    curr += sizeof(getpid_body);
+  }
+  memcpy(curr, getpid_return, sizeof(getpid_return));
+  getpid_many_pfn getpid_many = pages;
+
+
+  pthread_t *threads = malloc((1+nthreads) * sizeof(pthread_t));
+  assert(threads);
+  struct thread_param* params = malloc( (1+nthreads) * sizeof(struct thread_param));
+  assert(params);
+  
   for (int i = 0; i < nthreads; i++) {
-    long param = (long)ntests << 32 | i;
-    assert(pthread_create(&threads[i], NULL, thread_routine, (void*)param) == 0);
+    params[i].ntests = ntests;
+    params[i].id = i;
+    params[i].pfn = getpid_many;
+    assert(pthread_create(&threads[i], NULL, thread_routine, (void*)&params[i]) == 0);
   }
 
   for (int i = 0; i < nthreads; i++) {
     pthread_join(threads[i], NULL);
   }
-  
+
+  munmap(pages, alloc_size);
+
+  // free(params);
+  // free(threads);
+
   return 0;
 }

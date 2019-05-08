@@ -301,6 +301,31 @@ fn show_user_regs(regs: &libc::user_regs_struct) -> String {
     res
 }
 
+fn show_proc_maps(maps: &procfs::MemoryMap) -> String {
+    let mut res = String::new();
+    let fp = match &maps.pathname {
+        procfs::MMapPath::Path(path) => String::from(path.to_str().unwrap_or("")),
+        procfs::MMapPath::Vdso => String::from("[vdso]"),
+        procfs::MMapPath::Stack => String::from("[stack]"),
+        procfs::MMapPath::Other(s) => s.clone(),
+        _ => String::from(""),
+    };
+    let s = format!(
+        "{:x}-{:x} {} {:08x} {:02x}:{:02x} {}",
+        maps.address.0,
+        maps.address.1,
+        maps.perms,
+        maps.offset,
+        maps.dev.0,
+        maps.dev.1,
+        maps.inode
+    );
+    res.push_str(&s);
+    (0..=72 - s.len()).for_each(|_| res.push(' '));
+    res.push_str(&fp);
+    res
+}
+
 fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
     let regs = task.getregs().unwrap();
     let siginfo = task.getsiginfo().unwrap();
@@ -327,7 +352,7 @@ fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .for_each(|e| { debug!("{:x?}", e);});
+        .for_each(|e| { debug!("{}", show_proc_maps(e));});
 }
 
 impl TracedTask {
@@ -428,10 +453,18 @@ pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, sysc
         ErrorKind::Other,
         format!("libtrampoline not loaded"),
     ))?;
+
+    // NB: it is normal mmap could return the same address
+    // after munmap, however, they might point to different
+    // physical memory. so we shouldn't assume the patch work
+    // is done. ideally we could update `is_patched_syscall`
+    // in `munmap` syscall, but it is easier to just apply
+    // the patch.
+    //
+    // keep this empty statement for documentation purpose.
     if task.is_patched_syscall(rip) {
-        // already patched
-        unreachable!("{:?} already patched?", task);
     }
+
     if task
         .unpatchable_syscalls
         .borrow()
@@ -929,7 +962,6 @@ fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let state = get_systrace_state();
     state.nr_exited.fetch_add(1, Ordering::SeqCst);
     let _ = ptrace::detach(task.gettid());
-
     Ok(RunTask::Exited(retval as i32))
 }
 
@@ -966,7 +998,6 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     }
 
     while !task.syscall_patch_lockset.borrow_mut().try_read_lock(tid, rip) {
-        std::thread::sleep(std::time::Duration::from_micros(1000));
     }
 
     let mut patched = false;
