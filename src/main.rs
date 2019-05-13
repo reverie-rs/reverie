@@ -27,6 +27,7 @@ use systrace::sched_wait::SchedWait;
 use systrace::task::{RunTask, Task};
 use systrace::state::SystraceState;
 use systrace::state_tracer::*;
+use systrace::server;
 
 // install seccomp-bpf filters
 extern "C" {
@@ -64,6 +65,9 @@ struct Arguments<'a> {
 }
 
 fn run_tracer_main(sched: &mut SchedWait) -> i32 {
+    std::thread::spawn(move || {
+        let _ = server::run();
+    });
     sched.event_loop()
 }
 
