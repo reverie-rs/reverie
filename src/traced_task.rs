@@ -748,7 +748,7 @@ impl Remote for TracedTask {
 ///
 /// # Example
 /// ```
-/// task.untraced_syscall(SYS_getpid, 0, 0, 0, 0, 0, 0);
+/// task.untraced_syscall(39 /* SYS_getpid */, 0, 0, 0, 0, 0, 0);
 /// ```
 impl RemoteSyscall for TracedTask {
     /// inject a syscall which won't be traced by the tracer

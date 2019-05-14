@@ -1,3 +1,4 @@
+//! Predefined patchable syscall sites
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::path::PathBuf;
@@ -13,8 +14,11 @@ pub struct SyscallHook {
 }
 
 /// resolve syscall hooks from (LD) preload library
-/// @preload should be `libtrampoline.so`
-/// which has symbols for syscall hooks
+///
+/// `preload` should be the tool shared library which has symbols for
+/// syscall hooks
+///
+/// returns a `Vec` of predefined syscall hooks.
 pub fn resolve_syscall_hooks_from(preload: PathBuf) -> Result<Vec<SyscallHook>> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut file = File::open(preload)?;
@@ -37,15 +41,16 @@ pub fn resolve_syscall_hooks_from(preload: PathBuf) -> Result<Vec<SyscallHook>> 
     Ok(res)
 }
 
+/// Syscall patch sequence
 struct SyscallPatchHook<'a> {
-    // NB: if the patched sequence contains multiple
-    // instructions, it is possible in the same function
-    // there is a jmp @label within the very function,
-    // and the @label is within the range of the patched
-    // multiple instructions. This could cause the function
-    // jumps to the middle of our patched sequence, which is
-    // likely cause undefined behavior.
-    // one example is `clock_nanosleep` in glibc.
+    /// NB: if the patched sequence contains multiple
+    /// instructions, it is possible in the same function
+    /// there is a jmp @label within the very function,
+    /// and the @label is within the range of the patched
+    /// multiple instructions. This could cause the function
+    /// jumps to the middle of our patched sequence, which is
+    /// likely cause undefined behavior.
+    /// one example is `clock_nanosleep` in glibc.
     is_multi: bool,
     instructions: &'a [u8],
     symbol: &'a str,

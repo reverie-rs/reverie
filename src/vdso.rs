@@ -1,3 +1,4 @@
+//! provide APIs to disable VDSOs at runtime.
 use libc;
 use procfs;
 
@@ -139,8 +140,9 @@ fn vdso_patch_info_is_valid() {
     assert!(info.len() > 0);
 }
 
-/// patch vdso when enabled
-/// @task must be in stopped state
+/// patch VDSOs when enabled
+///
+/// `task` must be in stopped state.
 pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
     procfs::Process::new(task.getpid().as_raw())
         .and_then(|p| p.maps())

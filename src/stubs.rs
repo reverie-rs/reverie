@@ -1,3 +1,4 @@
+//! generate indirect jump stubs for a given target
 use nix::unistd;
 use nix::unistd::Pid;
 use std::fs::File;
@@ -50,6 +51,8 @@ pub fn extended_jump_pages() -> usize {
     2
 }
 
+/// generate indirect jump stubs at given target `addr`, for predefine
+/// `hooks`.
 pub fn gen_extended_jump_stubs(hooks: &Vec<hooks::SyscallHook>, addr: u64) -> Vec<u8> {
     let mut res: Vec<u8> = Vec::new();
     hooks.iter().for_each(|hook| {
