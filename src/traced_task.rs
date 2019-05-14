@@ -745,11 +745,6 @@ impl Remote for TracedTask {
 /// tracer can inject syscalls for the tracee
 ///
 /// NB: tracee must be in stopped state
-///
-/// # Example
-/// ```
-/// task.untraced_syscall(39 /* SYS_getpid */, 0, 0, 0, 0, 0, 0);
-/// ```
 impl RemoteSyscall for TracedTask {
     /// inject a syscall which won't be traced by the tracer
     fn untraced_syscall(
