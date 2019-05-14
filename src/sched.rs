@@ -1,3 +1,4 @@
+//! `Scheduler` trait
 use nix::sys::signal;
 use nix::sys::wait;
 use nix::sys::wait::WaitStatus;

@@ -1,3 +1,4 @@
+//! task structure and traits
 use libc;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
@@ -26,11 +27,16 @@ pub enum TaskState {
     Exited(i32),
 }
 
+/// Task which can be scheduled by `Sched`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunTask<Task> {
+    /// `Task` Exited with an exit code
     Exited(i32),
+    /// `Task` can be scheduled
     Runnable(Task),
+    /// Blocked `Task`
     Blocked(Task),
+    /// A task tuple `(prent, child)` returned from `fork`/`vfork`/`clone`
     Forked(Task, Task),
 }
 

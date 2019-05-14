@@ -1,3 +1,21 @@
+//! ptraced task implements `Task` trait.
+//!
+//! `TracedTask` implements handlers for ptrace events including
+//! seccomp. notably ptrace events include:
+//!
+//! `PTRACE_EVENT_EXEC`: `execvpe` is about to return, tracee stopped
+//!  at entry point.
+//!
+//! `PTRACE_EVENT_FORK/VFORK/CLONE`: when `fork`/`vfork`/`clone` is about
+//! to return
+//!
+//! `PTRACE_EVENT_SECCOMP`: seccomp stop caused by `RET_TRACE`
+//! NB: we patch syscall in seccomp ptrace stop.
+//!
+//! `PTRACE_EVENT_EXIT`: process is about to exit
+//!
+//! signals: tracee's pending signal stop.
+//!
 use libc;
 use procfs;
 use log::{trace, debug, warn, info};
@@ -70,6 +88,7 @@ lazy_static! {
     };
 }
 
+/// ptraced task
 pub struct TracedTask {
     /// task id, same as `gettid()`
     /// please note we use `tid` for `ptrace` instead of `pid`
@@ -123,6 +142,8 @@ impl std::fmt::Debug for TracedTask {
 }
 
 impl Task for TracedTask {
+    /// create a new `TracedTask` based on `pid`
+    /// with `tid` = `pid` = `ppid`.
     fn new(pid: unistd::Pid) -> Self {
         TracedTask {
             tid: pid,
@@ -146,6 +167,8 @@ impl Task for TracedTask {
         }
     }
 
+    /// cloned a `TracedTask`
+    /// called only when received ptrace clone event.
     fn cloned(&self) -> Self {
         let pid_raw = self.getevent().expect(&format!("{:?} ptrace getevent", self));
         let child = Pid::from_raw(pid_raw as libc::pid_t);
@@ -171,6 +194,8 @@ impl Task for TracedTask {
         }
     }
 
+    /// fork a `TracedTask`
+    /// called when received ptrace fork/vfork event
     fn forked(&self) -> Self {
         let pid_raw = self.getevent().expect(&format!("{:?} ptrace getevent", self));
         let child = Pid::from_raw(pid_raw as libc::pid_t);
@@ -208,6 +233,8 @@ impl Task for TracedTask {
         }
     }
 
+    /// get task exit code
+    /// called when task exits
     fn exited(&self) -> Option<i32> {
         match &self.state {
             TaskState::Exited(exit_code) => Some(*exit_code as i32),
@@ -215,22 +242,27 @@ impl Task for TracedTask {
         }
     }
 
+    /// get task tid
     fn gettid(&self) -> Pid {
         self.tid
     }
 
+    /// get task pid
     fn getpid(&self) -> Pid {
         self.pid
     }
 
+    /// get task parent pid
     fn getppid(&self) -> Pid {
         self.ppid
     }
 
+    /// get task process group id
     fn getpgid(&self) -> Pid {
         self.pgid
     }
 
+    /// run a task, task ptrace event dispatcher
     fn run(self) -> Result<RunTask<TracedTask>> {
         let mut task = self;
         match task.state {
@@ -358,12 +390,15 @@ fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
 }
 
 impl TracedTask {
+    /// return syscall instruction at `rip` is patched or not
     pub fn is_patched_syscall(&self, rip: u64) -> bool {
         self.patched_syscalls
             .borrow()
             .get(&rip)
             .is_some()
     }
+
+    /// return whether or net task state is seccomp stop
     pub fn task_state_is_seccomp(&self) -> bool {
         self.state == TaskState::Event(7)
     }
@@ -438,11 +473,14 @@ fn find_syscall_hook(task: &TracedTask, rip: u64) -> Option<&'static hooks::Sysc
     it.next()
 }
 
-/// patch a syscall site @rip for a given task.
-/// returns OK(_) when patch success
-/// or Err(_) when patch failed
+/// patch a syscall site at `rip` for a given task.
+///
+/// returns `OK(_)` when patch success
+/// or `Err(_)` when patch failed
+///
 /// NB: special case for `vfork`: this function returns Err(_) after
 /// `vfork`, because `vfork` are usually followed by `exec*`
+///
 pub fn patch_syscall_with(task: &mut TracedTask, hook: &hooks::SyscallHook, syscall: SyscallNo, rip: u64) -> Result<()> {
     // vfork are usually followed by exec, after exec the program
     // is replaced with a new context, hence we don't patch any
@@ -613,6 +651,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
     Ok(allocated_at as u64)
 }
 
+/// convenient ptrace interface for `TracedTask`
 impl Remote for TracedTask {
     fn peek_bytes(&self, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>> {
         if size <= std::mem::size_of::<u64>() {
@@ -702,7 +741,17 @@ impl Remote for TracedTask {
     }
 }
 
+/// `RemoteSyscall` trait implementation so that
+/// tracer can inject syscalls for the tracee
+///
+/// NB: tracee must be in stopped state
+///
+/// # Example
+/// ```
+/// task.untraced_syscall(SYS_getpid, 0, 0, 0, 0, 0, 0);
+/// ```
 impl RemoteSyscall for TracedTask {
+    /// inject a syscall which won't be traced by the tracer
     fn untraced_syscall(
         &mut self,
         nr: SyscallNo,
@@ -729,10 +778,11 @@ impl RemoteSyscall for TracedTask {
     }
 }
 
-// inject syscall for given tracee
-// NB: limitations:
-// - tracee must be in stopped state.
-// - the tracee must have returned from PTRACE_EXEC_EVENT
+/// inject syscall for given tracee
+///    
+/// NB: limitations:
+/// - tracee must be in stopped state.
+/// - the tracee must have returned from PTRACE_EXEC_EVENT
 fn remote_do_syscall_at(
     task: &mut TracedTask,
     rip: u64,

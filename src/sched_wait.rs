@@ -1,4 +1,5 @@
-// simple (de)scheduler with `waitpid`
+//! simple (de)scheduler based on `waitpid`
+
 use log::Level::Trace;
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::sys::{ptrace, signal, wait};
@@ -20,6 +21,7 @@ use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 use crate::state::SystraceState;
 
+/// the scheduler
 pub struct SchedWait {
     tasks: HashMap<Pid, TracedTask>,
     run_queue: VecDeque<Pid>,
@@ -28,6 +30,7 @@ pub struct SchedWait {
 }
 
 impl Scheduler<TracedTask> for SchedWait {
+    /// create a new `Sheduler`
     fn new() -> Self {
         SchedWait {
             tasks: HashMap::new(),
@@ -36,17 +39,20 @@ impl Scheduler<TracedTask> for SchedWait {
             task_tree: HashMap::new(),
         }
     }
+    /// add a new task into `Scheduler` run (ready) queue
     fn add(&mut self, task: TracedTask) {
         let tid = Task::gettid(&task);
         self.task_tree.insert(task.gettid(), task.getppid());
         self.tasks.insert(tid, task);
         self.run_queue.push_back(tid);
     }
+    /// add a new task into `Scheduler` blocked queue
     fn add_blocked(&mut self, task: TracedTask) {
         let tid = Task::gettid(&task);
         self.tasks.insert(tid, task);
         self.blocked_queue.push_back(tid);
     }
+    /// add a new task into `Scheduler`, and run it
     fn add_and_schedule(&mut self, mut task: TracedTask) {
         let tid = task.gettid();
         let sig = task.signal_to_deliver;
@@ -65,16 +71,26 @@ impl Scheduler<TracedTask> for SchedWait {
             let _ = ptrace::cont(tid, sig);
         }
     }
+    /// remove a task from `Scheduler`
     fn remove(&mut self, task: &mut TracedTask) {
         self.task_tree.remove(&Task::getpid(task));
         self.tasks.remove(&Task::getpid(task));
     }
+    /// pick up next ready `Task` from `Scheduler`
+    ///
+    /// NB: `SchedWait` find out next ready task based on `waitpid`
     fn next(&mut self) -> Option<TracedTask> {
         ptracer_get_next(self)
     }
+    /// return number of tasks in `Scheduler`
     fn size(&self) -> usize {
         self.tasks.len()
     }
+    /// `Scheduler` (main) event loop
+    ///
+    /// The `Scheduler` continously pick next ready
+    /// task and schedule/run it, unless there's no
+    /// more task left, i.e.: when all tasks are exited.
     fn event_loop(&mut self) -> i32 {
         sched_wait_event_loop(self)
     }

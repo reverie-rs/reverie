@@ -1,3 +1,4 @@
+//! `remote` implements APIs so that tracer can control tracees by ptrace interface
 use libc;
 use procfs;
 use log::{debug};
@@ -26,6 +27,7 @@ pub struct SyscallStubPage {
     pub allocated: usize,
 }
 
+/// a pointer belongs to tracee's address space
 #[derive(Debug)]
 pub struct RemotePtr<T> {
     ptr: NonNull<T>,
@@ -60,6 +62,7 @@ impl<T> Clone for RemotePtr<T> {
 
 impl<T: Sized> Copy for RemotePtr<T> {}
 
+/// doing syscalls from the tracer on behalf of tracee
 pub trait RemoteSyscall {
     fn untraced_syscall(
         &mut self,
@@ -121,6 +124,14 @@ pub trait Remote {
     fn getsiginfo(&self) -> Result<libc::siginfo_t>;
 }
 
+/// tell the tracee to do context synchronization at given `rip`
+///
+/// NB: this is required when tracee modified its code region
+/// where the same code region is shared by other threads in the
+/// same thread group.
+///
+/// the synchronization is done by injecting `cpuid` sequence as
+/// recomended by the Intel's programmer's manual.
 pub fn synchronize_from(task: &TracedTask, rip: u64) {
     let mut regs = task.getregs().unwrap();
     // stub for cpuid routine
@@ -134,6 +145,12 @@ pub fn synchronize_from(task: &TracedTask, rip: u64) {
     task.setregs(regs).unwrap();
 }
 
+/// patch a given syscall sequence at `rip` with provided `hook`
+/// target is a indirect interim jump, who then jump to the final
+/// trampoline.
+///
+/// NB: this function calls `synchronized_from`
+///
 pub fn patch_syscall_at(
     task: &mut TracedTask,
     syscall: SyscallNo,
@@ -273,8 +290,8 @@ pub fn patch_syscall_at(
     synchronize_from(task, ip)
 }
 
-// search for spare page(s) which can be allocated (mmap) within the
-// range of @addr_hint +/- 2GB.
+/// search for spare page(s) which can be allocated (mmap) within the
+/// range of @addr_hint +/- 2GB.
 pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
     let mappings = procfs::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
@@ -363,11 +380,11 @@ fn can_find_stub_page() {
     }
 }
 
-// generate syscall instructions at injected page
-// the page address should be 0x7000_0000
-// the byte code can be confirmed by running objcopy
-// x86_64-linux-gnu-objcopy -I binary /tmp/1.bin -O elf64-x86-64 -B i386:x86-64 /tmp/1.elf
-// then objdump -d 1.elf must match the instructions listed below.
+/// generate syscall instructions at injected page
+/// the page address should be 0x7000_0000
+/// the byte code can be confirmed by running objcopy
+/// x86_64-linux-gnu-objcopy -I binary /tmp/1.bin -O elf64-x86-64 -B i386:x86-64 /tmp/1.elf
+/// then objdump -d 1.elf must match the instructions listed below.
 pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> {
     /* the syscall sequences used here:
      * 0:   0f 05                   syscall
