@@ -1,10 +1,11 @@
 # Syscall patching
 
-`systrace` patch syscall site on demand, with the help of seccomp. A syscall site is a assembly
- sequence contains a `syscall` instruction (x86_64), and a pattern right after the very `syscall`
- instruction.
+This document explains how `systrace` patches system calls.  It patches syscall
+instructions in the user's program at runtime, with the help of seccomp and ptrace. A
+syscall site is a assembly sequence contains a `syscall` instruction (x86_64), and a
+pattern right after the very `syscall` instruction.
 
-## the role of seccomp
+## The role of seccomp
 `systrace` is a *ptrace* based tracer, information about ptrace can be mostly found in `man 2 ptrace`.
 Since kernel 3.5, seccomp can be used together with `ptrace`, with option of `PTRACE_O_TRACESECCOMP`. 
 By default we setup seccomp to filter most syscalls except few blacklisted ones (such as `rt_sigreturn`), 
@@ -24,7 +25,7 @@ for more details; we also allow syscall going through (without any stop) based o
                                          | *ptraced*     |
                                          +---------------+
 ```
-## seccomp stops
+## Seccomp stops
 With above setup, we'll enter syscall enter stop, that is *PC*=`rip_at_syscal+2`, but the `syscall`
 is yet to run by the kernel; there two most sensible options to resume control flow: either by
 `PTRACE_CONT`, which allows the *ptraced* program to continue, without syscall exit stop; or 
@@ -34,7 +35,7 @@ syscall enter/exit stops is that we can modify syscall arguments on enter, and/o
 arguments/return values on exit. One notable aspect is on syscall enter stop, if we change the 
 syscall number to `-1`, then the syscall will be ignored (or skipped) by kernel.
 
-## patchable syscall site
+## Patchable syscall site
 `syscall` instruction is only 2-byte long in x86_64, however, we need 5-byte relative jump within
 *PC*+/- 2GB into our trampoline stub, from where we have a long jump so that we can access anywhere
 within the entire 64-bit address space. So we need a pattern to replace the `syscall` sequence, the
@@ -67,7 +68,7 @@ We can replace above syscall site, with a single jump, i.e.: `callq <stub_pcrel3
 Afer patching, the syscall instruction will be relocated into a special page with a specific address,
 so that it won't trigger further seccomp event.
 
-## two level jumping to the trampoline
+## Two level jumping to the trampoline
 After we identify patchable syscall site, we can generate stub page(s) to jump into, the stub page(s)
 must resides within *PCRel32* so that we'll have the right *5-byte* assembly instruction. This can be 
 done by search `/proc/<pid>/maps` and find the spare page(s). Please note this is only the stub page,
@@ -75,7 +76,7 @@ because the address space is *64-bit*, there're could be multiple stub pages, bu
  same trampoline. we place our trampoline at a fixed address, so stub page can generate a absolute jump
  to the trampoline easily.
 
-## patch in a multi threaded context
+## Patch in a multi threaded context
 Even though `systrace` is the only tracer, it can resume any ptrace stopped tracee, so the tracees run
  in a multi threaded context; The *tracer* uses a pseudo read write lock to keep track of which thread 
 entered/exited or tried to apply patch, the tracer chooses whether or not a thread should take a
@@ -109,7 +110,7 @@ read/write lock based on the recoards.
    do single steps until after tracee have leaved the syscall sequence. In this way, we don't have to block the
    tracer.
 
-## optimizations
+## Optimizations
 * We keep track of unpatchable syscalls, so that we don't have to redo the check everytime;
 * the tracer mimic the unix semantics:
 
