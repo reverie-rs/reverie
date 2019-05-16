@@ -34,10 +34,6 @@ extern "C" {
     fn _syscall_hook_trampoline_89_c1_31_d2();
     fn _syscall_hook_trampoline_c3_nop();
     fn _syscall_hook_trampoline_85_c0_0f_94_c2();
-
-    #[used]
-    fn captured_syscall(no: i32, a0: i64, a1: i64, a2: i64,
-                        a3: i64, a4: i64, a5: i64) -> i64;
 }
 
 #[no_mangle]

@@ -45,8 +45,7 @@ use crate::stubs;
 use crate::task::*;
 use crate::remote_rwlock::*;
 use crate::vdso;
-use crate::state::SystraceState;
-use crate::state_tracer::*;
+use crate::state::*;
 
 fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
     let path = PathBuf::from(so);
@@ -110,8 +109,6 @@ pub struct TracedTask {
     // should be used only in seccomp event
     seccomp_hook_size: Option<usize>,
 
-    pub systrace_state: &'static mut SystraceState,
-
     pub state: TaskState,
     pub ldpreload_address: Option<u64>,
     pub injected_mmap_page: Option<u64>,
@@ -150,7 +147,6 @@ impl Task for TracedTask {
             pid,
             ppid: pid,
             pgid: unistd::getpgid(Some(pid)).unwrap(),
-            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -177,7 +173,6 @@ impl Task for TracedTask {
             pid: self.pid,
             ppid: self.pid,
             pgid: self.pgid,
-            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -204,7 +199,6 @@ impl Task for TracedTask {
             pid: child,
             ppid: self.pid,
             pgid: self.pgid,
-            systrace_state: get_systrace_state(),
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -970,10 +964,10 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let new_task = task.cloned();
     wait_sigstop(&new_task)?;
 
-    let state = get_systrace_state();
-    state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.nr_cloned.fetch_add(1, Ordering::SeqCst);
+    let state = systrace_global_state();
+    state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().nr_cloned.fetch_add(1, Ordering::SeqCst);
 
     Ok((task, new_task))
 }
@@ -982,10 +976,10 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let new_task = task.forked();
     wait_sigstop(&new_task)?;
 
-    let state = get_systrace_state();
-    state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.nr_forked.fetch_add(1, Ordering::SeqCst);
+    let state = systrace_global_state();
+    state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
     Ok((task, new_task))
 }
@@ -995,10 +989,10 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     new_task.in_vfork = true;
     wait_sigstop(&new_task)?;
 
-    let state = get_systrace_state();
-    state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.nr_forked.fetch_add(1, Ordering::SeqCst);
+    let state = systrace_global_state();
+    state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
     Ok((task, new_task))
 }
@@ -1006,8 +1000,8 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let _sig = task.signal_to_deliver;
     let retval = task.getevent()?;
-    let state = get_systrace_state();
-    state.nr_exited.fetch_add(1, Ordering::SeqCst);
+    let state = systrace_global_state();
+    state.lock().unwrap().nr_exited.fetch_add(1, Ordering::SeqCst);
     let _ = ptrace::detach(task.gettid());
     Ok(RunTask::Exited(retval as i32))
 }
@@ -1055,13 +1049,13 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         }
     }
 
-    let state = get_systrace_state();
+    let state = systrace_global_state();
     if !patched {
-        state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-        state.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+        state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
+        state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     } else {
         // others fields are updated in tracee instead.
-        state.nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
+        state.lock().unwrap().nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
     }
 
     Ok(task)
@@ -1173,19 +1167,19 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
         saved as *mut libc::c_void,
     )?;
     task_exec_reset(task);
+
+    // create per process local state.
     let _at = task
         .untraced_syscall(SYS_mmap,
-                          consts::SYSTRACE_GLOBAL_STATE_ADDR as i64,
+                          0,
                           consts::SYSTRACE_GLOBAL_STATE_SIZE as i64,
                           (libc::PROT_READ | libc::PROT_WRITE) as i64,
-                          (libc::MAP_SHARED | libc::MAP_FIXED) as i64,
-                          consts::SYSTRACE_GLOBAL_STATE_FD as i64,
+                          (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
+                          -1i64,
                           0).unwrap();
-    assert_eq!(_at, consts::SYSTRACE_GLOBAL_STATE_ADDR as i64);
-    let _ = unistd::close(consts::SYSTRACE_GLOBAL_STATE_FD);
     ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
-    let state = get_systrace_state();
-    state.nr_process_spawns.fetch_add(1, Ordering::SeqCst);
+    let state = systrace_global_state();
+    state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }
 

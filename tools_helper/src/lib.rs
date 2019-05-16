@@ -6,8 +6,9 @@ pub mod stdio;
 pub mod logger;
 pub mod spinlock;
 pub mod consts;
-pub mod state;
+pub mod local_state;
 pub mod counter;
 
 pub use counter::note_syscall;
 pub use counter::NoteInfo;
+pub use local_state::LocalState;

@@ -25,8 +25,7 @@ use systrace::{ns, consts, task, hooks};
 use systrace::sched::Scheduler;
 use systrace::sched_wait::SchedWait;
 use systrace::task::{RunTask, Task};
-use systrace::state::SystraceState;
-use systrace::state_tracer::*;
+use systrace::state::*;
 
 // install seccomp-bpf filters
 extern "C" {
@@ -218,8 +217,11 @@ fn run_tracer(
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {
-                let state = get_systrace_state();
-                show_perf_stats(state);
+                let _ = systrace_global_state()
+                    .lock().as_ref().and_then(|st| {
+                        show_perf_stats(st);
+                        Ok(())
+                    });
             }
             Ok(res)
         }

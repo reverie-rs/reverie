@@ -30,16 +30,17 @@ pub static LOGICAL_TIME: AtomicUsize = AtomicUsize::new(744847200);
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(
-    _no: i32,
-    _a0: i64,
-    _a1: i64,
-    _a2: i64,
-    _a3: i64,
-    _a4: i64,
-    _a5: i64,
+    state: &mut LocalState,
+    no: i32,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+    a5: i64,
 ) -> i64 {
-    note_syscall(_no, NoteInfo::SyscallEntry);
-    let sc = syscalls::SyscallNo::from(_no);
+    note_syscall(state, no, NoteInfo::SyscallEntry);
+    let sc = syscalls::SyscallNo::from(no);
     #[allow(unused_assignments)]
     let mut res = -38; // ENOSYS
     
@@ -47,7 +48,7 @@ pub extern "C" fn captured_syscall(
         SYS_gettimeofday => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;
             if let Some(mut tp) = unsafe {
-                (_a0 as *mut libc::timeval).as_mut()
+                (a0 as *mut libc::timeval).as_mut()
             } {
                 tp.tv_sec = tick;
                 tp.tv_usec = 0;
@@ -57,7 +58,7 @@ pub extern "C" fn captured_syscall(
         SYS_clock_gettime => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;
             if let Some(mut tp) = unsafe {
-                (_a1 as *mut libc::timespec).as_mut()
+                (a1 as *mut libc::timespec).as_mut()
             } {
                 tp.tv_sec = tick;
                 tp.tv_nsec = 0;
@@ -67,7 +68,7 @@ pub extern "C" fn captured_syscall(
         SYS_time => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;
             if let Some(tp) = unsafe {
-                (_a0 as *mut libc::time_t).as_mut()
+                (a0 as *mut libc::time_t).as_mut()
             } {
                 *tp = tick;
             }
@@ -82,12 +83,12 @@ pub extern "C" fn captured_syscall(
             };
             let tp = &t as *const libc::timespec;
             res = unsafe {
-                untraced_syscall(_no, tp as i64, _a1, 0, 0, 0, 0)
+                untraced_syscall(no, tp as i64, a1, 0, 0, 0, 0)
             }
         }
         _ => {
             res = unsafe {
-                untraced_syscall(_no, _a0, _a1, _a2, _a3, _a4, _a5)
+                untraced_syscall(no, a0, a1, a2, a3, a4, a5)
             };
         }
     }
