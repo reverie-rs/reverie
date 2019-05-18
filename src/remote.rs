@@ -50,6 +50,11 @@ where
             ptr: self.ptr.cast::<U>(),
         }
     }
+    pub unsafe fn offset(self, count: isize) -> Self {
+        RemotePtr {
+            ptr: NonNull::new(self.as_ptr().offset(count)).unwrap(),
+        }
+    }
 }
 
 impl<T> Clone for RemotePtr<T> {
@@ -143,6 +148,31 @@ pub fn synchronize_from(task: &TracedTask, rip: u64) {
     task.poke(remote_return_address_ptr, &remote_return_address)
         .unwrap();
     task.setregs(regs).unwrap();
+}
+
+pub fn remote_do_syscall(task: &TracedTask,
+                         nr: SyscallNo,
+                         a0: i64,
+                         a1: i64,
+                         a2: i64,
+                         a3: i64,
+                         a4: i64,
+                         a5: i64) -> Result<()>{
+    let mut regs = task.getregs()?;
+    let syscall_helper_addr_ptr = RemotePtr::new(consts::SYSTRACE_LOCAL_SYSCALL_HELPER as *mut u64);
+    let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
+    let return_address = regs.rip;
+    regs.rip = syscall_helper_addr;
+    regs.rsp -= 9*8;   // return_address + nr + a0-a5 + pad
+    let remote_rsp = RemotePtr::new(regs.rsp as *mut i64);
+    let regs_to_save = vec![0, a5, a4, a3, a2, a1, a0, nr as i32 as i64, return_address as i64];
+    regs_to_save.iter().enumerate().for_each(|(k, x)| {
+        let current_rsp = unsafe {
+            remote_rsp.offset(k as isize)
+        };
+        task.poke(current_rsp, x).unwrap();
+    });
+    task.setregs(regs)
 }
 
 /// patch a given syscall sequence at `rip` with provided `hook`

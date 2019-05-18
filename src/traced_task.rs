@@ -763,7 +763,8 @@ impl RemoteSyscall for TracedTask {
         a4: i64,
         a5: i64,
     ) -> Result<i64> {
-        remote_do_syscall_at(self, 0x7000_0010, nr, a0, a1, a2, a3, a4, a5)
+        remote_do_syscall_at(self, 0x7000_0010, nr, a0, a1, a2, a3, a4, a5)?;
+        Ok(0)
     }
 }
 
@@ -1177,7 +1178,7 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
                           (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
                           -1i64,
                           0).unwrap();
-    ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE as ptrace::AddressType, _at as *mut _)?;
+    ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as ptrace::AddressType, _at as *mut _)?;
     let state = systrace_global_state();
     state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
     Ok(())

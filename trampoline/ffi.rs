@@ -34,6 +34,7 @@ extern "C" {
     fn _syscall_hook_trampoline_89_c1_31_d2();
     fn _syscall_hook_trampoline_c3_nop();
     fn _syscall_hook_trampoline_85_c0_0f_94_c2();
+    fn _remote_syscall_helper();
 }
 
 #[no_mangle]
@@ -115,3 +116,9 @@ unsafe extern "C" fn untraced_syscall(
     _raw_syscall(syscallno, arg0, arg1, arg2, arg3, arg4, arg5,
                  SYSCALL_UNTRACED as *mut _, 0, 0)
 }
+
+#[no_mangle]
+unsafe extern "C" fn remote_syscall_helper_do_not_call_me() {
+    _remote_syscall_helper();
+}
+
