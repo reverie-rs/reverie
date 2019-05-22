@@ -33,6 +33,8 @@ use std::ops::{Deref, DerefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 
+use std::ffi::c_void;
+
 use crate::consts;
 use crate::consts::*;
 use crate::hooks;
@@ -46,6 +48,9 @@ use crate::task::*;
 use crate::remote_rwlock::*;
 use crate::vdso;
 use crate::state::*;
+use crate::local_state::*;
+use crate::symbols::*;
+use crate::rpc_ptrace::*;
 
 fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
     let path = PathBuf::from(so);
@@ -85,6 +90,21 @@ lazy_static! {
         )
         .expect(&format!("unable to load {}", so))
     };
+}
+
+fn init_rpc_stack_data(task: &mut TracedTask) {
+    let _at = task
+        .untraced_syscall(SYS_mmap,
+                          0,
+                          0x8000,
+                          (libc::PROT_READ | libc::PROT_WRITE) as i64,
+                          (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
+                          -1,
+                          0).unwrap();
+    let stack_top = _at + 0x4000;
+    // stack grows from high -> low
+    task.rpc_stack = Some( (RemotePtr::new(stack_top as *mut u64), 0x4000) );
+    task.rpc_data = Some( (RemotePtr::new((_at + 0x4000) as *mut c_void), 0x4000) );
 }
 
 /// ptraced task
@@ -127,6 +147,11 @@ pub struct TracedTask {
     pub unpatchable_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub patched_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
+
+    /// per-thread stack used by rpc
+    pub rpc_stack: Option<(RemotePtr<u64>, usize)>,
+    /// per-thread data area used by rpc
+    pub rpc_data: Option<(RemotePtr<c_void>, usize)>,
 }
 
 impl std::fmt::Debug for TracedTask {
@@ -160,6 +185,8 @@ impl Task for TracedTask {
             unpatchable_syscalls: Rc::new(RefCell::new(HashSet::new())),
             patched_syscalls: Rc::new(RefCell::new(HashSet::new())),
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
+            rpc_stack: None,
+            rpc_data: None,
         }
     }
 
@@ -168,7 +195,7 @@ impl Task for TracedTask {
     fn cloned(&self) -> Self {
         let pid_raw = self.getevent().expect(&format!("{:?} ptrace getevent", self));
         let child = Pid::from_raw(pid_raw as libc::pid_t);
-        TracedTask {
+        let mut new_task = TracedTask {
             tid: child,
             pid: self.pid,
             ppid: self.pid,
@@ -186,7 +213,11 @@ impl Task for TracedTask {
             unpatchable_syscalls: self.unpatchable_syscalls.clone(),
             patched_syscalls: self.patched_syscalls.clone(),
             syscall_patch_lockset: self.syscall_patch_lockset.clone(),
-        }
+            rpc_stack: None,
+            rpc_data: None,
+        };
+        init_rpc_stack_data(&mut new_task);
+        new_task
     }
 
     /// fork a `TracedTask`
@@ -224,6 +255,8 @@ impl Task for TracedTask {
                 Rc::new(RefCell::new(patched))
             },
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
+            rpc_stack: self.rpc_stack.clone(),
+            rpc_data: self.rpc_data.clone(),
         }
     }
 
@@ -982,6 +1015,13 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
+    if let Some(hello) = get_symbol_address(task.getpid(), "hello") {
+        unsafe {
+            let args: [u64; 6] = [1,2,3,4,5,6];
+            rpc_call(&task, hello.as_ptr() as u64, &args);
+        }
+    };
+
     Ok((task, new_task))
 }
 
@@ -1148,7 +1188,7 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     ptrace::setregs(tid, saved_regs)
 }
 
-fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
+fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let tid = task.gettid();
     let regs = ptrace::getregs(tid)?;
@@ -1170,7 +1210,7 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
     task_exec_reset(task);
 
     // create per process local state.
-    let _at = task
+    let local_state_addr = task
         .untraced_syscall(SYS_mmap,
                           0,
                           consts::SYSTRACE_GLOBAL_STATE_SIZE as i64,
@@ -1178,7 +1218,29 @@ fn do_ptrace_exec(task: &mut TracedTask) -> nix::Result<()> {
                           (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
                           -1i64,
                           0).unwrap();
-    ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as ptrace::AddressType, _at as *mut _)?;
+    ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as ptrace::AddressType, local_state_addr as *mut _)?;
+
+    if let Some(_) = unsafe {
+        (consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as *mut ProcessState).as_mut()
+    } {
+        /*
+        let _at = task
+            .untraced_syscall(SYS_mmap,
+                              0,
+                              0x3000,
+                              (libc::PROT_READ | libc::PROT_WRITE) as i64,
+                              (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
+                              -1i64,
+                              0).unwrap();
+         */
+        // let thread_data_rptr = RemotePtr::new(local_state_addr as *mut u64);
+        // let openfds_rptr = RemotePtr::new((0x2000 + local_state_addr) as *mut u64);
+        // task.poke(thread_data_rptr, &(_at as u64)).unwrap();
+        // task.poke(openfds_rptr, &(_at as u64 + 0x2000)).unwrap();
+    }
+
+    init_rpc_stack_data(&mut task);
+
     let state = systrace_global_state();
     state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
     Ok(())

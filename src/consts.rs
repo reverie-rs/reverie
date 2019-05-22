@@ -18,27 +18,33 @@ pub const SYSTRACE_LOCAL_BASE: u64 = SYSTRACE_PRIVATE_PAGE_OFFSET + 0x1000;
 
 pub const SYSTRACE_LOCAL_SYSCALL_HOOK_SIZE: u64 = SYSTRACE_LOCAL_BASE + 0x0;
 pub const SYSTRACE_LOCAL_SYSCALL_HOOK_ADDR: u64 =
-    SYSTRACE_LOCAL_SYSCALL_HOOK_SIZE + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_SYSCALL_HOOK_SIZE + core::mem::size_of::<u64>() as u64;
 
-pub const SYSTRACE_LOCAL_STUB_SCRATCH: u64 = SYSTRACE_LOCAL_SYSCALL_HOOK_ADDR + std::mem::size_of::<u64>() as u64;
+pub const SYSTRACE_LOCAL_STUB_SCRATCH: u64 = SYSTRACE_LOCAL_SYSCALL_HOOK_ADDR + core::mem::size_of::<u64>() as u64;
 pub const SYSTRACE_LOCAL_STACK_NESTING_LEVEL: u64 =
-    SYSTRACE_LOCAL_STUB_SCRATCH + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_STUB_SCRATCH + core::mem::size_of::<u64>() as u64;
 
 pub const SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE: u64 =
-    SYSTRACE_LOCAL_STACK_NESTING_LEVEL + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_STACK_NESTING_LEVEL + core::mem::size_of::<u64>() as u64;
 pub const SYSTRACE_LOCAL_SYSTOOL_HOOK: u64 =
-    SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE + core::mem::size_of::<u64>() as u64;
 pub const SYSTRACE_LOCAL_SYSCALL_PATCH_LOCK: u64 =
-    SYSTRACE_LOCAL_SYSTOOL_HOOK + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_SYSTOOL_HOOK + core::mem::size_of::<u64>() as u64;
 
 pub const SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL: u64 =
-    SYSTRACE_LOCAL_SYSCALL_PATCH_LOCK + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_SYSCALL_PATCH_LOCK + core::mem::size_of::<u64>() as u64;
 
 pub const SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE: u64 =
-    SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL + core::mem::size_of::<u64>() as u64;
+
+pub const SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE: u64 =
+    SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE + core::mem::size_of::<u64>() as u64;
 
 pub const SYSTRACE_LOCAL_SYSCALL_HELPER: u64 =
-    SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE + std::mem::size_of::<u64>() as u64;
+    SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE + core::mem::size_of::<u64>() as u64;
+
+pub const SYSTRACE_LOCAL_RPC_HELPER: u64 =
+    SYSTRACE_LOCAL_SYSCALL_HELPER + core::mem::size_of::<u64>() as u64;
 
 #[test]
 fn det_tls_sanity_check() {
@@ -51,5 +57,7 @@ fn det_tls_sanity_check() {
     assert_eq!(SYSTRACE_LOCAL_SYSCALL_PATCH_LOCK, SYSTRACE_LOCAL_BASE + 48);
     assert_eq!(SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL, SYSTRACE_LOCAL_BASE + 56);
     assert_eq!(SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE, SYSTRACE_LOCAL_BASE + 64);
-    assert_eq!(SYSTRACE_LOCAL_SYSCALL_HELPER, SYSTRACE_LOCAL_BASE + 72);
+    assert_eq!(SYSTRACE_LOCAL_SYSTRACE_GLOBAL_STATE, SYSTRACE_LOCAL_BASE + 72);
+    assert_eq!(SYSTRACE_LOCAL_SYSCALL_HELPER, SYSTRACE_LOCAL_BASE + 80);
+    assert_eq!(SYSTRACE_LOCAL_RPC_HELPER, SYSTRACE_LOCAL_BASE + 88);
 }

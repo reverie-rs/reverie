@@ -8,7 +8,8 @@ pub mod ffi;
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(
-    _state: &mut LocalState,
+    _p: &mut ProcessState,
+    _t: &mut ThreadState,
     no: i32,
     a0: i64,
     a1: i64,

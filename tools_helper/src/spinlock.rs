@@ -4,7 +4,7 @@
 /// there must be matching amount of spin unlocks
 /// unlock a lock locked by other thread will panic
 ///
-use std::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use syscalls::*;
 

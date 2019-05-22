@@ -1,16 +1,15 @@
 
-use core::sync::atomic::Ordering;
-use crate::local_state::LocalState;
+use crate::local_state::*;
 
 pub enum NoteInfo {
     SyscallEntry,
 }
 
-pub fn note_syscall(state: &mut LocalState, _no: i32, note: NoteInfo) {
+pub fn note_syscall(_p: &mut ProcessState, t: &mut ThreadState, _no: i32, note: NoteInfo) {
     match note {
         NoteInfo::SyscallEntry => {
-            state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-            state.nr_syscalls_captured.fetch_add(1, Ordering::SeqCst);
+            t.nr_syscalls += 1;
+            t.nr_syscalls_captured += 1;
         }
     }
 }

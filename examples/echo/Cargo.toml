@@ -11,7 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 syscalls = { path = "../../syscalls" }
-tools_helper = { path = "../../tools_helper" }
+tools_helper = { path = "../../tools_helper", default-features = false, features = ["std"] }
 log = { version = "0.4", default-features = false }
 
 [build-dependencies]

@@ -50,10 +50,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define syscall_hook   0x70001008
 #define stub_scratch_1 0x70001010
 
 	.text
-
 	.global _syscall_hook_trampoline;
 	.hidden _syscall_hook_trampoline;
 	.type _syscall_hook_trampoline, @function;
@@ -77,7 +77,7 @@ _syscall_hook_trampoline:
 
         /* Call our hook. */
         mov %rbx,%rdi
-        callq syscall_hook
+        callq *syscall_hook
 
         mov %rbx,%rsp
 
