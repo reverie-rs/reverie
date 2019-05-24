@@ -100,11 +100,20 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
                           (libc::PROT_READ | libc::PROT_WRITE) as i64,
                           (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
                           -1,
-                          0).unwrap();
-    let stack_top = _at + 0x4000;
-    // stack grows from high -> low
-    task.rpc_stack = Some( (RemotePtr::new(stack_top as *mut u64), 0x4000) );
-    task.rpc_data = Some( (RemotePtr::new((_at + 0x4000) as *mut c_void), 0x4000) );
+                          0);
+
+    match _at {
+        Err(_err) => panic!("init_rpc_stack_data failed: {:?}", _err),
+        Ok(at) => {
+            println!("init_rpc_stack_data returned: {:x?}, tid = {}", at, task.gettid());
+            let stack_top = at + 0x4000;
+            // stack grows from high -> low
+            let stack = (RemotePtr::new(stack_top as *mut u64), 0x4000);
+            let rpc_data = (RemotePtr::new((at + 0x4000) as *mut c_void), 0x4000);
+            task.rpc_stack = Some(stack);
+            task.rpc_data = Some(rpc_data);
+        }
+    }
 }
 
 /// ptraced task
@@ -195,7 +204,7 @@ impl Task for TracedTask {
     fn cloned(&self) -> Self {
         let pid_raw = self.getevent().expect(&format!("{:?} ptrace getevent", self));
         let child = Pid::from_raw(pid_raw as libc::pid_t);
-        let mut new_task = TracedTask {
+        let new_task = TracedTask {
             tid: child,
             pid: self.pid,
             ppid: self.pid,
@@ -216,7 +225,6 @@ impl Task for TracedTask {
             rpc_stack: None,
             rpc_data: None,
         };
-        init_rpc_stack_data(&mut new_task);
         new_task
     }
 
@@ -983,7 +991,6 @@ fn wait_sigstop(task: &TracedTask) -> Result<()> {
     let tid = task.gettid();
     match wait::waitpid(Some(tid), None) {
         Ok(WaitStatus::Stopped(new_pid, signal)) if signal == signal::SIGSTOP && new_pid == tid => {
-            task.resume(None)?;
             Ok(())
         }
         _st => Err(Error::new(ErrorKind::Other, format!("expect SIGSTOP, got: {:?}", _st))),
@@ -995,13 +1002,15 @@ fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
 }
 
 fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let new_task = task.cloned();
+    let mut new_task = task.cloned();
     wait_sigstop(&new_task)?;
 
     let state = systrace_global_state();
     state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_cloned.fetch_add(1, Ordering::SeqCst);
+
+    init_rpc_stack_data(&mut new_task);
 
     Ok((task, new_task))
 }
