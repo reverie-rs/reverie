@@ -14,4 +14,6 @@ fn main() {
         .file("../../trampoline/remote_call.S")
         .compile("my-trampoline");
     std::fs::copy("../../trampoline/ffi.rs", "src/ffi.rs").unwrap();
+    std::fs::copy("../../src/local_state.rs", "src/local_state.rs").unwrap();
+    std::fs::copy("../../src/consts.rs", "src/consts.rs").unwrap();
 }

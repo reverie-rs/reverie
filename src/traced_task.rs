@@ -105,7 +105,6 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
     match _at {
         Err(_err) => panic!("init_rpc_stack_data failed: {:?}", _err),
         Ok(at) => {
-            println!("init_rpc_stack_data returned: {:x?}, tid = {}", at, task.gettid());
             let stack_top = at + 0x4000;
             // stack grows from high -> low
             let stack = (RemotePtr::new(stack_top as *mut u64), 0x4000);
@@ -997,6 +996,30 @@ fn wait_sigstop(task: &TracedTask) -> Result<()> {
     }
 }
 
+fn remote_set_thread_data(task: &mut TracedTask) -> Result<()> {
+    if let Some(_) = unsafe {
+        (consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as *mut ProcessState).as_mut()
+    } {
+        let remote_state_addr_ptr = RemotePtr::new(consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as *mut u64);
+        let local_state_addr = task.peek(remote_state_addr_ptr)?;
+        let addr = task
+            .untraced_syscall(SYS_mmap,
+                              0,
+                              0x3000,
+                              (libc::PROT_READ | libc::PROT_WRITE) as i64,
+                              (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
+                              -1i64,
+                              0).unwrap();
+        if let Some(func) = get_symbol_address(task.getpid(), "set_thread_data") {
+            let args: [u64; 6] = [local_state_addr as u64, task.gettid().as_raw() as u64, addr as u64, 0, 0, 0];
+            unsafe {
+                rpc_call(&task, func.as_ptr() as u64, &args)
+            };
+        }
+    }
+    Ok(())
+}
+
 fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
     Ok(task)
 }
@@ -1011,6 +1034,7 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_cloned.fetch_add(1, Ordering::SeqCst);
 
     init_rpc_stack_data(&mut new_task);
+    remote_set_thread_data(&mut new_task)?;
 
     Ok((task, new_task))
 }
@@ -1023,13 +1047,6 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
-
-    if let Some(hello) = get_symbol_address(task.getpid(), "hello") {
-        unsafe {
-            let args: [u64; 6] = [1,2,3,4,5,6];
-            rpc_call(&task, hello.as_ptr() as u64, &args);
-        }
-    };
 
     Ok((task, new_task))
 }
@@ -1218,6 +1235,8 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     )?;
     task_exec_reset(task);
 
+    init_rpc_stack_data(&mut task);
+
     // create per process local state.
     let local_state_addr = task
         .untraced_syscall(SYS_mmap,
@@ -1229,28 +1248,10 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
                           0).unwrap();
     ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as ptrace::AddressType, local_state_addr as *mut _)?;
 
-    if let Some(_) = unsafe {
-        (consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as *mut ProcessState).as_mut()
-    } {
-        /*
-        let _at = task
-            .untraced_syscall(SYS_mmap,
-                              0,
-                              0x3000,
-                              (libc::PROT_READ | libc::PROT_WRITE) as i64,
-                              (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
-                              -1i64,
-                              0).unwrap();
-         */
-        // let thread_data_rptr = RemotePtr::new(local_state_addr as *mut u64);
-        // let openfds_rptr = RemotePtr::new((0x2000 + local_state_addr) as *mut u64);
-        // task.poke(thread_data_rptr, &(_at as u64)).unwrap();
-        // task.poke(openfds_rptr, &(_at as u64 + 0x2000)).unwrap();
-    }
-
-    init_rpc_stack_data(&mut task);
-
     let state = systrace_global_state();
+
+    remote_set_thread_data(task).unwrap();
+
     state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
     Ok(())
 }

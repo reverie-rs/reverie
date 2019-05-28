@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
+[workspace]
+
 [lib]
 name = "echo"
 crate-type = ["cdylib"]
@@ -11,8 +13,8 @@ path = "src/lib.rs"
 
 [dependencies]
 syscalls = { path = "../../syscalls" }
-tools_helper = { path = "../../tools_helper", default-features = false, features = ["std"] }
 log = { version = "0.4", default-features = false }
+serde = { version = "1.0", default-features = false, features = [ "derive" ] }
 
 [build-dependencies]
 cc = "1.0"

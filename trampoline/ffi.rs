@@ -8,10 +8,9 @@
 /// cdylib is built correctly.
 
 use core::ffi::c_void;
-use tools_helper::local_state::*;
-use syscalls::*;
 use crate::consts;
 use crate::captured_syscall;
+use crate::local_state::*;
 
 static SYSCALL_UNTRACED: u64 = 0x7000_0000;
 static SYSCALL_TRACED: u64 = 0x7000_0004;
@@ -142,7 +141,7 @@ unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
         //let tid = syscall(SYS_gettid as i32, 0, 0, 0, 0, 0, 0).unwrap() as i32;
         //let tp = pstate.get_thread_data(tid).map(|p| p as *mut ThreadState);
         //if let Some(tstate) = tp.and_then(|p|p.as_mut()) {
-        let mut tstate: ThreadState = std::mem::zeroed();
+        let mut tstate: ThreadState = core::mem::zeroed();
             let res = captured_syscall(pstate, &mut tstate, sc.no as i32,
                                    sc.args[0] as i64, sc.args[1] as i64,
                                    sc.args[2] as i64, sc.args[3] as i64,

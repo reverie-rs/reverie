@@ -6,10 +6,10 @@
 //! threads in a process, member update requires proper syncing.
 //!
 
-use std::vec::Vec;
-use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use std::ffi::c_void;
+
+#[allow(unused_imports)]
+use core::ffi::c_void;
 
 /// resources belongs to threads
 #[repr(C)]
@@ -67,35 +67,6 @@ impl ThreadState {
 }
 
 /// Resources belongs to process scope (intead of thread scope)
+#[derive(Debug)]
 pub struct ProcessState {
-    /// *private*: thread pointer
-    pub thread_data: *const u64,
-    /// opened file descriptors
-    pub open_fds: *const u64,
 }
-
-/*
-impl ProcessState {
-    /// create an empty process state
-    pub fn new() -> Self {
-        ProcessState {
-            thread_data: unsafe {
-                core::mem::zeroed()
-            },
-            open_fds: Vec::new(),
-        }
-    }
-
-    /// get thread pointer
-    ///
-    /// `tid` must belongs to current process
-    pub fn get_thread_data(&self, tid: i32) -> Option<*const c_void> {
-        Some(self.thread_data[tid as usize] as *const c_void)
-    }
-
-    /// set thread pointer
-    pub fn set_thread_data(&mut self, tid: i32, p: *const c_void) {
-        self.thread_data[tid as usize] = p as u64;
-    }
-}
-*/
