@@ -4,11 +4,6 @@
 
 #![allow(unused_attributes)]
 
-use syscalls::*;
-use log::*;
-use local_state::*;
-use core::ffi::c_void;
-
 extern crate alloc;
 
 use core::intrinsics;
@@ -19,11 +14,18 @@ use core::ptr::NonNull;
 pub mod objalloc;
 pub mod allocator;
 pub mod ffi;
+#[macro_use]
 pub mod logger;
 pub mod spinlock;
 pub mod local_state;
 pub mod consts;
 pub mod counter;
+pub mod entry;
+
+pub use counter::{NoteInfo, note_syscall};
+pub use local_state::{ProcessState, ThreadState};
+
+use entry::captured_syscall;
 
 use allocator::MapAlloc;
 
@@ -35,33 +37,6 @@ static ECHO_DSO_CTORS: extern fn() = {
     };
     echo_ctor
 };
-
-#[no_mangle]
-pub extern "C" fn captured_syscall(
-    p: &mut ProcessState,
-    t: &mut ThreadState,
-    no: i32,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
-) -> i64 {
-    counter::note_syscall(p, t, no, counter::NoteInfo::SyscallEntry);
-    let ret = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
-    if ret as u64 >= -4096i64 as u64 {
-        warn!("{:?} = {}", syscalls::SyscallNo::from(no), ret);
-    } else {
-        msg!("{:?} = {:x}", syscalls::SyscallNo::from(no), ret);
-    }
-    ret
-}
-
-#[no_mangle]
-unsafe extern "C" fn set_thread_data(_p: &mut ProcessState, tid: i32, _thread_data: *const c_void) {
-    msg!("{} called set_thread_data", tid);
-}
 
 #[lang = "eh_personality"] extern fn rust_eh_personality() {}
 
