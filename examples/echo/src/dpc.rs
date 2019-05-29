@@ -29,7 +29,7 @@ fn dpc_main () {
     let mut path = String::from(DPC_PREFIX) + ".";
     path.push_str(&pid.to_string());
 
-    let _ = syscall!(SYS_unlink, path.as_ptr()).unwrap();
+    let _ = syscall!(SYS_unlink, path.as_ptr());
 
     let _tempfd = syscall!(SYS_socket, PF_UNIX, SOCK_STREAM, 0).unwrap();
     let sockfd = consts::SYSTRACE_DPC_SOCKFD;
@@ -42,6 +42,13 @@ fn dpc_main () {
             core::mem::uninitialized()
         },
     };
+    loop {
+        if path.len() == 14 {
+            break;
+        }
+        path.push('\0');
+    }
+
     let sa_ref = &sa as *const sockaddr;
     sa.sa_data.copy_from_slice(path.as_bytes());
     let _ = syscall!(SYS_bind, sockfd, sa_ref, 16).unwrap();

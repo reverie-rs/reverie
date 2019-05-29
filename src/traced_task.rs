@@ -898,6 +898,64 @@ fn remote_do_syscall_at(
     }
 }
 
+fn wait_sigtrap_sigchld(task: &mut TracedTask) -> Result<()> {
+    let tid = task.gettid();
+    let status = wait::waitpid(tid, None).expect("waitpid");
+    match status {
+        WaitStatus::Stopped(_pid, signal::SIGTRAP) => (),
+        WaitStatus::Stopped(_pid, signal::SIGCHLD) => {
+            task.signal_to_deliver = Some(signal::SIGCHLD)
+        }
+        otherwise => {
+            panic!("task {} expecting SIGTRAP|SIGCHLD but got {:?}", tid, otherwise);
+        }
+    };
+    Ok(())
+}
+fn remote_do_clone(
+    mut task: TracedTask,
+    pfn: u64,
+    child_stack: u64,
+    flags: u64,
+    args: u64) -> Result<RunTask<TracedTask>> {
+    let tid = task.gettid();
+    let mut regs = task.getregs()?;
+    let oldregs = regs.clone();
+
+    let no = SYS_clone as u64;
+    regs.orig_rax = no;
+    regs.rax = no;
+    regs.rdi = flags as u64;
+    regs.rsi = child_stack as u64;
+    regs.rdx = 0;
+    regs.r10 = 0;
+    regs.r8 = 0;
+    regs.r9 = 0;
+
+    // instruction at 0x7000_0008 must be
+    // callq 0x70000000 (5-bytes)
+    // .byte 0xcc
+    regs.rip = 0x7000_0008;
+    task.setregs(regs)?;
+
+    task.resume(None)?;
+    let status = wait::waitpid(tid, None);
+    assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 1)));
+    let new_task = task.cloned();
+    wait_sigstop(&new_task)?;
+    task.resume(None)?;
+    wait_sigtrap_sigchld(&mut task)?;
+    task.setregs(oldregs)?;
+    let mut new_regs = new_task.getregs()?;
+    let fake_ra = RemotePtr::new(new_regs.rsp as *mut u64);
+    new_task.poke(fake_ra, &0xdeadbeef)?;
+    new_regs.rip = pfn;
+    new_regs.rdi = args;
+    new_regs.rsp -= std::mem::size_of::<u64>() as u64;
+    new_task.setregs(new_regs)?;
+    Ok(RunTask::Forked(task, new_task))
+}
+
 fn ptrace_get_stopsig(tid: Pid) -> libc::siginfo_t {
     let si = ptrace::getsiginfo(tid).unwrap();
     si
@@ -1296,31 +1354,30 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
 
 type FnBreakpoint = Box<(FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
 
+// breakpoint at program's entry, likley `libc_start_main`for
+// for programs linked against glibc
 fn handle_program_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
-        Ok(RunTask::Runnable(task))
+    may_start_dpc_task(task)
 }
         
-fn start_dpc_task(task: &mut TracedTask) {
+fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     if let Some(dpc_entry) = get_symbol_address(task.getpid(), "dpc_entry") {
-        println!("found dpc_entry: {:x?}", dpc_entry);
+        debug!("found dpc_entry: {:x?}", dpc_entry);
+        let flags = libc::CLONE_THREAD | libc::SIGCHLD | libc::CLONE_SIGHAND | libc::CLONE_VM;
+        let stack_size = 0x2000;
         let child_stack = task
             .untraced_syscall(SYS_mmap,
                               0,
-                              0x2000,
+                              stack_size,
                               (libc::PROT_READ | libc::PROT_WRITE) as i64,
-                              (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS |
-                               libc::MAP_STACK) as i64,
+                              (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
                               -1,
                               0).unwrap();
-        let dpc_task = task
-            .untraced_syscall(SYS_clone,
-                              dpc_entry.as_ptr() as i64,
-                              child_stack as i64,
-                              libc::SIGCHLD as i64,
-                              0,
-                              0,
-                              0).unwrap();
-        task.dpc_task = Some(Pid::from_raw(dpc_task as i32));
+        let stack_top = child_stack + stack_size - 0x10;
+        debug!("stack top: {:x?}", stack_top);
+        remote_do_clone(task, dpc_entry.as_ptr() as u64, stack_top as u64, flags as u64, 0)
+    } else {
+        Ok(RunTask::Runnable(task))
     }
 }
 
