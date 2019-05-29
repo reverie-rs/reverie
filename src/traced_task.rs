@@ -854,7 +854,6 @@ fn remote_do_syscall_at(
     a4: i64,
     a5: i64,
 ) -> Result<i64> {
-    let tid = task.tid;
     let mut regs = task.getregs()?;
     let oldregs = regs.clone();
 
@@ -875,20 +874,7 @@ fn remote_do_syscall_at(
     task.setregs(regs)?;
 
     task.resume(None)?;
-    let status = wait::waitpid(tid, None).expect("waitpid");
-    match status {
-        WaitStatus::Stopped(_pid, signal::SIGTRAP) => (),
-        WaitStatus::Stopped(_pid, signal::SIGCHLD) => {
-            task.signal_to_deliver = Some(signal::SIGCHLD)
-        }
-        otherwise => {
-            let regs = task.getregs()?;
-            panic!(
-                "when doing syscall {:?} waitpid {} returned unknown status: {:x?} pc: {:x}",
-                nr, tid, otherwise, regs.rip
-            );
-        }
-    };
+    wait_sigtrap_sigchld(task)?;
     let newregs = task.getregs()?;
     task.setregs(oldregs)?;
     if newregs.rax as u64 > (-4096i64) as u64 {
@@ -898,6 +884,7 @@ fn remote_do_syscall_at(
     }
 }
 
+// wait either SIGTRAP (breakpoint) or SIGCHLD.
 fn wait_sigtrap_sigchld(task: &mut TracedTask) -> Result<()> {
     let tid = task.gettid();
     let status = wait::waitpid(tid, None).expect("waitpid");
@@ -912,6 +899,8 @@ fn wait_sigtrap_sigchld(task: &mut TracedTask) -> Result<()> {
     };
     Ok(())
 }
+
+// inject clone into tracee, returns `RunTask`
 fn remote_do_clone(
     mut task: TracedTask,
     pfn: u64,
@@ -946,6 +935,11 @@ fn remote_do_clone(
     task.resume(None)?;
     wait_sigtrap_sigchld(&mut task)?;
     task.setregs(oldregs)?;
+
+    // the new task is stopped by breakpoint instruction
+    // at 0x7000_0002. we need to fake a regular function
+    // call to the thread_routine, but we'll have to adjust
+    // our stack accordingly..
     let mut new_regs = new_task.getregs()?;
     let fake_ra = RemotePtr::new(new_regs.rsp as *mut u64);
     new_task.poke(fake_ra, &0xdeadbeef)?;
