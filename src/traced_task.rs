@@ -307,7 +307,7 @@ impl Task for TracedTask {
 
     /// run a task, task ptrace event dispatcher
     fn run(self) -> Result<RunTask<TracedTask>> {
-        let task = self;
+        let mut task = self;
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
@@ -343,6 +343,7 @@ impl Task for TracedTask {
                     }
                 } else {
                 }
+                task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(_ev) => handle_ptrace_event(task),
