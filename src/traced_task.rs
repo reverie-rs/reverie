@@ -836,19 +836,6 @@ impl RemoteSyscall for TracedTask {
     ) -> Result<i64> {
         remote_do_syscall_at(self, 0x7000_0008, nr, a0, a1, a2, a3, a4, a5)
     }
-    fn traced_syscall(
-        &mut self,
-        nr: SyscallNo,
-        a0: i64,
-        a1: i64,
-        a2: i64,
-        a3: i64,
-        a4: i64,
-        a5: i64,
-    ) -> Result<i64> {
-        remote_do_syscall_at(self, 0x7000_0010, nr, a0, a1, a2, a3, a4, a5)?;
-        Ok(0)
-    }
 }
 
 /// inject syscall for given tracee
@@ -1264,7 +1251,6 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let tid = task.gettid();
     let regs = ptrace::getregs(tid)?;
-    println!("rip uppon entry: {:x?}", regs.rip);
     let saved: i64 = ptrace::read(tid, regs.rip as ptrace::AddressType)?;
     ptrace::write(
         task.tid,

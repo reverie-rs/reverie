@@ -70,17 +70,10 @@ impl<T: Sized> Copy for RemotePtr<T> {}
 
 /// doing syscalls from the tracer on behalf of tracee
 pub trait RemoteSyscall {
+    /// inject syscall into tracee and return the syscall
+    /// return value. the injected syscall won't be trapped
+    /// by seccomp.
     fn untraced_syscall(
-        &mut self,
-        nr: nr::SyscallNo,
-        a0: i64,
-        a1: i64,
-        a2: i64,
-        a3: i64,
-        a4: i64,
-        a5: i64,
-    ) -> Result<i64>;
-    fn traced_syscall(
         &mut self,
         nr: nr::SyscallNo,
         a0: i64,
@@ -92,9 +85,13 @@ pub trait RemoteSyscall {
     ) -> Result<i64>;
 }
 
+/// trait implements most ptrace interface.
 pub trait Remote {
+    /// peek bytes from inferior
     fn peek_bytes(&self, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>>;
+    /// poke bytes into inferior
     fn poke_bytes(&self, addr: RemotePtr<u8>, bytes: &[u8]) -> Result<()>;
+    /// peek a `Sized` remote pointer from inferior
     fn peek<T>(&self, addr: RemotePtr<T>) -> Result<T>
     where
         T: Sized,
@@ -108,6 +105,7 @@ pub trait Remote {
         unsafe { std::ptr::copy(bytes.as_ptr(), ret_ptr as *mut u8, size) };
         Ok(res)
     }
+    /// poke a `Sized` remote pointer from inferior
     fn poke<T>(&self, addr: RemotePtr<T>, value: &T) -> Result<()>
     where
         T: Sized,
@@ -122,14 +120,21 @@ pub trait Remote {
         self.poke_bytes(new_ptr, bytes)?;
         Ok(())
     }
+    /// get inferior user regs
     fn getregs(&self) -> Result<libc::user_regs_struct>;
+    /// set inferior user regs
     fn setregs(&self, regs: libc::user_regs_struct) -> Result<()>;
+    /// get inferior ptrace event
     fn getevent(&self) -> Result<i64>;
+    /// resume a stopped inferior
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
+    /// single step a stopped inferior
     fn step(&self, sig: Option<signal::Signal>) -> Result<()>;
+    /// get `siginfo_t` from stopped inferior
     fn getsiginfo(&self) -> Result<libc::siginfo_t>;
 
-    fn setbp<F>(&mut self, _at: RemotePtr<c_void>, op: F) -> Result<()>
+    /// set breakpoint at inferior `addr` with handler `op`.
+    fn setbp<F>(&mut self, addr: RemotePtr<c_void>, op: F) -> Result<()>
         where F: 'static+FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
 }
 
