@@ -168,9 +168,9 @@ pub struct TracedTask {
 impl std::fmt::Debug for TracedTask {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Task {{ tid: {}, pid: {}, ppid: {}, \
-                   pgid: {}, state: {:?}, signal: {:?}}}",
+                   pgid: {}, state: {:?}, signal: {:?}, dpc: {:?}}}",
                self.tid, self.pid, self.ppid, self.pgid,
-               self.state, self.signal_to_deliver)
+               self.state, self.signal_to_deliver, self.dpc_task)
     }
 }
 
@@ -1122,7 +1122,7 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let new_task = task.forked();
+    let mut new_task = task.forked();
     wait_sigstop(&new_task)?;
 
     let state = systrace_global_state();
@@ -1130,6 +1130,9 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
+    let regs = new_task.getregs()?;
+    let rptr = RemotePtr::new(regs.rip as *mut c_void);
+    new_task.setbp(rptr, handle_program_entry_bkpt)?;
     Ok((task, new_task))
 }
 
@@ -1143,6 +1146,9 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
+    let regs = new_task.getregs()?;
+    let rptr = RemotePtr::new(regs.rip as *mut c_void);
+    new_task.setbp(rptr, handle_program_entry_bkpt)?;
     Ok((task, new_task))
 }
 
@@ -1356,6 +1362,7 @@ fn handle_program_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result
         
 fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     if let Some(dpc_entry) = get_symbol_address(task.getpid(), "dpc_entry") {
+        let tid = task.gettid();
         debug!("found dpc_entry: {:x?}", dpc_entry);
         let flags = libc::CLONE_THREAD | libc::SIGCHLD | libc::CLONE_SIGHAND | libc::CLONE_VM;
         let stack_size = 0x2000;
@@ -1368,7 +1375,16 @@ fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
                               -1,
                               0).unwrap();
         let stack_top = child_stack + stack_size - 0x10;
-        remote_do_clone(task, dpc_entry.as_ptr() as u64, stack_top as u64, flags as u64, 0)
+        match remote_do_clone(task, dpc_entry.as_ptr() as u64, stack_top as u64, flags as u64, 0) {
+            Ok(RunTask::Forked(mut parent, child)) => {
+                parent.dpc_task = Some(child.gettid());
+                assert_eq!(parent.gettid(), tid);
+                return Ok(RunTask::Forked(parent, child));
+            }
+            _err => {
+                panic!("remote_do_clone failed: {:?}", _err);
+            }
+        }
     } else {
         Ok(RunTask::Runnable(task))
     }
