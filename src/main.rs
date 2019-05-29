@@ -40,15 +40,6 @@ fn can_resolve_syscall_hooks() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn libtrampoline_trampoline_within_first_page() -> Result<()> {
-    let so = PathBuf::from("target").join("debug").join("libecho.so").canonicalize()?;
-    let parsed = hooks::resolve_syscall_hooks_from(so)?;
-    let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x10000).collect();
-    assert_eq!(parsed.len(), filtered.len());
-    Ok(())
-}
-
 struct Arguments<'a> {
     debug_level: i32,
     tool_path: PathBuf,
