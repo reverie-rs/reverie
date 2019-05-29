@@ -813,7 +813,7 @@ impl Remote for TracedTask {
         let saved_insn = self.peek(rptr)?;
         let insn = (saved_insn & !0xffu64) | 0xccu64;
         self.poke(rptr, &insn)?;
-        self.breakpoints.borrow_mut().insert(at, (saved_insn, Box::new(op) as FnBreakpoint));
+        self.breakpoints.borrow_mut().insert(at, (saved_insn, Box::new(op)));
         Ok(())
     }
 }
