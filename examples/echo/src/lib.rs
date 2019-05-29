@@ -21,6 +21,7 @@ pub mod local_state;
 pub mod consts;
 pub mod counter;
 pub mod entry;
+pub mod dpc;
 
 pub use counter::{NoteInfo, note_syscall};
 pub use local_state::{ProcessState, ThreadState};

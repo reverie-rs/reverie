@@ -6,7 +6,7 @@
 ///
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use syscalls::*;
+use syscalls::syscall;
 
 pub struct SpinLock {
     __lock: AtomicUsize,
@@ -54,7 +54,7 @@ impl SpinLock {
 }
 
 fn gettid() -> usize {
-    let tid = syscall(SYS_gettid as i32, 0, 0, 0, 0, 0, 0);
+    let tid = syscall!(SYS_gettid);
     tid.unwrap() as usize
 }
 

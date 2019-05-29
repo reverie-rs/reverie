@@ -1,3 +1,5 @@
+//! echo entrypoint who defines `captured_syscall`
+//!
 use syscalls::*;
 use log::*;
 
