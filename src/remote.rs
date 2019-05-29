@@ -9,6 +9,7 @@ use nix::unistd::Pid;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
+use std::ffi::c_void;
 
 use crate::consts;
 use crate::consts::*;
@@ -17,7 +18,7 @@ use crate::nr;
 use crate::nr::SyscallNo;
 use crate::nr::SyscallNo::*;
 use crate::stubs;
-use crate::task::Task;
+use crate::task::{RunTask, Task};
 use crate::traced_task::TracedTask;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +128,9 @@ pub trait Remote {
     fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
     fn step(&self, sig: Option<signal::Signal>) -> Result<()>;
     fn getsiginfo(&self) -> Result<libc::siginfo_t>;
+
+    fn setbp<F>(&mut self, _at: RemotePtr<c_void>, op: F) -> Result<()>
+        where F: 'static+FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
 }
 
 /// tell the tracee to do context synchronization at given `rip`

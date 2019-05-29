@@ -32,7 +32,6 @@ use std::cell::{RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
-
 use std::ffi::c_void;
 
 use crate::consts;
@@ -51,6 +50,8 @@ use crate::state::*;
 use crate::local_state::*;
 use crate::symbols::*;
 use crate::rpc_ptrace::*;
+use crate::auxv;
+use crate::aux;
 
 fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
     let path = PathBuf::from(so);
@@ -127,6 +128,8 @@ pub struct TracedTask {
     /// process group id as of `getpgid()`
     pgid: Pid,
 
+    dpc_task: Option<Pid>,
+
     // vfork creates short-lived process folowed by exec
     // as a result it does add benefit to do expensive
     // syscall patching.
@@ -155,7 +158,7 @@ pub struct TracedTask {
     pub unpatchable_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub patched_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
-
+    pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>+'static>)>>>,
     /// per-thread stack used by rpc
     pub rpc_stack: Option<(RemotePtr<u64>, usize)>,
     /// per-thread data area used by rpc
@@ -180,6 +183,7 @@ impl Task for TracedTask {
             pid,
             ppid: pid,
             pgid: unistd::getpgid(Some(pid)).unwrap(),
+            dpc_task: None,
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -193,6 +197,7 @@ impl Task for TracedTask {
             unpatchable_syscalls: Rc::new(RefCell::new(HashSet::new())),
             patched_syscalls: Rc::new(RefCell::new(HashSet::new())),
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
+            breakpoints: Rc::new(RefCell::new(HashMap::new())),
             rpc_stack: None,
             rpc_data: None,
         }
@@ -208,6 +213,7 @@ impl Task for TracedTask {
             pid: self.pid,
             ppid: self.pid,
             pgid: self.pgid,
+            dpc_task: None,
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -221,6 +227,7 @@ impl Task for TracedTask {
             unpatchable_syscalls: self.unpatchable_syscalls.clone(),
             patched_syscalls: self.patched_syscalls.clone(),
             syscall_patch_lockset: self.syscall_patch_lockset.clone(),
+            breakpoints: self.breakpoints.clone(),
             rpc_stack: None,
             rpc_data: None,
         };
@@ -237,6 +244,7 @@ impl Task for TracedTask {
             pid: child,
             ppid: self.pid,
             pgid: self.pgid,
+            dpc_task: None,
             state: TaskState::Ready,
             in_vfork: false,
             seccomp_hook_size: None,
@@ -262,6 +270,7 @@ impl Task for TracedTask {
                 Rc::new(RefCell::new(patched))
             },
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
+            breakpoints: Rc::new(RefCell::new(HashMap::new())),
             rpc_stack: self.rpc_stack.clone(),
             rpc_data: self.rpc_data.clone(),
         }
@@ -298,7 +307,7 @@ impl Task for TracedTask {
 
     /// run a task, task ptrace event dispatcher
     fn run(self) -> Result<RunTask<TracedTask>> {
-        let mut task = self;
+        let task = self;
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
@@ -311,8 +320,29 @@ impl Task for TracedTask {
             TaskState::Stopped(signal) => {
                 if signal == signal::SIGSEGV || signal == signal::SIGILL {
                     show_fault_context(&task, signal);
+                } else if signal == signal::SIGTRAP {
+                    let mut regs = task.getregs()?;
+                    let rip_minus_1 = regs.rip - 1;
+                    let mut maybe_f: Option<FnBreakpoint> = None;
+                    match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
+                        None => {},      // not a breakpoint
+                        Some((saved_insn, op)) => {
+                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
+                            task.poke(rptr, &saved_insn)?;
+                            regs.rip = rip_minus_1;
+                            task.setregs(regs)?;
+                            maybe_f = Some(op);
+                        }
+                    }
+                    match maybe_f {
+                        None => {}
+                        Some(f) => {
+                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
+                            return f(task, rptr.cast());
+                        }
+                    }
+                } else {
                 }
-                task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(_ev) => handle_ptrace_event(task),
@@ -474,6 +504,7 @@ fn task_exec_reset(task: &mut TracedTask) {
     *(task.memory_map.borrow_mut()) = Vec::new();
     *(task.stub_pages.borrow_mut()) = Vec::new();
     *(task.syscall_patch_lockset.borrow_mut()) = RemoteRWLock::new();
+    *(task.breakpoints.borrow_mut()) = HashMap::new();
 }
 
 fn update_memory_map(task: &mut TracedTask) {
@@ -772,6 +803,17 @@ impl Remote for TracedTask {
     fn getevent(&self) -> Result<i64> {
         let ev = ptrace::getevent(self.tid).map_err(from_nix_error);
         ev
+    }
+
+    fn setbp<F>(&mut self, _at: RemotePtr<c_void>, op: F) -> Result<()>
+    where F: 'static+FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
+        let rptr = _at.cast();
+        let at = rptr.as_ptr() as u64;
+        let saved_insn = self.peek(rptr)?;
+        let insn = (saved_insn & !0xffu64) | 0xccu64;
+        self.poke(rptr, &insn)?;
+        self.breakpoints.borrow_mut().insert(at, (saved_insn, Box::new(op) as FnBreakpoint));
+        Ok(())
     }
 }
 
@@ -1215,9 +1257,13 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
 }
 
 fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
+    let auxv = unsafe {
+        aux::getauxval(task).unwrap()
+    };
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let tid = task.gettid();
     let regs = ptrace::getregs(tid)?;
+    println!("rip uppon entry: {:x?}", regs.rip);
     let saved: i64 = ptrace::read(tid, regs.rip as ptrace::AddressType)?;
     ptrace::write(
         task.tid,
@@ -1253,7 +1299,42 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     remote_set_thread_data(task).unwrap();
 
     state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
+
+    if let Some(dyn_entry) = auxv.get(&auxv::AT_ENTRY) {
+        let rptr = RemotePtr::new(*dyn_entry as *mut c_void);
+        task.setbp(rptr, Box::new(handle_program_entry_bkpt)).unwrap();
+    }
     Ok(())
+}
+
+type FnBreakpoint = Box<(FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
+
+fn handle_program_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
+        Ok(RunTask::Runnable(task))
+}
+        
+fn start_dpc_task(task: &mut TracedTask) {
+    if let Some(dpc_entry) = get_symbol_address(task.getpid(), "dpc_entry") {
+        println!("found dpc_entry: {:x?}", dpc_entry);
+        let child_stack = task
+            .untraced_syscall(SYS_mmap,
+                              0,
+                              0x2000,
+                              (libc::PROT_READ | libc::PROT_WRITE) as i64,
+                              (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS |
+                               libc::MAP_STACK) as i64,
+                              -1,
+                              0).unwrap();
+        let dpc_task = task
+            .untraced_syscall(SYS_clone,
+                              dpc_entry.as_ptr() as i64,
+                              child_stack as i64,
+                              libc::SIGCHLD as i64,
+                              0,
+                              0,
+                              0).unwrap();
+        task.dpc_task = Some(Pid::from_raw(dpc_task as i32));
+    }
 }
 
 // so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
@@ -1277,3 +1358,8 @@ fn is_syscall_insn(tid: unistd::Pid, rip: u64) -> Result<bool> {
     let insn = ptrace::read(tid, rip as ptrace::AddressType).map_err(from_nix_error)? as u64;
     Ok(insn & SYSCALL_INSN_MASK as u64 == SYSCALL_INSN)
 }
+
+fn handle_breakpoint_event(task: TracedTask, _at: u64) -> Result<RunTask<TracedTask>> {
+    Ok(RunTask::Runnable(task))
+}
+    
