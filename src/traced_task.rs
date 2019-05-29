@@ -903,7 +903,7 @@ fn wait_sigtrap_sigchld(task: &mut TracedTask) -> Result<()> {
 // inject clone into tracee, returns `RunTask`
 fn remote_do_clone(
     mut task: TracedTask,
-    pfn: u64,
+    entry: u64,
     child_stack: u64,
     flags: u64,
     args: u64) -> Result<RunTask<TracedTask>> {
@@ -943,7 +943,7 @@ fn remote_do_clone(
     let mut new_regs = new_task.getregs()?;
     let fake_ra = RemotePtr::new(new_regs.rsp as *mut u64);
     new_task.poke(fake_ra, &0xdeadbeef)?;
-    new_regs.rip = pfn;
+    new_regs.rip = entry;
     new_regs.rdi = args;
     new_regs.rsp -= std::mem::size_of::<u64>() as u64;
     new_task.setregs(new_regs)?;
@@ -1368,7 +1368,6 @@ fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
                               -1,
                               0).unwrap();
         let stack_top = child_stack + stack_size - 0x10;
-        debug!("stack top: {:x?}", stack_top);
         remote_do_clone(task, dpc_entry.as_ptr() as u64, stack_top as u64, flags as u64, 0)
     } else {
         Ok(RunTask::Runnable(task))

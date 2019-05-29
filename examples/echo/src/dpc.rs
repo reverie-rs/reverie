@@ -3,6 +3,7 @@
 
 use syscalls::syscall;
 use alloc::string::*;
+use log::debug;
 
 use crate::consts;
 
@@ -13,10 +14,24 @@ const SOCK_STREAM: i32 = 1;
 
 #[no_mangle]
 pub extern "C" fn dpc_entry(_arg: i64) -> i32 {
-    msg!("starting dpc task..");
+    debug!("starting dpc task..");
     dpc_main();
     0
 }
+
+#[link_section = ".fini_array"]
+#[used]
+static DPC_DSO_DTORS: extern fn() = {
+    extern "C" fn dpc_dtor() {
+        debug!("exiting dpc task..");
+        let _ = syscall!(SYS_close, consts::SYSTRACE_DPC_SOCKFD);
+        let pid = syscall!(SYS_getpid).unwrap();
+        let mut path = String::from(DPC_PREFIX) + ".";
+        path.push_str(&pid.to_string());
+        let _ = syscall!(SYS_unlink, path.as_ptr());
+    };
+    dpc_dtor
+};
 
 #[repr(C)]
 struct sockaddr {
@@ -35,6 +50,8 @@ fn dpc_main () {
     let sockfd = consts::SYSTRACE_DPC_SOCKFD;
     let _ = syscall!(SYS_dup2, _tempfd, sockfd).unwrap();
     let _ = syscall!(SYS_close, _tempfd).unwrap();
+
+    let _ = syscall!(SYS_unlink, path.as_ptr());
 
     let mut sa = sockaddr {
         sa_family: PF_UNIX as u16,
