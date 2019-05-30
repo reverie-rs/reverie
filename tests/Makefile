@@ -122,6 +122,8 @@ tests: build-tests
 	timeout 30s $(SYSTRACE_DEBUG) ./threads5 $(IO_REDIRECT)
 	timeout 30s $(SYSTRACE_DEBUG) ./threads6 $(IO_REDIRECT)
 	timeout 30s $(SYSTRACE_DEBUG) ./threads7 $(IO_REDIRECT)
+	timeout 30s $(SYSTRACE_DEBUG) ./forkExec fork $(IO_REDIRECT)
+	timeout 30s $(SYSTRACE_DEBUG) ./forkExec vfork $(IO_REDIRECT)
 	timeout 30s $(SYSTRACE_DEBUG) ./forkMany $(IO_REDIRECT)
 	timeout 30s $(SYSTRACE_DEBUG) ./forkMany --block-sigchld $(IO_REDIRECT)
 	./signal1 $(IO_REDIRECT)

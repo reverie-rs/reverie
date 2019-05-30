@@ -1146,9 +1146,6 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
-    let regs = new_task.getregs()?;
-    let rptr = RemotePtr::new(regs.rip as *mut c_void);
-    new_task.setbp(rptr, handle_program_entry_bkpt)?;
     Ok((task, new_task))
 }
 
