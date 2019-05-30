@@ -132,5 +132,8 @@ tests: build-tests
 	./sigprocmask1 $(IO_REDIRECT)
 	$(SYSTRACE_DEBUG) ./thread8-cond-wait $(IO_REDIRECT)
 	$(SYSTRACE_DEBUG) ./thread9-cond-bcast $(IO_REDIRECT)
+	timeout 30s $(SYSTRACE_DEBUG) ./test3.sh $(IO_REDIRECT)
+	timeout 30s $(SYSTRACE_DEBUG) ./test4.sh $(IO_REDIRECT)
+	timeout 30s $(SYSTRACE_DEBUG) ./test5.sh $(IO_REDIRECT)
 
 .PHONY: all tests clean
