@@ -1361,7 +1361,7 @@ fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     if let Some(dpc_entry) = get_symbol_address(task.getpid(), "dpc_entry") {
         let tid = task.gettid();
         debug!("found dpc_entry: {:x?}", dpc_entry);
-        let flags = libc::CLONE_THREAD | libc::SIGCHLD | libc::CLONE_SIGHAND | libc::CLONE_VM;
+        let flags = libc::CLONE_THREAD | libc::SIGCHLD | libc::CLONE_SIGHAND | libc::CLONE_VM | libc::CLONE_FILES | libc::CLONE_FS | libc::CLONE_IO | libc::CLONE_SYSVSEM;
         let stack_size = 0x2000;
         let child_stack = task
             .untraced_syscall(SYS_mmap,
