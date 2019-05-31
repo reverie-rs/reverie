@@ -6,7 +6,7 @@ edition = "2018"
 
 [lib]
 name = "det"
-crate-type = ["cdylib"]
+crate-type = ["staticlib"]
 path = "src/lib.rs"
 
 [dependencies]

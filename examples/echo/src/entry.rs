@@ -1,6 +1,7 @@
 //! echo entrypoint who defines `captured_syscall`
 //!
 use syscalls::*;
+use tools_helper::*;
 use log::*;
 
 use crate::counter::{note_syscall, NoteInfo};

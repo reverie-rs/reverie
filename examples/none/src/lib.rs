@@ -3,7 +3,6 @@
 
 use syscalls::*;
 use tools_helper::*;
-use crate::local_state::*;
 
 pub mod ffi;
 

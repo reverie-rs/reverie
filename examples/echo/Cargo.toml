@@ -4,15 +4,14 @@ version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
-[workspace]
-
 [lib]
 name = "echo"
-crate-type = ["cdylib"]
+crate-type = ["staticlib"]
 path = "src/lib.rs"
 
 [dependencies]
 syscalls = { path = "../../syscalls" }
+tools_helper = { path = "../../tools_helper" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
 

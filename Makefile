@@ -11,6 +11,9 @@ DOCKER_NAME=systrace
 # WAY="--release"
 WAY=
 
+# TOOL_TARGET
+TOOL_TARGET=x86_64-unknown-linux-musl
+
 ifeq ($(WAY),"--release")
 	TARGETDIR=release
 else
@@ -19,11 +22,18 @@ endif
 
 all:
 	$(MAKE) -C tests all
-	@cargo build $(WAY) --all
-	@cargo build --manifest-path examples/echo/Cargo.toml --target-dir=target
-	@cp -v target/$(TARGETDIR)/libecho.so lib/
-	@cp -v target/$(TARGETDIR)/libnone.so lib/
+	@cargo build $(WAY)
+	@cargo build $(WAY) -p echo    --target=$(TOOL_TARGET)
+	@cargo build $(WAY) -p none    --target=$(TOOL_TARGET)
+	@cargo build $(WAY) -p counter --target=$(TOOL_TARGET)
+	@cargo build $(WAY) -p det     --target=$(TOOL_TARGET)
+	@cp -v target/$(TARGETDIR)/rust-staticlib-linker bin/
 	@cp -v target/$(TARGETDIR)/systrace bin/
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libecho.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libecho.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libnone.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libnone.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libcounter.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libcounter.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libdet.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libdet.so
+
 clean:
 	$(MAKE) -C tests clean
 	$(RM) lib/lib*.so
