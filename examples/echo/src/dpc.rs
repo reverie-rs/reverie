@@ -13,7 +13,7 @@ const PF_UNIX: i32 = 1;
 const SOCK_STREAM: i32 = 1;
 
 #[no_mangle]
-pub extern "C" fn dpc_entry(_arg: i64) -> i32 {
+pub extern "C" fn dpc_entry_disabled(_arg: i64) -> i32 {
     let _ = logger::init();
     debug!("starting dpc task..");
     dpc_main();
