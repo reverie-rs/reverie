@@ -158,7 +158,7 @@ pub struct TracedTask {
     pub unpatchable_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub patched_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
-    pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>+'static>)>>>,
+    pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>+'static>)>>>,
     /// per-thread stack used by rpc
     pub rpc_stack: Option<(RemotePtr<u64>, usize)>,
     /// per-thread data area used by rpc
@@ -1349,7 +1349,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     Ok(())
 }
 
-type FnBreakpoint = Box<(FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
+type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc
