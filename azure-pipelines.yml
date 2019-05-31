@@ -8,7 +8,6 @@ jobs:
     - script: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         $HOME/.cargo/bin/rustup toolchain add nightly
-        $HOME/.cargo/bin/rustup toolchain add nightly-x86_64-unknown-linux-musl
       displayName: Install nightly Rust
 - job: Linux
   pool:
@@ -20,6 +19,7 @@ jobs:
   steps:
     - script: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain $RUSTUP_TOOLCHAIN
+        $HOME/.cargo/bin/rustup toolchain add nightly-x86_64-unknown-linux-musl
         echo "##vso[task.setvariable variable=PATH;]$PATH:$HOME/.cargo/bin"
       displayName: Install rust
     # All platforms.
