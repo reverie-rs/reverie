@@ -16,4 +16,7 @@ fn main() {
     std::fs::copy("../../trampoline/ffi.rs", "src/ffi.rs").unwrap();
     std::fs::copy("../../src/local_state.rs", "src/local_state.rs").unwrap();
     std::fs::copy("../../src/consts.rs", "src/consts.rs").unwrap();
+    std::fs::copy("../../tools_helper/src/logger.rs", "src/logger.rs").unwrap();
+    std::fs::copy("../../tools_helper/src/counter.rs", "src/counter.rs").unwrap();
+    std::fs::copy("../../tools_helper/src/spinlock.rs", "src/spinlock.rs").unwrap();
 }
