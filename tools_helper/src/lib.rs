@@ -6,7 +6,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[macro_use]
-pub mod stdio;
 pub mod logger;
 pub mod spinlock;
 pub mod consts;

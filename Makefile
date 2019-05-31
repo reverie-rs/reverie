@@ -38,6 +38,7 @@ clean:
 	$(MAKE) -C tests clean
 	$(RM) lib/lib*.so
 	$(RM) bin/systrace
+	$(RM) bin/rust-staticlib-linker
 	@cargo clean
 
 test: tests

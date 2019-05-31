@@ -34,7 +34,7 @@ extern "C" {
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
-    let so = PathBuf::from("target").join("debug").join("libecho.so").canonicalize()?;
+    let so = PathBuf::from("lib").join("libecho.so").canonicalize()?;
     let parsed = hooks::resolve_syscall_hooks_from(so)?;
     assert_ne!(parsed.len(), 0);
     Ok(())

@@ -1,18 +1,18 @@
-/// safe logger for writing systrace tools (shared library)
-///
-/// log is enabled by passing `SYSTOOL_LOG=xxx` from systrace
-///
-/// NB: tools can use rust `log` crate, but must use this
-/// logger as backend. That is because logging in captured syscalls is
-/// very low level, roughly the same (or sligher higher) level as signal
-/// handlers, allocation should be reduced to minimum (if not none); and
-/// must also keep thread-safe in mind.
-///
-/// NB: any allocation (i.e.: `toString`) is considered DANGEROUS.
-/// we use a global static ring buffer to avoid allocations, and use CAS
-/// spinlocks to prevent race condition. note the same thread can call
-/// spin lock multiple times.
-///
+//! safe logger for writing systrace tools (shared library)
+//!
+//! log is enabled by passing `SYSTOOL_LOG=xxx` from systrace
+//!
+//! NB: tools can use rust `log` crate, but must use this
+//! logger as backend. That is because logging in captured syscalls is
+//! very low level, roughly the same (or sligher higher) level as signal
+//! handlers, allocation should be reduced to minimum (if not none); and
+//! must also keep thread-safe in mind.
+//!
+//! NB: any allocation (i.e.: `toString`) is considered DANGEROUS.
+//! we use a global static ring buffer to avoid allocations, and use CAS
+//! spinlocks to prevent race condition. note the same thread can call
+//! spin lock multiple times.
+//!
 
 use log::{Log, Level, Metadata, Record, SetLoggerError};
 use core::fmt::{Arguments, Error, Write};
@@ -21,6 +21,7 @@ use syscalls::*;
 use crate::spinlock::{SpinLock, SPINLOCK_INIT};
 
 const RING_BUFF_SIZE: usize = 16384;
+
 struct RingBuffer {
     bytes: [u8; RING_BUFF_SIZE],
     size: isize,
@@ -102,6 +103,7 @@ macro_rules! __log_format_args {
     };
 }
 
+/// log without checking log level
 #[macro_export(local_inner_macros)]
 macro_rules! msg {
     ($($arg:tt)*) => ({
@@ -188,6 +190,7 @@ where
     rb.is_empty = true;
 }
 
+/// initialize the logger
 pub fn init() -> Result<(), SetLoggerError> {
     let log_level_ptr = 0x7000_1038 as *const i64;
     let log_level = unsafe { core::ptr::read(log_level_ptr) };
@@ -213,6 +216,7 @@ impl Write for RingBuffer {
     }
 }
 
+#[doc(hidden)]
 pub fn __internal_ring_buffer_eprint(args: Arguments) {
     unsafe {
         rb_print_to(args, &mut RING_BUFFER)

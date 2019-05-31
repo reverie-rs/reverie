@@ -31,6 +31,8 @@ jobs:
         /bin/bash --version
         timeout --version
       displayName: Check environment
+    - script: git submodule update --init --recursive
+      displayName: Update submodules
     - script: make
       displayName: Build
     - script: make tests
