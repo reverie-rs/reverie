@@ -2,6 +2,7 @@
 
 TARFILE=`mktemp --suffix=".tar"`
 TARGZ=${TARFILE}.gz
+SRCDIR=/usr/share/man/man2
 DESTDIR=`mktemp -d`
 
 trap cleanup EXIT
@@ -13,7 +14,7 @@ function cleanup {
 	rm -fr ${TARGZ}
 }
 
-echo "creating tarball ${TARFILE}.." && tar cf ${TARFILE} .
+echo "creating tarball ${TARFILE}.." && tar cf ${TARFILE} ${SRCDIR}
 gzip ${TARFILE}
 echo "checking ${TARGZ}"
 tar tf ${TARGZ}
