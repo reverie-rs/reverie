@@ -1,4 +1,5 @@
 #![feature(async_await)]
+#![feature(associated_type_defaults)]
 #![allow(dead_code)]
 
 use libc::pid_t;
@@ -18,7 +19,7 @@ pub struct DynConfig {
     heartbeat : Heartbeat,
 }
 
-/// How often to interupt the guest (fire a timer) causing an event to be 
+/// Setting to optionally interupt the guest (fire a timer) causing an event to be 
 /// created and handled by the tool.
 pub enum Heartbeat {
     /// No heartbeat.  Guests will only yield when they trigger a relevant event, 
@@ -158,8 +159,8 @@ pub trait GuestAccess: Injector {
 
 /// The interface satisfied by a complete Systrace instrumentation tool.
 ///
-///
-///
+/// The trait is implemented for the global state type, and thus this is what is used 
+/// to distinguish one tool from another.
 pub trait SystraceTool
 where
     Self::Glob: Debug,
@@ -169,9 +170,20 @@ where
     // Processor- and Thread-local state may need to migrated:
     Self::Proc: Serialize,
     Self::Thrd: Serialize,
-{
+    // In contrast, the global state should serialize into a remote 
+    // HANDLE that allows RPC communication with the original.
+    // Self::Glob: Serialize,
+    Self::GlobMethodArgs : Serialize,
+    Self::GlobMethodResult : Serialize,
+{    
     /// Global state shared by the tool across the whole process tree being instrumented.
-    type Glob;
+    type Glob = Self;
+    /// Arguments to a global state RPC.  This is weakly typed, muxing together 
+    /// all different methods of the global state object!
+    type GlobMethodArgs;
+    /// Corresponding method results. 
+    type GlobMethodResult;
+
     /// Tool state specific to the guest process.
     type Proc;
     /// Tool state specific to the guest thread.
@@ -185,7 +197,8 @@ where
     /// Takes an optional buffer in which to allocate shared, global state.  
     /// This feature is unimplemeneted, but included for forward portability.
     ///
-    fn init_global_state(gbuf: Option<NonNull<u8>>) -> Option<Self::Glob>;
+    fn init_global_state(gbuf: Option<NonNull<u8>>) -> Self::Glob;
+
     /// Trigger to initialize state when a process is created, including the root process.
     /// Every process includes at least one thread, so this returns a thread state as well.
     fn init_process_state(g: &Self::Glob) -> (Self::Proc, Self::Thrd);
@@ -199,7 +212,7 @@ where
     /// against either (1) the global state (remote object), or (2) the injector.
     /// In either case, it is registering a continuation to respond to the completion of an RPC
     /// in the host (coordinator) or guest respectively.
-    fn handle_event<I: Injector>(e : Event, i: I, g: Self::Glob, p: &Self::Proc, t: &mut Self::Thrd)
+    fn handle_event<I: Injector>(g: Self::Glob, p: &Self::Proc, t: &mut Self::Thrd, i : I, e : Event)
         -> ();
         //  TODO: in the future each event handled may return a result to the instrumentor 
         // which changes its configuration: for example, subscribing or unsubscribing to 
@@ -207,8 +220,7 @@ where
 
     // Optionally override this as an optimization.  By default it will send the event 
     // to the respective
-    fn handle_global_event<I: Injector>(e : Event, i: I, g: Self::Glob)
-        -> ();
+    // fn handle_global_event<I: Injector>(e : Event, i: I, g: Self::Glob) -> ();
 }
 
 //--------------------------------------------------------------
@@ -249,7 +261,70 @@ pub type SigNo = u64;
 pub type FunAddr = u64;
 
 //--------------------------------------------------------------
-fn main() {
-    println!("Hello, world!");
+// Example tool: a simple counter.
+
+#[derive(PartialEq, Debug, Eq, Hash, Clone)]
+pub struct Counter {
+    count : u64,
+}
+
+#[derive(PartialEq, Debug, Eq, Hash, Clone)]
+pub struct IncrMsg(u64);
+
+impl Serialize for IncrMsg {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S : serde::Serializer,
+    {        
+        match self {
+            IncrMsg(n) => n.serialize(serializer)
+        }
+    }        
+}
+
+impl SystraceTool for Counter {
+    type Glob = Counter;    
+    type GlobMethodArgs = IncrMsg;
+    type GlobMethodResult = ();    
+
+    type Proc = ();
+    type Thrd = ();
+
+    fn init_global_state(gbuf: Option<NonNull<u8>>) -> Counter {
+        assert!(gbuf.is_none());
+        Counter{count:0}
+    }
+
+    fn init_process_state(_g :&Counter) -> ((),()) {
+        ((),())
+    }
+
+    fn init_thread_state(_g: &Self::Glob, _p: &Self::Proc, _parent: &Self::Thrd) {
+        ()
+    }
+
+    fn handle_event<I>(_g: Self::Glob, _p: &Self::Proc, _t: &mut Self::Thrd, _i : I, _e : Event) {
+        ()
+    }
 
 }
+
+/// Hook up the give tool so that it becomes the single, global tool compiled 
+/// in this library.  This must be called at startup.
+fn register_instrumentation_tool<T : SystraceTool>(_t : T) {
+    unimplemented!()
+}
+
+/// TODO: replace with some standardized entrypoint for the library, exposed to C code.
+fn init_upcall_example() {
+    register_instrumentation_tool(Counter{count:0})
+}
+
+
+//--------------------------------------------------------------
+fn main() {
+    println!("Hello, world!");
+    // Normally we would
+    
+}
+
