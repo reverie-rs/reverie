@@ -3,7 +3,7 @@ jobs:
 - job: check_formatting
   displayName: Check formatting (allow failure)
   pool:
-    vmImage: ubuntu-16.04
+    vmImage: ubuntu-18.04
   steps:
     - script: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -11,7 +11,7 @@ jobs:
       displayName: Install nightly Rust
 - job: Linux
   pool:
-    vmImage: ubuntu-16.04
+    vmImage: ubuntu-18.04
   strategy:
     matrix:
       nightly:
