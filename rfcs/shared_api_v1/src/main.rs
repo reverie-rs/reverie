@@ -156,6 +156,9 @@ pub trait GuestAccess: Injector {
     fn get_static_config(&self) -> StaticConfig;
     fn get_dynamic_config(&self) -> DynConfig;
 }
+// TODO: Full "Instrumentor" interface that allows sending global RPCs as well.
+// pub trait Instrumentor
+
 
 /// The interface satisfied by a complete Systrace instrumentation tool.
 ///
@@ -199,12 +202,18 @@ where
     ///
     fn init_global_state(gbuf: Option<NonNull<u8>>) -> Self::Glob;
 
+    /// Execute an RPC on the global state object.
+    fn execute_rpc(g: &mut Self::Glob, args : Self::GlobMethodArgs) -> Self::GlobMethodResult;
+
     /// Trigger to initialize state when a process is created, including the root process.
     /// Every process includes at least one thread, so this returns a thread state as well.
+    /// 
+    /// For now this assumes access to the global state, but that may change.
     fn init_process_state(g: &Self::Glob) -> (Self::Proc, Self::Thrd);
+
     /// A guest process creates additional threads, which need their state initialized.
     /// This takes the thread-local state of the PARENT thread for reference.
-    fn init_thread_state(g: &Self::Glob, p: &Self::Proc, parent: &Self::Thrd) -> Self::Thrd;
+    fn init_thread_state(p: &Self::Proc, parent: &Self::Thrd) -> Self::Thrd;
 
     /// The tool receives an event from the instrumentation.
     ///
@@ -299,11 +308,18 @@ impl SystraceTool for Counter {
         ((),())
     }
 
-    fn init_thread_state(_g: &Self::Glob, _p: &Self::Proc, _parent: &Self::Thrd) {
+    fn init_thread_state(_p: &Self::Proc, _parent: &Self::Thrd) {
         ()
     }
 
     fn handle_event<I>(_g: Self::Glob, _p: &Self::Proc, _t: &mut Self::Thrd, _i : I, _e : Event) {
+        ()
+    }
+
+    fn execute_rpc(g: &mut Self::Glob, args: Self::GlobMethodArgs) {
+        match args {
+            IncrMsg(n) => g.count += n
+        }        
         ()
     }
 
