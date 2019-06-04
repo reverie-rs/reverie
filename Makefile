@@ -29,10 +29,10 @@ all:
 	@cargo build $(WAY) -p det     --target=$(TOOL_TARGET)
 	@cp -v target/$(TARGETDIR)/rust-staticlib-linker bin/
 	@cp -v target/$(TARGETDIR)/systrace bin/
-	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libecho.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libecho.so
-	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libnone.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libnone.so
-	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libcounter.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libcounter.so
-	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/debug/libdet.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libdet.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/$(TARGETDIR)/libecho.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libecho.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/$(TARGETDIR)/libnone.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libnone.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/$(TARGETDIR)/libcounter.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libcounter.so
+	@./bin/rust-staticlib-linker --export=captured_syscall --export=untraced_syscall --staticlib=target/x86_64-unknown-linux-musl/$(TARGETDIR)/libdet.a --staticcrt=/usr/lib/x86_64-linux-musl/libc.a -o lib/libdet.so
 
 clean:
 	$(MAKE) -C tests clean

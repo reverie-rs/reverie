@@ -20,6 +20,5 @@ pub mod state;
 pub mod local_state;
 pub mod block_events;
 pub mod rpc_ptrace;
-pub mod symbols;
 pub mod auxv;
 pub mod aux;

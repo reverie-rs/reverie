@@ -14,33 +14,36 @@ use crate::task::Task;
 use crate::traced_task::TracedTask;
 use crate::remote::*;
 
+const AUXV_MAX: usize = 256;
+
 pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
     let mut res: HashMap<usize, u64>  = HashMap::new();
     let regs = task.getregs()?;
 
     let sp = RemotePtr::new(regs.rsp as *mut u64);
-    let argc = task.peek(sp)?;
-    let argv = sp.offset(1);
-    let mut k = 1 + argc as isize;
+
+    let vec = task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
+    let auxv: Vec<u64> = std::mem::transmute(vec);
+    let argc = auxv[0];
+    let mut k = 2 + argc as usize;
 
     loop {
-        let curr = argv.offset(k);
-        let val = task.peek(curr)?;
-        if val == 0 {
+        if auxv[k] == 0 {
+            k = 1 + k;
             break;
         }
         k = 1 + k;
     }
-    let mut auxv = argv.offset(1 + k);
 
     loop {
-        let key = task.peek(auxv)?;
+        let key = auxv[k];
         if key == 0 {
             break;
         }
-        let val = task.peek(auxv.offset(1))?;
+        let val = auxv[1+k];
         res.insert(key as usize, val);
-        auxv = auxv.offset(2);
+        k = 2 + k;
     }
+
     Ok(res)
 }
