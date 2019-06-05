@@ -53,6 +53,7 @@ use crate::local_state::*;
 use crate::rpc_ptrace::*;
 use crate::auxv;
 use crate::aux;
+use crate::seccomp_bpf::*;
 
 lazy_static! {
 // get all symbols from tool dso
@@ -71,7 +72,7 @@ lazy_static! {
     };
 }
 
-fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
+fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<(u64, u64)> {
     let path = PathBuf::from(so);
     procfs::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
@@ -83,11 +84,11 @@ fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<u64> {
                 }
                 _ => false,
             }
-        }).next().map(|e|e.address.0)
+        }).next().map(|e|e.address)
 }
 
 /// our tool library has been fully loaded
-fn libtrampoline_load_address(pid: unistd::Pid) -> Option<u64> {
+fn libtrampoline_load_address(pid: unistd::Pid) -> Option<(u64, u64)> {
     let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).ok()?;
     ptrace::read(
         pid,
@@ -159,7 +160,7 @@ pub struct TracedTask {
     seccomp_hook_size: Option<usize>,
 
     pub state: TaskState,
-    pub ldpreload_address: Option<u64>,
+    pub ldpreload_address: Option<(u64, u64)>,
     pub ldpreload_symbols: &'static HashMap<String, u64>,
     pub injected_mmap_page: Option<u64>,
     pub injected_shared_page: Option<u64>,
@@ -492,7 +493,7 @@ impl TracedTask {
 
     /// get ld preloaded tool symbol address
     pub fn get_preloaded_symbol_address(&self, sym: &str) -> Option<u64> {
-        if let Some(la) = self.ldpreload_address {
+        if let Some((la, _)) = self.ldpreload_address {
             self.ldpreload_symbols.get(sym).map(|x|*x + la)
         } else {
             None
@@ -724,7 +725,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
         ErrorKind::Other,
         format!("{} not loaded", so)
     ))?;
-    let stubs = stubs::gen_extended_jump_stubs(task.trampoline_hooks, preload_address);
+    let stubs = stubs::gen_extended_jump_stubs(task.trampoline_hooks, preload_address.0);
     task.stub_pages.borrow_mut().push(SyscallStubPage {
         address: at as u64,
         size: size as usize,
@@ -1309,6 +1310,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     let auxv = unsafe {
         aux::getauxval(task).unwrap()
     };
+
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let tid = task.gettid();
     let regs = ptrace::getregs(tid)?;
@@ -1353,11 +1355,74 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     Ok(())
 }
 
+fn populate_ldpreload(task: &mut TracedTask) {
+    let pid = task.getpid();
+    task.ldpreload_address = libtrampoline_load_address(pid);
+}
+
+const PTRACE_SECCOMP_GET_FILTER: usize = 0x420c;
+fn dump_bpf_filter(task: &TracedTask) {
+    unsafe {
+        let mut filter: [u64; 256] = std::mem::zeroed();
+        let nb = libc::syscall(SYS_ptrace as i64,
+                               PTRACE_SECCOMP_GET_FILTER,
+                               task.getpid(),
+                               0,
+                               filter.as_mut());
+        if nb != -1 {
+            filter.iter().take_while(|x| *x != &0).for_each(|f| {
+                println!("|| {:x?}", f);
+            });
+        } else {
+            println!("get filter: {:?}", std::io::Error::last_os_error());
+        }
+    }
+}
+
+unsafe fn reinstall_bpf_filter(task: &mut TracedTask) -> Result<()> {
+    if let Some((begin, end)) = task.ldpreload_address {
+        //let filter = bpf_whitelist_ip(begin, end);
+        let filter = bpf_whitelist_ips(&[(0x7000_0002, 0x7000_0002),
+                                         (begin, end)]);
+        let bytecode: &[u8] = {
+            let ptr = filter.as_ptr() as *mut u8;
+            let size = filter.len() * std::mem::size_of::<u64>();
+            std::slice::from_raw_parts(ptr, size)
+        };
+        let page = task.untraced_syscall(SYS_mmap,
+                                         0,
+                                         0x1000,
+                                         (libc::PROT_READ | libc::PROT_WRITE) as i64,
+                                         (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
+                                         -1,
+                                         0)?;
+        let rlenptr: RemotePtr<u16> = RemotePtr::new(page as *mut u16);
+        let rsockptr: RemotePtr<u64> = RemotePtr::new(
+            (page as usize + 0x08) as *mut u64);
+        let rsockarr: RemotePtr<_> = RemotePtr::new(
+            (page as usize + 0x10) as *mut u8);
+        task.poke(rlenptr, &(filter.len() as u16))?;
+        task.poke(rsockptr, &(page as u64+0x10))?;
+        task.poke_bytes(rsockarr, &bytecode)?;
+        task.untraced_syscall(SYS_seccomp,
+                                      1 /* SECCOMP_MODE_FILTER */,
+                                      0, /* flag */
+                                      page,
+                                      0, 0, 0).unwrap();
+        task.untraced_syscall(SYS_munmap, page, 0x1000, 0, 0, 0, 0)?;
+    }
+    Ok(())
+}
+
 type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc
-fn handle_program_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
+fn handle_program_entry_bkpt(mut task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
+    populate_ldpreload(&mut task);
+    unsafe {
+        reinstall_bpf_filter(&mut task)
+    }?;
     may_start_dpc_task(task)
 }
 
@@ -1416,4 +1481,3 @@ fn is_syscall_insn(tid: unistd::Pid, rip: u64) -> Result<bool> {
 fn handle_breakpoint_event(task: TracedTask, _at: u64) -> Result<RunTask<TracedTask>> {
     Ok(RunTask::Runnable(task))
 }
-

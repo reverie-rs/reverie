@@ -27,11 +27,6 @@ use systrace::sched_wait::SchedWait;
 use systrace::task::{RunTask, Task};
 use systrace::state::*;
 
-// install seccomp-bpf filters
-extern "C" {
-    fn bpf_install();
-}
-
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
     let so = PathBuf::from("lib").join("libecho.so").canonicalize()?;
@@ -138,11 +133,6 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .collect();
 
     log::info!("[main] launching: {} {:?}", &argv.program, &argv.program_args);
-    // install seccomp-bpf filters
-    // NB: the only syscall beyond this point should be
-    // execvpe only.
-    unsafe { bpf_install() };
-
     unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
