@@ -6,7 +6,7 @@ edition = "2018"
 
 [lib]
 name = "echo"
-crate-type = ["staticlib"]
+crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
@@ -14,6 +14,7 @@ syscalls = { path = "../../syscalls" }
 tools_helper = { path = "../../tools_helper" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
-
+nix = "0.14"
+libc = "0.2"
 [build-dependencies]
 cc = "1.0"

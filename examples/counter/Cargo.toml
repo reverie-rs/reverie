@@ -6,7 +6,7 @@ edition = "2018"
 
 [lib]
 name = "counter"
-crate-type = ["staticlib"]
+crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
