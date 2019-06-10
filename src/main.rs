@@ -37,6 +37,7 @@ fn can_resolve_syscall_hooks() -> Result<()> {
 
 struct Arguments<'a> {
     debug_level: i32,
+    preloader: PathBuf,
     tool_path: PathBuf,
     host_envs: bool,
     envs: HashMap<String, String>,
@@ -82,8 +83,7 @@ fn tracee_init_signals() {
 }
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
-    let tool = &argv.tool_path;
-    let libs: Vec<_> = vec![tool];
+    let libs: Vec<_> = vec![&argv.preloader];
     let ldpreload = String::from("LD_PRELOAD=")
         + &libs
             .iter()
@@ -270,6 +270,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("preloader")
+                .long("preloader")
+                .value_name("PRELOADER")
+                .help("choose tool preloader")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("tool")
                 .long("tool")
                 .value_name("TOOL")
@@ -340,12 +347,17 @@ fn main() {
         .value_of("tool")
         .expect("[main] tool not specified, default to none");
 
+    let preloader = matches.value_of("preloader")
+        .and_then(|pre| PathBuf::from(pre).canonicalize().ok())
+        .expect("[main] preloader not specified");
+
     let tool_path = PathBuf::from(tool)
         .canonicalize()
         .expect(&format!("[main] cannot locate {}", tool));
 
     let argv = Arguments {
         debug_level: log_level,
+        preloader: preloader.clone(),
         tool_path: tool_path.clone(),
         host_envs: !matches.is_present("-no-host-envs"),
         envs: matches

@@ -1422,41 +1422,6 @@ fn dump_bpf_filter(task: &TracedTask) {
     }
 }
 
-unsafe fn install_bpf_filter(task: &mut TracedTask) -> Result<()> {
-    if let Some((begin, end)) = task.ldpreload_address {
-        println!("allowing range: {:x?} - {:x?}", begin, end);
-        let filter = bpf_whitelist_ips(&[(0x7000_0002, 0x7000_0002),
-                                         (begin, end)]);
-        let bytecode: &[u8] = {
-            let ptr = filter.as_ptr() as *mut u8;
-            let size = filter.len() * std::mem::size_of::<u64>();
-            std::slice::from_raw_parts(ptr, size)
-        };
-        let page = task.untraced_syscall(SYS_mmap,
-                                         0,
-                                         0x1000,
-                                         (libc::PROT_READ | libc::PROT_WRITE) as i64,
-                                         (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
-                                         -1,
-                                         0)?;
-        let rlenptr: RemotePtr<u16> = RemotePtr::new(page as *mut u16);
-        let rsockptr: RemotePtr<u64> = RemotePtr::new(
-            (page as usize + 0x08) as *mut u64);
-        let rsockarr: RemotePtr<_> = RemotePtr::new(
-            (page as usize + 0x10) as *mut u8);
-        task.poke(rlenptr, &(filter.len() as u16))?;
-        task.poke(rsockptr, &(page as u64+0x10))?;
-        task.poke_bytes(rsockarr, &bytecode)?;
-        task.untraced_syscall(SYS_seccomp,
-                                      1 /* SECCOMP_MODE_FILTER */,
-                                      0, /* flag */
-                                      page,
-                                      0, 0, 0).unwrap();
-        task.untraced_syscall(SYS_munmap, page, 0x1000, 0, 0, 0, 0)?;
-    }
-    Ok(())
-}
-
 // use the same __tls_get_addr as in ld-linux.so
 // NB: musl's tls implementation is different than glibc's
 fn patch_tls_get_addr(task: &TracedTask) -> Result<()> {
@@ -1496,9 +1461,6 @@ type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<Run
 fn handle_program_entry_bkpt(mut task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
     populate_ldpreload(&mut task);
     patch_tls_get_addr(&task)?;
-    unsafe {
-        install_bpf_filter(&mut task)
-    }?;
     may_start_dpc_task(task)
 }
 

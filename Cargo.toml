@@ -5,8 +5,8 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members= [".", "syscalls", "tools_helper", "rust-staticlib-linker", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
-default-members = [".", "syscalls", "rust-staticlib-linker" ]
+members= [".", "syscalls", "tools_helper", "preloader", "rust-staticlib-linker", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
+default-members = [".", "syscalls", "preloader", "rust-staticlib-linker" ]
 
 [lib]
 name = "systrace"
