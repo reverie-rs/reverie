@@ -51,6 +51,9 @@ pub const SYSTRACE_LOCAL_RPC_HELPER: u64 =
 pub const SYSTRACE_LOCAL_DPC_FUTEX: u64 =
     SYSTRACE_LOCAL_RPC_HELPER + core::mem::size_of::<u64>() as u64;
 
+pub const SYSTRACE_LOCAL_TLS_GET_ADDR_OFFSET: u64 =
+    SYSTRACE_LOCAL_DPC_FUTEX + core::mem::size_of::<u64>() as u64;
+
 #[test]
 fn det_tls_sanity_check() {
     assert_eq!(SYSTRACE_LOCAL_SYSCALL_HOOK_SIZE, SYSTRACE_LOCAL_BASE + 0);
@@ -66,4 +69,5 @@ fn det_tls_sanity_check() {
     assert_eq!(SYSTRACE_LOCAL_SYSCALL_HELPER, SYSTRACE_LOCAL_BASE + 80);
     assert_eq!(SYSTRACE_LOCAL_RPC_HELPER, SYSTRACE_LOCAL_BASE + 88);
     assert_eq!(SYSTRACE_LOCAL_DPC_FUTEX, SYSTRACE_LOCAL_BASE + 96);
+    assert_eq!(SYSTRACE_LOCAL_TLS_GET_ADDR_OFFSET, SYSTRACE_LOCAL_BASE + 104);
 }

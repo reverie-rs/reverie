@@ -149,14 +149,14 @@ pub struct TracedTask {
 
     dpc_task: Option<Pid>,
 
-    // vfork creates short-lived process folowed by exec
-    // as a result it does add benefit to do expensive
-    // syscall patching.
+    /// vfork creates short-lived process folowed by exec
+    /// as a result it does add benefit to do expensive
+    /// syscall patching.
     in_vfork: bool,
 
-    // we have a patchable syscall on the enter of
-    // seccomp event, and (may) have the patch sequence size
-    // should be used only in seccomp event
+    /// we have a patchable syscall on the enter of
+    /// seccomp event, and (may) have the patch sequence size
+    /// should be used only in seccomp event
     seccomp_hook_size: Option<usize>,
 
     pub state: TaskState,
@@ -166,19 +166,29 @@ pub struct TracedTask {
     pub injected_shared_page: Option<u64>,
     pub signal_to_deliver: Option<signal::Signal>,
     pub trampoline_hooks: &'static Vec<hooks::SyscallHook>,
-    //
-    // Even though the tracee can be multi-threaded
-    // the tracer is not. hence no need for locking
-    //
-    // each process should have its own copy of below data
-    // however, threads do resides in the same address space
-    // as a result they should share below data as well
+    ///
+    /// Even though the tracee can be multi-threaded
+    /// the tracer is not. hence no need for locking
+    ///
+    /// each process should have its own copy of below data
+    /// however, threads do resides in the same address space
+    /// as a result they should share below data as well
     pub memory_map: Rc<RefCell<Vec<procfs::MemoryMap>>>,
     pub stub_pages: Rc<RefCell<Vec<SyscallStubPage>>>,
     pub unpatchable_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub patched_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub syscall_patch_lockset: Rc<RefCell<RemoteRWLock>>,
+
+    /// breakpoints
     pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>+'static>)>>>,
+
+    /// ldso: ld.so loaded (range) by GNU linker
+    /// NB: the linker itself is a static DSO with no dependencies
+    /// but it also provides DSO, hence ld-linux.so and ld-XXX.so
+    /// are different!
+    pub ldso: Option<(u64, u64)>,
+    /// ld.so symbols
+    pub ldso_symbols: Rc<HashMap<String, u64>>,
     /// per-thread stack used by rpc
     pub rpc_stack: Option<(RemotePtr<u64>, usize)>,
     /// per-thread data area used by rpc
@@ -219,6 +229,8 @@ impl Task for TracedTask {
             patched_syscalls: Rc::new(RefCell::new(HashSet::new())),
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
             breakpoints: Rc::new(RefCell::new(HashMap::new())),
+            ldso: None,
+            ldso_symbols: Rc::new(HashMap::new()),
             rpc_stack: None,
             rpc_data: None,
         }
@@ -250,6 +262,8 @@ impl Task for TracedTask {
             patched_syscalls: self.patched_syscalls.clone(),
             syscall_patch_lockset: self.syscall_patch_lockset.clone(),
             breakpoints: self.breakpoints.clone(),
+            ldso: self.ldso.clone(),
+            ldso_symbols: self.ldso_symbols.clone(),
             rpc_stack: None,
             rpc_data: None,
         };
@@ -294,6 +308,8 @@ impl Task for TracedTask {
             },
             syscall_patch_lockset: Rc::new(RefCell::new(RemoteRWLock::new())),
             breakpoints: Rc::new(RefCell::new(HashMap::new())),
+            ldso: self.ldso.clone(),
+            ldso_symbols: self.ldso_symbols.clone(),
             rpc_stack: self.rpc_stack.clone(),
             rpc_data: self.rpc_data.clone(),
         }
@@ -842,7 +858,7 @@ impl Remote for TracedTask {
     where F: 'static+FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
         let rptr = _at.cast();
         let at = rptr.as_ptr() as u64;
-        let saved_insn = self.peek(rptr)?;
+        let saved_insn:u64 = self.peek(rptr)?;
         let insn = (saved_insn & !0xffu64) | 0xccu64;
         self.poke(rptr, &insn)?;
         self.breakpoints.borrow_mut().insert(at, (saved_insn, Box::new(op)));
@@ -1139,7 +1155,7 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 
     let regs = new_task.getregs()?;
     let rptr = RemotePtr::new(regs.rip as *mut c_void);
-    new_task.setbp(rptr, handle_program_entry_bkpt)?;
+    new_task.setbp(rptr, handle_fork_entry_bkpt)?;
     Ok((task, new_task))
 }
 
@@ -1306,6 +1322,11 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     ptrace::setregs(tid, saved_regs)
 }
 
+// get ld.so load address (range) from pid.
+fn get_proc_maps(pid: Pid) -> Option<Vec<procfs::MemoryMap>> {
+    procfs::Process::new(pid.as_raw()).and_then(|p|p.maps()).ok()
+}
+
 fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     let auxv = unsafe {
         aux::getauxval(task).unwrap()
@@ -1352,6 +1373,28 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
         let rptr = RemotePtr::new(*dyn_entry as *mut c_void);
         task.setbp(rptr, Box::new(handle_program_entry_bkpt)).unwrap();
     }
+
+    if let Some(ldso_start) = auxv.get(&auxv::AT_BASE) {
+        if let Some(ldso) = get_proc_maps(task.getpid())
+            .and_then(|ents| ents.iter()
+                      .find(|e| e.address.0 == *ldso_start)
+                      .map(|e| e.clone())) {
+                task.ldso = Some(ldso.address);
+                if let procfs::MMapPath::Path(so) = &ldso.pathname {
+                    let mut res: HashMap<String, u64> = HashMap::new();
+                    let mut bytes: Vec<u8> = Vec::new();
+                    let mut file = File::open(so).unwrap();
+                    file.read_to_end(&mut bytes).unwrap();
+                    let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e)).unwrap();
+                    let strtab = elf.dynstrtab;
+                    elf.dynsyms.iter().for_each(|s| {
+                        res.insert(String::from(&strtab[s.st_name]), ldso.address.0 + s.st_value);
+                    });
+                    task.ldso_symbols = Rc::new(res);
+                }
+            }
+    }
+
     Ok(())
 }
 
@@ -1379,9 +1422,9 @@ fn dump_bpf_filter(task: &TracedTask) {
     }
 }
 
-unsafe fn reinstall_bpf_filter(task: &mut TracedTask) -> Result<()> {
+unsafe fn install_bpf_filter(task: &mut TracedTask) -> Result<()> {
     if let Some((begin, end)) = task.ldpreload_address {
-        //let filter = bpf_whitelist_ip(begin, end);
+        println!("allowing range: {:x?} - {:x?}", begin, end);
         let filter = bpf_whitelist_ips(&[(0x7000_0002, 0x7000_0002),
                                          (begin, end)]);
         let bytecode: &[u8] = {
@@ -1414,15 +1457,54 @@ unsafe fn reinstall_bpf_filter(task: &mut TracedTask) -> Result<()> {
     Ok(())
 }
 
+// use the same __tls_get_addr as in ld-linux.so
+// NB: musl's tls implementation is different than glibc's
+fn patch_tls_get_addr(task: &TracedTask) -> Result<()> {
+    if let Some(tls_get_addr_from_ldso_) = task.ldso_symbols.get("__tls_get_addr") {
+        if let Some((ldpreload_section_address,_)) = task.ldpreload_address {
+        if let Some(tls_get_addr_from_ldpreload_offset) = task.ldpreload_symbols.get("__tls_get_addr") {
+            let tls_get_addr_from_ldso = *tls_get_addr_from_ldso_;
+            let tls_get_addr_from_ldpreload = ldpreload_section_address +
+                tls_get_addr_from_ldpreload_offset;
+            let mut jmpq: [u8; 5] = [0,0,0,0,0];
+            let jmpq_insn_size = jmpq.len() as u64;
+            let pc_rela_32s: i64;
+            if tls_get_addr_from_ldso >= (tls_get_addr_from_ldpreload + jmpq_insn_size) {
+                pc_rela_32s = (tls_get_addr_from_ldso - tls_get_addr_from_ldpreload - jmpq_insn_size) as i64;
+            } else {
+                pc_rela_32s = (tls_get_addr_from_ldpreload - tls_get_addr_from_ldso - jmpq_insn_size) as i64;
+            }
+            // sanity check, the range must be within 2GB.
+            debug_assert!(pc_rela_32s < 0x7fff_fff0);
+            jmpq[0] = 0xe9;
+            jmpq[1] = (pc_rela_32s & 0xff) as u8;
+            jmpq[2] = ((pc_rela_32s >> 8) & 0xff) as u8;
+            jmpq[3] = ((pc_rela_32s >> 16) & 0xff) as u8;
+            jmpq[4] = ((pc_rela_32s >> 24) & 0xff) as u8;
+            let rptr = RemotePtr::new(tls_get_addr_from_ldpreload as *mut u8);
+            task.poke_bytes(rptr, &jmpq).unwrap();
+        }
+        }
+    }
+    Ok(())
+}
+
 type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc
 fn handle_program_entry_bkpt(mut task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
     populate_ldpreload(&mut task);
+    patch_tls_get_addr(&task)?;
     unsafe {
-        reinstall_bpf_filter(&mut task)
+        install_bpf_filter(&mut task)
     }?;
+    may_start_dpc_task(task)
+}
+
+// breakpoint at program's entry, likley `libc_start_main`for
+// for programs linked against glibc
+fn handle_fork_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
     may_start_dpc_task(task)
 }
 
