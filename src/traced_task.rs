@@ -53,7 +53,6 @@ use crate::local_state::*;
 use crate::rpc_ptrace::*;
 use crate::auxv;
 use crate::aux;
-use crate::seccomp_bpf::*;
 
 lazy_static! {
 // get all symbols from tool dso
@@ -1145,7 +1144,7 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.forked();
+    let new_task = task.forked();
     wait_sigstop(&new_task)?;
 
     let state = systrace_global_state();
@@ -1154,8 +1153,8 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
 
     let regs = new_task.getregs()?;
-    let rptr = RemotePtr::new(regs.rip as *mut c_void);
-    new_task.setbp(rptr, handle_fork_entry_bkpt)?;
+    let _rptr = RemotePtr::new(regs.rip as *mut c_void);
+    // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
     Ok((task, new_task))
 }
 
@@ -1370,8 +1369,8 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
 
     if let Some(dyn_entry) = auxv.get(&auxv::AT_ENTRY) {
-        let rptr = RemotePtr::new(*dyn_entry as *mut c_void);
-        task.setbp(rptr, Box::new(handle_program_entry_bkpt)).unwrap();
+        let _rptr = RemotePtr::new(*dyn_entry as *mut c_void);
+        // task.setbp(rptr, Box::new(handle_program_entry_bkpt)).unwrap();
     }
 
     if let Some(ldso_start) = auxv.get(&auxv::AT_BASE) {
@@ -1422,45 +1421,12 @@ fn dump_bpf_filter(task: &TracedTask) {
     }
 }
 
-// use the same __tls_get_addr as in ld-linux.so
-// NB: musl's tls implementation is different than glibc's
-fn patch_tls_get_addr(task: &TracedTask) -> Result<()> {
-    if let Some(tls_get_addr_from_ldso_) = task.ldso_symbols.get("__tls_get_addr") {
-        if let Some((ldpreload_section_address,_)) = task.ldpreload_address {
-        if let Some(tls_get_addr_from_ldpreload_offset) = task.ldpreload_symbols.get("__tls_get_addr") {
-            let tls_get_addr_from_ldso = *tls_get_addr_from_ldso_;
-            let tls_get_addr_from_ldpreload = ldpreload_section_address +
-                tls_get_addr_from_ldpreload_offset;
-            let mut jmpq: [u8; 5] = [0,0,0,0,0];
-            let jmpq_insn_size = jmpq.len() as u64;
-            let pc_rela_32s: i64;
-            if tls_get_addr_from_ldso >= (tls_get_addr_from_ldpreload + jmpq_insn_size) {
-                pc_rela_32s = (tls_get_addr_from_ldso - tls_get_addr_from_ldpreload - jmpq_insn_size) as i64;
-            } else {
-                pc_rela_32s = (tls_get_addr_from_ldpreload - tls_get_addr_from_ldso - jmpq_insn_size) as i64;
-            }
-            // sanity check, the range must be within 2GB.
-            debug_assert!(pc_rela_32s < 0x7fff_fff0);
-            jmpq[0] = 0xe9;
-            jmpq[1] = (pc_rela_32s & 0xff) as u8;
-            jmpq[2] = ((pc_rela_32s >> 8) & 0xff) as u8;
-            jmpq[3] = ((pc_rela_32s >> 16) & 0xff) as u8;
-            jmpq[4] = ((pc_rela_32s >> 24) & 0xff) as u8;
-            let rptr = RemotePtr::new(tls_get_addr_from_ldpreload as *mut u8);
-            task.poke_bytes(rptr, &jmpq).unwrap();
-        }
-        }
-    }
-    Ok(())
-}
-
 type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>> + 'static)>;
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc
 fn handle_program_entry_bkpt(mut task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
     populate_ldpreload(&mut task);
-    patch_tls_get_addr(&task)?;
     may_start_dpc_task(task)
 }
 

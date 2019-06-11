@@ -22,4 +22,3 @@ pub mod block_events;
 pub mod rpc_ptrace;
 pub mod auxv;
 pub mod aux;
-pub mod seccomp_bpf;

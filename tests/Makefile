@@ -9,8 +9,9 @@ TARGET  := x64-save-return-address openat1 open-many getpid write-many forkExec 
  
 SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../lib)
 SYSTRACE_TOOL         := $(SYSTRACE_LIBRARY_PATH)/libecho.so
-SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=4 --
-SYSTRACE       := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=0 --
+SYSTRACE_PRELOADER    := $(SYSTRACE_LIBRARY_PATH)/libpreloader.so
+SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --preloader=$(SYSTRACE_PRELOADER) --debug=4 --
+SYSTRACE       := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --preloader=$(SYSTRACE_PRELOADER) --debug=0 --
 IO_REDIRECT = 2>/dev/null
 
 all: $(TARGET)
