@@ -202,7 +202,13 @@ impl SyscallInfo {
 impl fmt::Display for SyscallRet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            SyscallRet::RetInt(val) => write!(f, "{}", val),
+            SyscallRet::RetInt(val) => {
+                if *val as u64 >= 0xfffffffffffff000 {
+                    write!(f, "{} ({})", val, std::io::Error::from_raw_os_error(-val as i32))
+                } else {
+                    write!(f, "{}", val)
+                }
+            }
             SyscallRet::RetPtr(val) => write!(f, "{:#x}", val),
             SyscallRet::RetVoid => Ok(()),
         }
