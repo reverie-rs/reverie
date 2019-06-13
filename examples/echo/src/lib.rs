@@ -3,10 +3,13 @@
 
 use tools_helper::*;
 
+#[macro_use]
+pub mod macros;
 pub mod ffi;
 pub mod consts;
 pub mod entry;
 pub mod dpc;
+pub mod show;
 
 pub use counter::{NoteInfo, note_syscall};
 pub use local_state::{ProcessState, ThreadState};
