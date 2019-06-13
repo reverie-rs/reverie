@@ -99,6 +99,14 @@ fn update_buffer(rb: &mut RingBuffer, buffer: *const u8, n: isize, update_begin:
 #[macro_export]
 macro_rules! __log_format_args {
     ($($args:tt)*) => {
+        format_args!($($args)*)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __log_format_args_nl {
+    ($($args:tt)*) => {
         format_args_nl!($($args)*)
     };
 }
@@ -111,11 +119,31 @@ macro_rules! msg {
     })
 }
 
+/// log without checking log level
+#[macro_export(local_inner_macros)]
+macro_rules! msgln {
+    ($($arg:tt)*) => ({
+        $crate::logger::__internal_ring_buffer_eprint(__log_format_args_nl!($($arg)*));
+    })
+}
+
+#[allow(unused)]
+#[doc(hidden)]
+pub fn __internal_do_rb_flush() {
+    LOGGER.flush();
+}
+
+/// flush the logger
+#[macro_export(local_inner_macros)]
+macro_rules! flush {
+    () => ({
+        $crate::logger::__internal_do_rb_flush();
+    })
+}
+
 fn ll_write(rawfd: i32, buffer: *const u8, size: usize)
 {
-    unsafe {
-        untraced_syscall(SYS_write as i32, rawfd as i64, buffer as i64, size as i64, 0, 0, 0)
-    };
+    let _ = syscall!(SYS_write, rawfd, buffer, size);
 }
 
 fn log_enabled(level: Level) -> bool {
