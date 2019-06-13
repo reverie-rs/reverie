@@ -16,6 +16,9 @@ pub use local_state::{ProcessState, ThreadState};
 
 use entry::captured_syscall;
 
+#[macro_use]
+extern crate lazy_static;
+
 #[link_section = ".init_array"]
 #[used]
 static ECHO_DSO_CTORS: extern fn() = {

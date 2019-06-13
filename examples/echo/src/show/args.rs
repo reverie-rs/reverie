@@ -1,92 +1,12 @@
-//!
+
 
 use syscalls::*;
 use core::fmt;
 use core::fmt::Display;
 
-#[derive(Clone, Copy)]
-pub enum SyscallRet {
-    RetInt(i64),
-    RetPtr(u64),
-    RetVoid,
-}
-
-impl fmt::Display for SyscallRet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            SyscallRet::RetInt(val) => write!(f, "{}", val),
-            SyscallRet::RetPtr(val) => write!(f, "{:#x}", val),
-            SyscallRet::RetVoid => Ok(()),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum SyscallArg {
-    ArgInt(i64),
-    ArgUInt(u64),
-    ArgHex(i64),
-    ArgPtr(u64),
-    ArgCStr(u64),
-    ArgSizedCStr(usize, u64),
-    ArgSizedU8Vec(usize, u64),
-    ArgI32(i32),
-    ArgFd(i32),
-    ArgFdFlags(i32),
-    ArgFdModes(i32),
-    ArgDirFd(i32),
-    ArgMmapProt(i32),
-    ArgMmapFlags(i32),
-    ArgSeccompOp(u32),
-    ArgSeccompFlags(u32),
-    ArgSeccompFprog(u64),
-    ArgWaitpidOptions(i32),
-    ArgTimeval(u64),
-    ArgTimespec(u64),
-    ArgTimezone(u64),
-    ArgClockId(i32),
-    ArgFutexOp(i32),
-    ArgRtSigHow(i32),
-    ArgRtSigSet(u64),
-    ArgRtSigaction(u64),
-    ArgRtSignal(i32),
-    ArgLseekWhence(i32),
-}
-
-#[derive(Clone)]
-pub struct SyscallInfo {
-    pub tid: i32,
-    pub no: SyscallNo,
-    pub args: Vec<SyscallArg>,
-}
-
-impl fmt::Display for SyscallInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[pid {:>5}] {:?}", self.tid, self.no)?;
-        let t = match self.args.len() {
-            0 => write!(f, "()"),
-            1 => write!(f, "({})", self.args[0]),
-            2 => write!(f, "({}, {})", self.args[0], self.args[1]),
-            3 => write!(f, "({}, {}, {})", self.args[0], self.args[1], self.args[2]),
-            4 => write!(f, "({}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3]),
-            5 => write!(f, "({}, {}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3], self.args[4]),
-            6 => write!(f, "({}, {}, {}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3], self.args[4], self.args[5]),
-            _ => {
-                unreachable!("syscall can take six arguments maximum");
-            }
-        }?;
-        Ok(t)
-    }
-}
-
-impl SyscallRet {
-    pub fn from(no: SyscallNo, retval: i64) -> Self {
-        match no {
-            SYS_mmap => SyscallRet::RetPtr(retval as u64),
-            _        => SyscallRet::RetInt(retval),
-        }
-    }
-}
+use crate::show::types::*;
+use crate::show::fcntl::fmt_fcntl;
+use crate::show::ioctl::fmt_ioctl;
 
 impl SyscallInfo {
     pub fn from(tid: i32, no: SyscallNo, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> Self {
@@ -254,6 +174,14 @@ impl SyscallInfo {
                       SyscallArg::ArgInt(a1),
                       SyscallArg::ArgLseekWhence(a2 as i32)]
             }
+            SYS_fcntl => {
+                vec![ SyscallArg::ArgFd(a0 as i32),
+                      SyscallArg::ArgFcntl(a1 as i32, a2 as u64)]
+            }
+            SYS_ioctl => {
+                vec![ SyscallArg::ArgFd(a0 as i32),
+                      SyscallArg::ArgIoctl(a1 as i32, a2 as u64)]
+            }
             _ => {
                 vec![ SyscallArg::ArgInt(a0),
                       SyscallArg::ArgInt(a1),
@@ -271,37 +199,41 @@ impl SyscallInfo {
     }
 }
 
-fn from_cstr<'a>(ptr: i64) -> &'a str {
-    let res = unsafe {
-        std::ffi::CStr::from_ptr(ptr as *const i8)
-            .to_str()
-            .unwrap_or_else(|_| "<CStr::ERROR>")
-    };
-    res
+impl fmt::Display for SyscallRet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SyscallRet::RetInt(val) => write!(f, "{}", val),
+            SyscallRet::RetPtr(val) => write!(f, "{:#x}", val),
+            SyscallRet::RetVoid => Ok(()),
+        }
+    }
 }
 
-fn from_sized_cstr(ptr: i64, size: usize) -> String {
-    let res = String::from(from_cstr(ptr));
-    let len = std::cmp::min(res.len(), size);
-    res[..len].to_string()
+impl fmt::Display for SyscallInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[pid {:>5}] {:?}", self.tid, self.no)?;
+        let t = match self.args.len() {
+            0 => write!(f, "()"),
+            1 => write!(f, "({})", self.args[0]),
+            2 => write!(f, "({}, {})", self.args[0], self.args[1]),
+            3 => write!(f, "({}, {}, {})", self.args[0], self.args[1], self.args[2]),
+            4 => write!(f, "({}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3]),
+            5 => write!(f, "({}, {}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3], self.args[4]),
+            6 => write!(f, "({}, {}, {}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3], self.args[4], self.args[5]),
+            _ => {
+                unreachable!("syscall can take six arguments maximum");
+            }
+        }?;
+        Ok(t)
+    }
 }
 
-#[allow(unused)]
-fn from_u8vec(ptr: i64, size: usize, f: &mut fmt::Formatter) ->  fmt::Result {
-    let slice = unsafe {
-        std::slice::from_raw_parts(ptr as *const u8, size)
-    };
-    write!(f, "{:x?}", slice)
-}
-
-fn from_u8vec_atmost(ptr: i64, size: usize, max_size: usize, f: &mut fmt::Formatter) ->  fmt::Result {
-    let slice = unsafe {
-        std::slice::from_raw_parts(ptr as *const u8, size)
-    };
-    if size <= max_size {
-        write!(f, "{:x?}", slice.iter().take(max_size).collect::<Vec<_>>())
-    } else {
-        write!(f, "{:x?}...", slice.iter().take(max_size).collect::<Vec<_>>())
+impl SyscallRet {
+    pub fn from(no: SyscallNo, retval: i64) -> Self {
+        match no {
+            SYS_mmap => SyscallRet::RetPtr(retval as u64),
+            _        => SyscallRet::RetInt(retval),
+        }
     }
 }
 
@@ -384,7 +316,47 @@ impl fmt::Display for SyscallArg {
                        .or_else(|| libc_match_value!(whence, SEEK_END))
                        .unwrap_or_else(|| "<whence: BAD_VALUE>"))
             }
+            SyscallArg::ArgFcntl(cmd, arg) => {
+                fmt_fcntl(cmd, arg, f)
+            }
+            SyscallArg::ArgIoctl(cmd, arg) => {
+                fmt_ioctl(cmd, arg, f)
+            }
         }
+    }
+}
+
+fn from_cstr<'a>(ptr: i64) -> &'a str {
+    let res = unsafe {
+        std::ffi::CStr::from_ptr(ptr as *const i8)
+            .to_str()
+            .unwrap_or_else(|_| "<CStr::ERROR>")
+    };
+    res
+}
+
+fn from_sized_cstr(ptr: i64, size: usize) -> String {
+    let res = String::from(from_cstr(ptr));
+    let len = std::cmp::min(res.len(), size);
+    res[..len].to_string()
+}
+
+#[allow(unused)]
+fn from_u8vec(ptr: i64, size: usize, f: &mut fmt::Formatter) ->  fmt::Result {
+    let slice = unsafe {
+        std::slice::from_raw_parts(ptr as *const u8, size)
+    };
+    write!(f, "{:x?}", slice)
+}
+
+fn from_u8vec_atmost(ptr: i64, size: usize, max_size: usize, f: &mut fmt::Formatter) ->  fmt::Result {
+    let slice = unsafe {
+        std::slice::from_raw_parts(ptr as *const u8, size)
+    };
+    if size <= max_size {
+        write!(f, "{:x?}", slice.iter().take(max_size).collect::<Vec<_>>())
+    } else {
+        write!(f, "{:x?}...", slice.iter().take(max_size).collect::<Vec<_>>())
     }
 }
 
