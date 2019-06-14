@@ -42,6 +42,6 @@ pub extern "C" fn captured_syscall(
     smsg!("{}", info);
     flush!();
     let ret = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
-    smsg!(" = {}\n", SyscallRet::from(sc, ret));
+    smsgln!("{}", SyscallRetInfo::from(tid as i32, sc, info.args_after_syscall(), ret));
     ret
 }

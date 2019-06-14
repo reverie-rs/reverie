@@ -1,206 +1,248 @@
 
-
 use syscalls::*;
 use core::fmt;
 use core::fmt::Display;
+use core::ptr::NonNull;
+use core::ffi::c_void as void;
+use std::borrow::Cow;
 
 use crate::show::types::*;
 use crate::show::fcntl::fmt_fcntl;
 use crate::show::ioctl::fmt_ioctl;
+
+macro_rules! ptr {
+    ($ty: ty, $v: ident) => {
+        NonNull::new($v as *mut $ty)
+    }
+}
+
+fn arg_out(arg: &SyscallArg) -> bool {
+    match arg {
+        SyscallArg::PtrOut(Some(_)) => true,
+        SyscallArg::SizedCStrOut(_, Some(_)) => true,
+        SyscallArg::SizedU8VecOut(_, Some(_)) => true,
+        _ => false,
+    }
+}
+
+#[allow(unused)]
+fn arg_in(arg: &SyscallArg) -> bool {
+    !arg_out(arg)
+}
 
 impl SyscallInfo {
     pub fn from(tid: i32, no: SyscallNo, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> Self {
         let args = match no {
             SYS_open => {
                 if a1 as i32 & libc::O_CREAT == libc::O_CREAT {
-                    vec![ SyscallArg::ArgCStr(a0 as u64),
-                          SyscallArg::ArgFdFlags(a1 as i32),
-                          SyscallArg::ArgFdModes(a2 as i32)]
+                    vec![ SyscallArg::CStr(ptr!(i8, a0)),
+                          SyscallArg::FdFlags(a1 as i32),
+                          SyscallArg::FdModes(a2 as i32)]
                 } else {
-                    vec![ SyscallArg::ArgCStr(a0 as u64),
-                          SyscallArg::ArgFdFlags(a1 as i32)]
+                    vec![ SyscallArg::CStr(ptr!(i8, a0)),
+                          SyscallArg::FdFlags(a1 as i32)]
                 }
             }
             SYS_openat => {
                 if a2 as i32 & libc::O_CREAT == libc::O_CREAT {
-                    vec![ SyscallArg::ArgDirFd(a0 as i32),
-                          SyscallArg::ArgCStr(a1 as u64),
-                          SyscallArg::ArgFdFlags(a2 as i32),
-                          SyscallArg::ArgFdModes(a3 as i32)]
+                    vec![ SyscallArg::DirFd(a0 as i32),
+                          SyscallArg::CStr(ptr!(i8, a1)),
+                          SyscallArg::FdFlags(a2 as i32),
+                          SyscallArg::FdModes(a3 as i32)]
                 } else {
-                    vec![ SyscallArg::ArgDirFd(a0 as i32),
-                          SyscallArg::ArgCStr(a1 as u64),
-                          SyscallArg::ArgFdFlags(a2 as i32)]
+                    vec![ SyscallArg::DirFd(a0 as i32),
+                          SyscallArg::CStr(ptr!(i8, a1)),
+                          SyscallArg::FdFlags(a2 as i32)]
                 }
             }
             SYS_mmap => {
-                vec![ SyscallArg::ArgPtr(a0 as u64),
-                      SyscallArg::ArgHex(a1),
-                      SyscallArg::ArgMmapProt(a2 as i32),
-                      SyscallArg::ArgMmapFlags(a3 as i32),
-                      SyscallArg::ArgFd(a4 as i32),
-                      SyscallArg::ArgInt(a5)]
+                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                      SyscallArg::Hex(a1),
+                      SyscallArg::MmapProt(a2 as i32),
+                      SyscallArg::MmapFlags(a3 as i32),
+                      SyscallArg::Fd(a4 as i32),
+                      SyscallArg::Int(a5)]
             }
             SYS_munmap => {
-                vec![ SyscallArg::ArgPtr(a0 as u64),
-                      SyscallArg::ArgHex(a1)]
+                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                      SyscallArg::Hex(a1)]
             }
             SYS_mprotect => {
-                vec![ SyscallArg::ArgPtr(a0 as u64),
-                      SyscallArg::ArgHex(a1),
-                      SyscallArg::ArgMmapProt(a2 as i32)]
+                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                      SyscallArg::Hex(a1),
+                      SyscallArg::MmapProt(a2 as i32)]
             }
             SYS_close => {
-                vec![ SyscallArg::ArgFd(a0 as i32) ]
+                vec![ SyscallArg::Fd(a0 as i32) ]
             }
-            SYS_read | SYS_write => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgSizedU8Vec(a2 as usize, a1 as u64),
-                      SyscallArg::ArgInt(a2) ]
+            SYS_read => {
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::SizedCStrOut(a2 as usize, ptr!(i8, a1)),
+                      SyscallArg::Int(a2) ]
             }
-            SYS_pread64 | SYS_pwrite64 => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgSizedU8Vec(a2 as usize, a1 as u64),
-                      SyscallArg::ArgInt(a2),
-                      SyscallArg::ArgInt(a3)]
+            SYS_write => {
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::SizedCStr(a2 as usize, ptr!(i8, a1)),
+                      SyscallArg::Int(a2) ]
+            }
+            SYS_pread64 => {
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::SizedCStrOut(a2 as usize, ptr!(i8, a1)),
+                      SyscallArg::Int(a2),
+                      SyscallArg::Int(a3)]
+            }
+            SYS_pwrite64 => {
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::SizedCStr(a2 as usize, ptr!(i8, a1)),
+                      SyscallArg::Int(a2),
+                      SyscallArg::Int(a3)]
             }
             SYS_exit | SYS_exit_group => {
-                vec![ SyscallArg::ArgI32(a0 as i32) ]
+                vec![ SyscallArg::I32(a0 as i32) ]
             }
             SYS_dup => {
-                vec![ SyscallArg::ArgFd(a0 as i32) ]
+                vec![ SyscallArg::Fd(a0 as i32) ]
             }
             SYS_dup2 => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgFd(a1 as i32)]
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::Fd(a1 as i32)]
             }
             SYS_dup3 => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgFd(a1 as i32),
-                      SyscallArg::ArgFdFlags(a2 as i32)]
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::Fd(a1 as i32),
+                      SyscallArg::FdFlags(a2 as i32)]
             }
             SYS_fstat => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgPtr(a1 as u64)]
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::PtrOut(ptr!(void, a1))]
             }
             SYS_stat | SYS_lstat => {
-                vec![ SyscallArg::ArgCStr(a0 as u64),
-                      SyscallArg::ArgPtr(a1 as u64)]
+                vec![ SyscallArg::CStr(ptr!(i8, a0)),
+                      SyscallArg::PtrOut(ptr!(void, a1))]
             }
             SYS_readlink => {
-                vec![ SyscallArg::ArgCStr(a0 as u64),
-                      SyscallArg::ArgSizedU8Vec(a2 as usize, a1 as u64),
-                      SyscallArg::ArgInt(a2)]
+                vec![ SyscallArg::CStr(ptr!(i8, a0)),
+                      SyscallArg::SizedU8VecOut(a2 as usize, ptr!(u8, a1)),
+                      SyscallArg::Int(a2)]
             }
             SYS_seccomp => {
-                vec![ SyscallArg::ArgSeccompOp(a0 as u32),
-                      SyscallArg::ArgSeccompFlags(a1 as u32),
-                      SyscallArg::ArgSeccompFprog(a2 as u64)]
+                vec![ SyscallArg::SeccompOp(a0 as u32),
+                      SyscallArg::SeccompFlags(a1 as u32),
+                      SyscallArg::SeccompFprog(a2 as u64)]
             }
             SYS_getpid | SYS_gettid | SYS_getppid | SYS_getpgid | SYS_getpgrp => {
                 Vec::new()
             }
             SYS_getrandom => {
-                vec![ SyscallArg::ArgSizedU8Vec(a1 as usize, a0 as u64),
-                      SyscallArg::ArgInt(a1),
-                      SyscallArg::ArgI32(a2 as i32)]
+                vec![ SyscallArg::SizedU8VecOut(a1 as usize, ptr!(u8, a0)),
+                      SyscallArg::Int(a1),
+                      SyscallArg::I32(a2 as i32)]
             }
             SYS_wait4 => {
-                vec![ SyscallArg::ArgI32(a0 as i32),
-                      SyscallArg::ArgPtr(a1 as u64),
-                      SyscallArg::ArgWaitpidOptions(a2 as i32),
-                      SyscallArg::ArgPtr(a3 as u64)]
+                vec![ SyscallArg::I32(a0 as i32),
+                      SyscallArg::Ptr(ptr!(void, a1)),
+                      SyscallArg::WaitpidOptions(a2 as i32),
+                      SyscallArg::Ptr(ptr!(void, a3))]
             }
             SYS_set_robust_list => {
-                vec![ SyscallArg::ArgPtr(a0 as u64),
-                      SyscallArg::ArgInt(a1)]
+                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                      SyscallArg::Int(a1)]
             }
             SYS_get_robust_list => {
-                vec![ SyscallArg::ArgI32(a0 as i32),
-                      SyscallArg::ArgPtr(a1 as u64),
-                      SyscallArg::ArgPtr(a2 as u64)]
+                vec![ SyscallArg::I32(a0 as i32),
+                      SyscallArg::PtrOut(ptr!(void, a1)),
+                      SyscallArg::PtrOut(ptr!(void, a2))]
             }
             SYS_uname => {
-                vec![ SyscallArg::ArgPtr(a0 as u64) ]
+                vec![ SyscallArg::PtrOut(ptr!(void, a0)) ]
             }
             SYS_access => {
-                vec![ SyscallArg::ArgCStr(a0 as u64),
-                      SyscallArg::ArgFdModes(a1 as i32)]
+                vec![ SyscallArg::CStr(ptr!(i8, a0)),
+                      SyscallArg::FdModes(a1 as i32)]
             }
             SYS_getuid | SYS_getgid | SYS_geteuid | SYS_getegid => {
                 Vec::new()
             }
             SYS_time => {
-                vec! [ SyscallArg::ArgPtr(a0 as u64) ]
+                vec! [ SyscallArg::PtrOut(ptr!(void, a0)) ]
             }
             SYS_gettimeofday => {
-                vec! [ SyscallArg::ArgTimeval(a0 as u64),
-                       SyscallArg::ArgTimezone(a1 as u64) ]
+                vec! [ SyscallArg::Timeval(a0 as u64),
+                       SyscallArg::Timezone(a1 as u64) ]
             }
             SYS_settimeofday => {
-                vec! [ SyscallArg::ArgTimeval(a0 as u64),
-                       SyscallArg::ArgTimezone(a1 as u64) ]
+                vec! [ SyscallArg::Timeval(a0 as u64),
+                       SyscallArg::Timezone(a1 as u64) ]
             }
             SYS_clock_gettime => {
-                vec! [ SyscallArg::ArgClockId(a0 as i32),
-                       SyscallArg::ArgTimespec(a1 as u64) ]
+                vec! [ SyscallArg::ClockId(a0 as i32),
+                       SyscallArg::Timespec(a1 as u64) ]
             }
             SYS_clock_settime => {
-                vec! [ SyscallArg::ArgClockId(a0 as i32),
-                       SyscallArg::ArgTimespec(a1 as u64) ]
+                vec! [ SyscallArg::ClockId(a0 as i32),
+                       SyscallArg::Timespec(a1 as u64) ]
             }
             SYS_futex => {
-                vec![ SyscallArg::ArgPtr(a0 as u64),
-                      SyscallArg::ArgFutexOp(a1 as i32),
-                      SyscallArg::ArgI32(a2 as i32),
-                      SyscallArg::ArgTimespec(a3 as u64),
-                      SyscallArg::ArgPtr(a4 as u64),
-                      SyscallArg::ArgI32 (a5 as i32)]
+                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                      SyscallArg::FutexOp(a1 as i32),
+                      SyscallArg::I32(a2 as i32),
+                      SyscallArg::Timespec(a3 as u64),
+                      SyscallArg::Ptr(ptr!(void, a4)),
+                      SyscallArg::I32 (a5 as i32)]
             }
             SYS_rt_sigprocmask => {
-                vec![ SyscallArg::ArgRtSigHow(a0 as i32),
-                      SyscallArg::ArgRtSigSet(a1 as u64),
-                      SyscallArg::ArgRtSigSet(a2 as u64),
-                      SyscallArg::ArgI32(a3 as i32)]
+                vec![ SyscallArg::RtSigHow(a0 as i32),
+                      SyscallArg::RtSigSet(a1 as u64),
+                      SyscallArg::RtSigSet(a2 as u64),
+                      SyscallArg::I32(a3 as i32)]
             }
             SYS_rt_sigaction => {
-                vec![ SyscallArg::ArgRtSignal(a0 as i32),
-                      SyscallArg::ArgRtSigaction(a1 as u64),
-                      SyscallArg::ArgRtSigaction(a2 as u64),
-                      SyscallArg::ArgI32(a3 as i32)]
+                vec![ SyscallArg::RtSignal(a0 as i32),
+                      SyscallArg::RtSigaction(a1 as u64),
+                      SyscallArg::RtSigaction(a2 as u64),
+                      SyscallArg::I32(a3 as i32)]
             }
             SYS_lseek => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgInt(a1),
-                      SyscallArg::ArgLseekWhence(a2 as i32)]
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::Int(a1),
+                      SyscallArg::LseekWhence(a2 as i32)]
             }
             SYS_fcntl => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgFcntl(a1 as i32, a2 as u64)]
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::Fcntl(a1 as i32, a2 as u64)]
             }
             SYS_ioctl => {
-                vec![ SyscallArg::ArgFd(a0 as i32),
-                      SyscallArg::ArgIoctl(a1 as i32, a2 as u64)]
+                vec![ SyscallArg::Fd(a0 as i32),
+                      SyscallArg::Ioctl(a1 as i32, a2 as u64)]
             }
             _ => {
-                vec![ SyscallArg::ArgInt(a0),
-                      SyscallArg::ArgInt(a1),
-                      SyscallArg::ArgInt(a2),
-                      SyscallArg::ArgInt(a3),
-                      SyscallArg::ArgInt(a4),
-                      SyscallArg::ArgInt(a5) ]
+                vec![ SyscallArg::Int(a0),
+                      SyscallArg::Int(a1),
+                      SyscallArg::Int(a2),
+                      SyscallArg::Int(a3),
+                      SyscallArg::Int(a4),
+                      SyscallArg::Int(a5) ]
             }
         };
+
+        let k = args.iter().take_while(|a| {
+            !arg_out(a)
+        }).count();
         SyscallInfo {
             tid,
             no,
             args,
+            nargs_before: k,
         }
+    }
+    pub fn args_after_syscall(&self) -> Vec<SyscallArg> {
+        self.args.iter().skip(self.nargs_before).cloned().collect()
     }
 }
 
 impl fmt::Display for SyscallRet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // write!(f, "{}", self.
         match self {
             SyscallRet::RetInt(val) => {
                 if *val as u64 >= 0xfffffffffffff000 {
@@ -217,20 +259,12 @@ impl fmt::Display for SyscallRet {
 
 impl fmt::Display for SyscallInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[pid {:>5}] {:?}", self.tid, self.no)?;
-        let t = match self.args.len() {
-            0 => write!(f, "()"),
-            1 => write!(f, "({})", self.args[0]),
-            2 => write!(f, "({}, {})", self.args[0], self.args[1]),
-            3 => write!(f, "({}, {}, {})", self.args[0], self.args[1], self.args[2]),
-            4 => write!(f, "({}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3]),
-            5 => write!(f, "({}, {}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3], self.args[4]),
-            6 => write!(f, "({}, {}, {}, {}, {}, {})", self.args[0], self.args[1], self.args[2], self.args[3], self.args[4], self.args[5]),
-            _ => {
-                unreachable!("syscall can take six arguments maximum");
-            }
-        }?;
-        Ok(t)
+        write!(f, "[pid {:>4}] {:?}({}", self.tid, self.no,
+               self.args.iter()
+               .take(self.nargs_before)
+               .map(|arg|arg.to_string())
+               .collect::<Vec<_>>()
+               .join(", "))
     }
 }
 
@@ -243,121 +277,212 @@ impl SyscallRet {
     }
 }
 
+impl SyscallRetInfo {
+    pub fn from(tid: i32, no: SyscallNo, args: Vec<SyscallArg>, retval: i64) -> Self {
+        let ret = match no {
+            SYS_mmap => SyscallRet::RetPtr(retval as u64),
+            _        => SyscallRet::RetInt(retval),
+        };
+        SyscallRetInfo {
+            tid,
+            no,
+            args,
+            retval: ret,
+        }
+    }
+}
+
+impl Display for SyscallRetInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.args.len() == 0 {
+            write!(f, ") = ")?;
+        } else {
+            write!(f, ", {}) = ", self.args.iter()
+                   .map(|arg|arg.to_string())
+                   .collect::<Vec<_>>()
+                   .join(", "))?;
+        }
+        write!(f, "{}", self.retval)
+    }
+}
+
+macro_rules! fmt_nullptr {
+    ($f: ident) => {
+        write!($f, "NULL")
+    }
+}
+
 impl fmt::Display for SyscallArg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SyscallArg::ArgInt(val) => write!(f, "{}", val),
-            SyscallArg::ArgUInt(val) => write!(f, "{}", val),
-            SyscallArg::ArgHex(val) => write!(f, "{:#x}", val),
-            SyscallArg::ArgPtr(val) => write!(f, "{:#x}", val),
-            SyscallArg::ArgCStr(val) => write!(f, "\"{}\"", from_cstr(val as i64)),
-            SyscallArg::ArgSizedCStr(size, val) => {
-                write!(f, "\"{}\"", from_sized_cstr(val as i64, size))
+            SyscallArg::Int(val) => write!(f, "{}", val),
+            SyscallArg::UInt(val) => write!(f, "{}", val),
+            SyscallArg::I32(val) => write!(f, "{}", val),
+            SyscallArg::Fd(val) => write!(f, "{}", val),
+            SyscallArg::Hex(val) => write!(f, "{:#x}", val),
+            SyscallArg::Ptr(Some(val)) | SyscallArg::PtrOut(Some(val)) => {
+                write!(f, "{:x?}", val)
             }
-            SyscallArg::ArgSizedU8Vec(size, val) => {
-                from_u8vec_atmost(val as i64, size, 16, f)
+            SyscallArg::Ptr(None)
+                | SyscallArg::PtrOut(None)
+                | SyscallArg::CStr(None)
+                | SyscallArg::SizedCStr(_, None)
+                | SyscallArg::SizedCStrOut(_, None)
+                | SyscallArg::SizedU8Vec(_, None)
+                | SyscallArg::SizedU8VecOut(_, None) => {
+                fmt_nullptr!(f)
             }
-            SyscallArg::ArgI32(val) => write!(f, "{}", val),
-            SyscallArg::ArgFd(fd) => write!(f, "{}", fd),
-            SyscallArg::ArgFdFlags(flags) => write!(f, "{}", show_fdflags(flags)),
-            SyscallArg::ArgFdModes(modes) => write!(f, "0{:o}", modes),
-            SyscallArg::ArgDirFd(dirfd) => {
+            SyscallArg::CStr(Some(ptr)) => {
+                fmt_cstr(f, ptr)
+            }
+            SyscallArg::SizedCStr(size, Some(ptr))
+                | SyscallArg::SizedCStrOut(size, Some(ptr)) => {
+                fmt_cstr_sized_atmost(f, ptr, size, 32)
+            }
+            SyscallArg::SizedU8Vec(size, Some(ptr))
+                | SyscallArg::SizedU8VecOut(size, Some(ptr)) => {
+                fmt_u8vec_atmost(f, ptr, size, 16)
+            }
+            SyscallArg::FdFlags(flags) => write!(f, "{}", show_fdflags(flags)),
+            SyscallArg::FdModes(modes) => write!(f, "0{:o}", modes),
+            SyscallArg::DirFd(dirfd) => {
                 match dirfd {
                     libc::AT_FDCWD => write!(f, "{}", "AT_FDCWD"),
                     _               => write!(f, "{}", dirfd),
                 }
             }
-            SyscallArg::ArgMmapProt(prot) => {
+            SyscallArg::MmapProt(prot) => {
                 write!(f, "{}", show_mmap_prot(prot))
             }
-            SyscallArg::ArgMmapFlags(flags) => {
+            SyscallArg::MmapFlags(flags) => {
                 write!(f, "{}", show_mmap_flags(flags))
             }
-            SyscallArg::ArgSeccompOp(op) => {
+            SyscallArg::SeccompOp(op) => {
                 write!(f, "{}", show_seccomp_op(op))
             }
-            SyscallArg::ArgSeccompFlags(flags) => {
+            SyscallArg::SeccompFlags(flags) => {
                 write!(f, "{}", show_seccomp_flags(flags))
             }
-            SyscallArg::ArgSeccompFprog(prog) => {
+            SyscallArg::SeccompFprog(prog) => {
                 write!(f, "{}", show_seccomp_fprog(prog))
             }
-            SyscallArg::ArgWaitpidOptions(options) => {
+            SyscallArg::WaitpidOptions(options) => {
                 write!(f, "{}", show_waitpid_options(options))
             }
-            SyscallArg::ArgTimeval(tp) => {
+            SyscallArg::Timeval(tp) => {
                 write!(f, "{}", show_timeval(tp))
             }
 
-            SyscallArg::ArgTimespec(tp) => {
+            SyscallArg::Timespec(tp) => {
                 write!(f, "{}", show_timespec(tp))
             }
-            SyscallArg::ArgTimezone(tp) => {
+            SyscallArg::Timezone(tp) => {
                 write!(f, "{}", show_timezone(tp))
             }
-            SyscallArg::ArgClockId(id) => {
+            SyscallArg::ClockId(id) => {
                 write!(f, "{}", show_clock_id(id))
             }
-            SyscallArg::ArgFutexOp(op) => {
+            SyscallArg::FutexOp(op) => {
                 write!(f, "{}", show_futex_op(op))
             }
-            SyscallArg::ArgRtSigHow(how) => {
+            SyscallArg::RtSigHow(how) => {
                 write!(f, "{}", libc_match_value!(how, SIG_BLOCK)
                        .or_else(|| libc_match_value!(how, SIG_UNBLOCK))
                        .or_else(|| libc_match_value!(how, SIG_SETMASK))
                        .unwrap_or_else(|| ""))
             }
-            SyscallArg::ArgRtSigSet(set) => {
+            SyscallArg::RtSigSet(set) => {
                 write!(f, "{}", show_rt_sigset(set))
             }
-            SyscallArg::ArgRtSignal(sig) => {
+            SyscallArg::RtSignal(sig) => {
                 write!(f, "{}", show_rt_signal(sig))
             }
-            SyscallArg::ArgRtSigaction(act) => {
+            SyscallArg::RtSigaction(act) => {
                 write!(f, "{}", show_rt_sigaction(act))
             }
-            SyscallArg::ArgLseekWhence(whence) => {
+            SyscallArg::LseekWhence(whence) => {
                 write!(f, "{}", libc_match_value!(whence, SEEK_SET)
                        .or_else(|| libc_match_value!(whence, SEEK_CUR))
                        .or_else(|| libc_match_value!(whence, SEEK_END))
                        .unwrap_or_else(|| "<whence: BAD_VALUE>"))
             }
-            SyscallArg::ArgFcntl(cmd, arg) => {
+            SyscallArg::Fcntl(cmd, arg) => {
                 fmt_fcntl(cmd, arg, f)
             }
-            SyscallArg::ArgIoctl(cmd, arg) => {
+            SyscallArg::Ioctl(cmd, arg) => {
                 fmt_ioctl(cmd, arg, f)
             }
         }
     }
 }
 
-fn from_cstr<'a>(ptr: i64) -> &'a str {
-    let res = unsafe {
-        std::ffi::CStr::from_ptr(ptr as *const i8)
-            .to_str()
-            .unwrap_or_else(|_| "<CStr::ERROR>")
-    };
+fn escape<'a>(s: &str) -> String {
+    let mut res = String::new();
+    s.chars().for_each(|c| {
+        match c {
+            '\n' => {
+                res.push_str("\\n");
+            }
+            '\t' => {
+                res.push_str("\\t");
+            }
+            _ => {
+                res.push(c);
+            }
+        }
+    });
     res
 }
 
-fn from_sized_cstr(ptr: i64, size: usize) -> String {
-    let res = String::from(from_cstr(ptr));
-    let len = std::cmp::min(res.len(), size);
-    res[..len].to_string()
+fn from_cstr<'a>(ptr: NonNull<i8>) -> Cow<'a, str> {
+    unsafe {
+        std::ffi::CStr::from_ptr(ptr.as_ptr())
+            .to_string_lossy()
+    }
+}
+
+fn fmt_cstr(f: &mut fmt::Formatter, ptr: NonNull<i8>) -> fmt::Result {
+    write!(f, "\"{}\"", escape(&from_cstr(ptr)))
+}
+
+fn from_cstr_sized<'a>(ptr: NonNull<i8>, size: usize) -> &'a str {
+    unsafe {
+        let slice = std::slice::from_raw_parts(ptr.as_ptr() as *const u8, size);
+        std::str::from_utf8_unchecked(slice)
+    }
 }
 
 #[allow(unused)]
-fn from_u8vec(ptr: i64, size: usize, f: &mut fmt::Formatter) ->  fmt::Result {
+fn fmt_cstr_sized(f: &mut fmt::Formatter, ptr: NonNull<i8>, size: usize) -> fmt::Result {
+    write!(f, "\"{}\"", escape(from_cstr_sized(ptr, size)))
+}
+
+#[allow(unused)]
+fn from_cstr_sized_atmost<'a>(ptr: NonNull<i8>, size: usize, max_size: usize) -> &'a str {
+    unsafe {
+        let slice = std::slice::from_raw_parts(
+            ptr.as_ptr() as *const u8,
+            std::cmp::min(size, max_size));
+        std::str::from_utf8_unchecked(slice)
+    }
+}
+
+#[allow(unused)]
+fn fmt_cstr_sized_atmost(f: &mut fmt::Formatter, ptr: NonNull<i8>, size: usize, max_size: usize) -> fmt::Result {
+    write!(f, "\"{}\"", escape(from_cstr_sized_atmost(ptr, size, max_size)))
+}
+
+#[allow(unused)]
+fn fmt_u8vec(f: &mut fmt::Formatter, ptr: NonNull<u8>, size: usize) ->  fmt::Result {
     let slice = unsafe {
-        std::slice::from_raw_parts(ptr as *const u8, size)
+        std::slice::from_raw_parts(ptr.as_ptr(), size)
     };
     write!(f, "{:x?}", slice)
 }
 
-fn from_u8vec_atmost(ptr: i64, size: usize, max_size: usize, f: &mut fmt::Formatter) ->  fmt::Result {
+fn fmt_u8vec_atmost(f: &mut fmt::Formatter, ptr: NonNull<u8>, size: usize, max_size: usize) ->  fmt::Result {
     let slice = unsafe {
-        std::slice::from_raw_parts(ptr as *const u8, size)
+        std::slice::from_raw_parts(ptr.as_ptr(), size)
     };
     if size <= max_size {
         write!(f, "{:x?}", slice.iter().take(max_size).collect::<Vec<_>>())

@@ -1,4 +1,6 @@
 
+use core::ptr::NonNull;
+use core::ffi::c_void as void;
 use syscalls::SyscallNo;
 
 /// syscall return vaules for formatting purpose
@@ -12,36 +14,39 @@ pub enum SyscallRet {
 /// syscall argument ADT for formatting args
 #[derive(Clone, Copy)]
 pub enum SyscallArg {
-    ArgInt(i64),
-    ArgUInt(u64),
-    ArgHex(i64),
-    ArgPtr(u64),
-    ArgCStr(u64),
-    ArgSizedCStr(usize, u64),
-    ArgSizedU8Vec(usize, u64),
-    ArgI32(i32),
-    ArgFd(i32),
-    ArgFdFlags(i32),
-    ArgFdModes(i32),
-    ArgDirFd(i32),
-    ArgMmapProt(i32),
-    ArgMmapFlags(i32),
-    ArgSeccompOp(u32),
-    ArgSeccompFlags(u32),
-    ArgSeccompFprog(u64),
-    ArgWaitpidOptions(i32),
-    ArgTimeval(u64),
-    ArgTimespec(u64),
-    ArgTimezone(u64),
-    ArgClockId(i32),
-    ArgFutexOp(i32),
-    ArgRtSigHow(i32),
-    ArgRtSigSet(u64),
-    ArgRtSigaction(u64),
-    ArgRtSignal(i32),
-    ArgLseekWhence(i32),
-    ArgFcntl(i32, u64),
-    ArgIoctl(i32, u64),
+    Int(i64),
+    UInt(u64),
+    Hex(i64),
+    Ptr(Option<NonNull<void>>),
+    PtrOut(Option<NonNull<void>>),
+    CStr(Option<NonNull<i8>>),
+    SizedCStr(usize, Option<NonNull<i8>>),
+    SizedU8Vec(usize, Option<NonNull<u8>>),
+    SizedCStrOut(usize, Option<NonNull<i8>>),
+    SizedU8VecOut(usize, Option<NonNull<u8>>),
+    I32(i32),
+    Fd(i32),
+    FdFlags(i32),
+    FdModes(i32),
+    DirFd(i32),
+    MmapProt(i32),
+    MmapFlags(i32),
+    SeccompOp(u32),
+    SeccompFlags(u32),
+    SeccompFprog(u64),
+    WaitpidOptions(i32),
+    Timeval(u64),
+    Timespec(u64),
+    Timezone(u64),
+    ClockId(i32),
+    FutexOp(i32),
+    RtSigHow(i32),
+    RtSigSet(u64),
+    RtSigaction(u64),
+    RtSignal(i32),
+    LseekWhence(i32),
+    Fcntl(i32, u64),
+    Ioctl(i32, u64),
 }
 
 /// syscall info with syscall no and arguments
@@ -50,5 +55,14 @@ pub struct SyscallInfo {
     pub tid: i32,
     pub no: SyscallNo,
     pub args: Vec<SyscallArg>,
+    pub nargs_before: usize,
 }
 
+/// syscall info with syscall no and arguments
+#[derive(Clone)]
+pub struct SyscallRetInfo {
+    pub tid: i32,
+    pub no: SyscallNo,
+    pub args: Vec<SyscallArg>,
+    pub retval: SyscallRet,
+}
