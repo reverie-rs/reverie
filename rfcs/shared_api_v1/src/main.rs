@@ -4,9 +4,15 @@
 
 use libc::pid_t;
 use nix::sys::signal::Signal;
-use serde::Serialize;
 use std::fmt::Debug;
 use std::ptr::NonNull;
+
+// #[macro_use]
+use serde::{Serialize}; // Deserialize
+use serde_json;
+// extern crate serde_json;
+// use serde_json::{Result, Value};
+
 
 /// Instrumentor configuration set at startup time.
 pub struct StaticConfig {
@@ -15,8 +21,12 @@ pub struct StaticConfig {
 }
 
 /// Dynamic configuration options that may change after each handler execution.
-pub struct DynConfig {    
+pub struct DynConfig {
+    /// Interrupt the guest, bounding how long the guest can run without an event.
     heartbeat : Heartbeat,
+    /// Specifies which syscalls should be intercepted by the tool.
+    /// Only syscalls that return `true` here will result in `handle_event` calls.
+    syscall_filter : fn (SysNo) -> bool
 }
 
 /// Setting to optionally interupt the guest (fire a timer) causing an event to be 
@@ -26,7 +36,7 @@ pub enum Heartbeat {
     /// not merely due to the passage of time.
     NoBeat,
 
-    /// Future/TODO: A maximum guest compute iota, specified in units of 
+    /// Future/TODO: A maximum guest compute quantum, specified in units of 
     /// retired branch conditionals.  This heartbeat can be used to construct 
     /// a deterministic logical clock (DLC), but it is expensive, because current
     /// (2019) Intel hardware does not support exact interrupts on this perf counter
@@ -45,6 +55,7 @@ pub enum Heartbeat {
     ApproxCycles(u64, bool),
 }
 
+/// How should the intrumentor do its job?
 pub enum InstrumentMode {
     /// Fully centralized tool execution inside a tracer process.  
     /// 
@@ -63,6 +74,8 @@ pub enum InstrumentMode {
     // in a decentralized fashion, assuming threadsafe implementations and all 
     // global state managed in shared pages.  We're setting aside this option 
     // for the near and medium term.
+    //
+    // GlobalSharedState
 }
 
 /// Events are the guest actions/state changes that the tool responds to.
@@ -105,6 +118,7 @@ pub struct FullEvent {
     e : Event,
     tid : TID,
     pid : pid_t,
+    // Other context....?
 }
 
 /// Run code *inside* a guest process.
@@ -120,7 +134,7 @@ pub struct FullEvent {
 pub trait Injector {
     /// Inject a system call into the guest and register the callback.
     /// Note that the callback will be called twice in the case of a Fork.
-    fn inject_syscall(_: SysNo, _: SysArgs, k: fn(_: SysCallRet) -> ()) -> ();
+    fn inject_syscall(&self, _: SysNo, _: SysArgs, k: fn(_: SysCallRet) -> ()) -> ();
 
     /// Look up the address of a function within the guest.
     fn resolve_symbol_address(&self, _: pid_t, _: String) -> FunAddr;
@@ -151,14 +165,26 @@ pub trait RegsAccess {
 
 /// Full access to the Guest includes the ability to inject,
 ///  as well as the ability to access the guest's state.
-pub trait GuestAccess: Injector {
+pub trait GuestAccess : Injector {
     fn get_regs(&self) -> Regs;
     fn get_static_config(&self) -> StaticConfig;
     fn get_dynamic_config(&self) -> DynConfig;
 }
 // TODO: Full "Instrumentor" interface that allows sending global RPCs as well.
-// pub trait Instrumentor
+pub trait Instrumentor : GuestAccess { 
+    /// Send an RPC message to wherever the global state is stored.
+    fn send_rpc(self : Self, args : String) -> ();
+}
 
+/// A reference to an object that MAY reside on another machine.
+/// 
+/// TODO: replace this with the appropriate concept from a popular RPC library.
+pub enum Remote<T> {
+    Local(T),
+    Remote(u64) // FIXME: need some kind of UID/remote-handle here.
+    // TODO: this probably needs some local, mutable state regarding the reference,
+    // for example, to track outstanding RPC calls.
+}
 
 /// The interface satisfied by a complete Systrace instrumentation tool.
 ///
@@ -178,9 +204,12 @@ where
     // Self::Glob: Serialize,
     Self::GlobMethodArgs : Serialize,
     Self::GlobMethodResult : Serialize,
-{    
+    // Self : std::marker::Sized,
+{
     /// Global state shared by the tool across the whole process tree being instrumented.
     type Glob = Self;
+    // type Glob = Remote<Self>;
+    
     /// Arguments to a global state RPC.  This is weakly typed, muxing together 
     /// all different methods of the global state object!
     type GlobMethodArgs;
@@ -203,17 +232,18 @@ where
     fn init_global_state(gbuf: Option<NonNull<u8>>) -> Self::Glob;
 
     /// Execute an RPC on the global state object.
-    fn execute_rpc(g: &mut Self::Glob, args : Self::GlobMethodArgs) -> Self::GlobMethodResult;
+    fn execute_rpc<I: Instrumentor>(g: &mut Remote<Self::Glob>, args : Self::GlobMethodArgs, i : I)
+       -> Self::GlobMethodResult;
 
     /// Trigger to initialize state when a process is created, including the root process.
     /// Every process includes at least one thread, so this returns a thread state as well.
     /// 
     /// For now this assumes access to the global state, but that may change.
-    fn init_process_state(g: &Self::Glob) -> (Self::Proc, Self::Thrd);
+    fn init_process_state(g: &Remote<Self::Glob>) -> (Self::Proc, Self::Thrd);
 
     /// A guest process creates additional threads, which need their state initialized.
     /// This takes the thread-local state of the PARENT thread for reference.
-    fn init_thread_state(p: &Self::Proc, parent: &Self::Thrd) -> Self::Thrd;
+    fn init_thread_state(g: &Remote<Self::Glob>, p: &Self::Proc, parent: &Self::Thrd) -> Self::Thrd;
 
     /// The tool receives an event from the instrumentation.
     ///
@@ -221,8 +251,7 @@ where
     /// against either (1) the global state (remote object), or (2) the injector.
     /// In either case, it is registering a continuation to respond to the completion of an RPC
     /// in the host (coordinator) or guest respectively.
-    fn handle_event<I: Injector>(g: Self::Glob, p: &Self::Proc, t: &mut Self::Thrd, i : I, e : Event)
-        -> ();
+    fn handle_event<I: Instrumentor>(g: &Remote<Self::Glob>, p: &Self::Proc, t: &mut Self::Thrd, i : I, e : Event) -> ();
         //  TODO: in the future each event handled may return a result to the instrumentor 
         // which changes its configuration: for example, subscribing or unsubscribing to 
         // categories of events.
@@ -272,13 +301,17 @@ pub type FunAddr = u64;
 //--------------------------------------------------------------
 // Example tool: a simple counter.
 
+/// The simplest possible global state.
 #[derive(PartialEq, Debug, Eq, Hash, Clone)]
 pub struct Counter {
     count : u64,
 }
 
-#[derive(PartialEq, Debug, Eq, Hash, Clone)]
+#[derive(PartialEq, Debug, Eq, Hash, Clone)] // Serialize, Deserialize
 pub struct IncrMsg(u64);
+
+// [derive(Serialize,Deserialize)]
+// [serde(tag = "type")]
 
 impl Serialize for IncrMsg {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -304,36 +337,51 @@ impl SystraceTool for Counter {
         Counter{count:0}
     }
 
-    fn init_process_state(_g :&Counter) -> ((),()) {
+    fn init_process_state(_g :& Remote<Counter>) -> ((),()) {
         ((),())
     }
 
-    fn init_thread_state(_p: &Self::Proc, _parent: &Self::Thrd) {
+    fn init_thread_state(_g : &Remote<Counter>, _p: &Self::Proc, _parent: &Self::Thrd) {
         ()
     }
 
-    fn handle_event<I>(_g: Self::Glob, _p: &Self::Proc, _t: &mut Self::Thrd, _i : I, _e : Event) {
+    fn handle_event<I>(_g: &Remote<Self::Glob>, _p: &Self::Proc, _t: &mut Self::Thrd, _i : I, _e : Event) {
         ()
     }
 
-    fn execute_rpc(g: &mut Self::Glob, args: Self::GlobMethodArgs) {
-        match args {
-            IncrMsg(n) => g.count += n
-        }        
+    fn execute_rpc<I:Instrumentor>(g: &mut Remote<Self::Glob>, args: Self::GlobMethodArgs, i : I) {
+        match g {
+            Remote::Local(gl) =>
+               match args {
+                 IncrMsg(n) => gl.count += n
+               }
+            Remote ::Remote(_uid) => {
+               let s = serde_json::to_string(&args).unwrap();
+               i.send_rpc(s)
+            }
+        }
         ()
     }
 
 }
 
 /// Hook up the give tool so that it becomes the single, global tool compiled 
-/// in this library.  This must be called at startup.
-fn register_instrumentation_tool<T : SystraceTool>(_t : T) {
+/// in this library.  This must be called at startup.  It is called in the guest process.
+/// Therefore, this will use local, in-process interactions with the guest.
+fn register_instrumentation_tool_local<T : SystraceTool>(_t : T) {
+    unimplemented!()
+}
+
+/// The same as register_instrumentation_tool_local, except called in the global/daemon/tracer 
+/// process instead.  The tool will therefore interact with the guest remotely, using 
+/// inter-process communication.
+fn register_instrumentation_tool_global<T : SystraceTool>(_t : T) {
     unimplemented!()
 }
 
 /// TODO: replace with some standardized entrypoint for the library, exposed to C code.
 fn init_upcall_example() {
-    register_instrumentation_tool(Counter{count:0})
+    register_instrumentation_tool_local(Counter{count:0})
 }
 
 
@@ -343,4 +391,3 @@ fn main() {
     // Normally we would
     
 }
-
