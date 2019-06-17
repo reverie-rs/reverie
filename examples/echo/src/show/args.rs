@@ -21,6 +21,10 @@ fn arg_out(arg: &SyscallArg) -> bool {
         SyscallArg::PtrOut(Some(_)) => true,
         SyscallArg::SizedCStrOut(_, Some(_)) => true,
         SyscallArg::SizedU8VecOut(_, Some(_)) => true,
+        SyscallArg::UnamePtr(Some(_)) => true,
+        SyscallArg::Timeval(_) => true,
+        SyscallArg::Timespec(_) => true,
+        SyscallArg::Timezone(_) => true,
         _ => false,
     }
 }
@@ -154,7 +158,7 @@ impl SyscallInfo {
                       SyscallArg::PtrOut(ptr!(void, a2))]
             }
             SYS_uname => {
-                vec![ SyscallArg::PtrOut(ptr!(void, a0)) ]
+                vec![ SyscallArg::UnamePtr(ptr!(void, a0)) ]
             }
             SYS_access => {
                 vec![ SyscallArg::CStr(ptr!(i8, a0)),
@@ -215,6 +219,9 @@ impl SyscallInfo {
                 vec![ SyscallArg::Fd(a0 as i32),
                       SyscallArg::Ioctl(a1 as i32, a2 as u64)]
             }
+            SYS_sysinfo => {
+                vec![ SyscallArg::Ptr(ptr!(void, a0)) ]
+            }
             _ => {
                 vec![ SyscallArg::Int(a0),
                       SyscallArg::Int(a1),
@@ -242,7 +249,6 @@ impl SyscallInfo {
 
 impl fmt::Display for SyscallRet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // write!(f, "{}", self.
         match self {
             SyscallRet::RetInt(val) => {
                 if *val as u64 >= 0xfffffffffffff000 {
@@ -259,12 +265,18 @@ impl fmt::Display for SyscallRet {
 
 impl fmt::Display for SyscallInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[pid {:>4}] {:?}({}", self.tid, self.no,
+        let suffix = if self.args.len() == self.nargs_before {
+            ") = "
+        } else {
+            ""
+        };
+        write!(f, "[pid {:>4}] {:?}({}{}", self.tid, self.no,
                self.args.iter()
                .take(self.nargs_before)
                .map(|arg|arg.to_string())
                .collect::<Vec<_>>()
-               .join(", "))
+               .join(", "),
+               suffix)
     }
 }
 
@@ -278,7 +290,7 @@ impl SyscallRet {
 }
 
 impl SyscallRetInfo {
-    pub fn from(tid: i32, no: SyscallNo, args: Vec<SyscallArg>, retval: i64) -> Self {
+    pub fn from(tid: i32, no: SyscallNo, args: Vec<SyscallArg>, retval: i64, first_arg_is_outp: bool) -> Self {
         let ret = match no {
             SYS_mmap => SyscallRet::RetPtr(retval as u64),
             _        => SyscallRet::RetInt(retval),
@@ -288,16 +300,21 @@ impl SyscallRetInfo {
             no,
             args,
             retval: ret,
+            first_arg_is_outp
         }
     }
 }
 
 impl Display for SyscallRetInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.args.len() == 0 {
-            write!(f, ") = ")?;
+        let prefix = if self.first_arg_is_outp  {
+            ""
         } else {
-            write!(f, ", {}) = ", self.args.iter()
+            ", "
+        };
+        if self.args.len() != 0 {
+            write!(f, "{}{}) = ", prefix,
+                   self.args.iter()
                    .map(|arg|arg.to_string())
                    .collect::<Vec<_>>()
                    .join(", "))?;
@@ -370,14 +387,14 @@ impl fmt::Display for SyscallArg {
                 write!(f, "{}", show_waitpid_options(options))
             }
             SyscallArg::Timeval(tp) => {
-                write!(f, "{}", show_timeval(tp))
+                fmt_timeval(f, tp)
             }
 
             SyscallArg::Timespec(tp) => {
-                write!(f, "{}", show_timespec(tp))
+                fmt_timespec(f, tp)
             }
             SyscallArg::Timezone(tp) => {
-                write!(f, "{}", show_timezone(tp))
+                fmt_timezone(f, tp)
             }
             SyscallArg::ClockId(id) => {
                 write!(f, "{}", show_clock_id(id))
@@ -392,13 +409,13 @@ impl fmt::Display for SyscallArg {
                        .unwrap_or_else(|| ""))
             }
             SyscallArg::RtSigSet(set) => {
-                write!(f, "{}", show_rt_sigset(set))
+                fmt_rt_sigset_p(f, set)
             }
             SyscallArg::RtSignal(sig) => {
-                write!(f, "{}", show_rt_signal(sig))
+                fmt_rt_signal(f, sig)
             }
             SyscallArg::RtSigaction(act) => {
-                write!(f, "{}", show_rt_sigaction(act))
+                fmt_rt_sigaction(f, act)
             }
             SyscallArg::LseekWhence(whence) => {
                 write!(f, "{}", libc_match_value!(whence, SEEK_SET)
@@ -411,6 +428,9 @@ impl fmt::Display for SyscallArg {
             }
             SyscallArg::Ioctl(cmd, arg) => {
                 fmt_ioctl(cmd, arg, f)
+            }
+            SyscallArg::UnamePtr(ptr) => {
+                fmt_uname_ptr(f, ptr)
             }
         }
     }
@@ -595,25 +615,25 @@ struct timespec {
     tv_nsec: u64,
 }
 
-fn show_timeval(tp: u64) -> String {
+fn fmt_timeval(f: &mut fmt::Formatter, tp: u64) -> fmt::Result {
     if tp == 0 {
-        String::from("NULL")
+        write!(f, "NULL")
     } else {
-        let val = unsafe {
+        let tv = unsafe {
             core::ptr::read(tp as *const timeval)
         };
-        format!("{:?}", val)
+        write!(f, "{{tv.sec: {}, tv.tv_usec: {}}}", tv.tv_sec, tv.tv_usec)
     }
 }
 
-fn show_timespec(tp: u64) -> String {
+fn fmt_timespec(f: &mut fmt::Formatter, tp: u64) -> fmt::Result {
     if tp == 0 {
-        String::from("NULL")
+        write!(f, "NULL")
     } else {
-        let val = unsafe {
+        let tp = unsafe {
             core::ptr::read(tp as *const timespec)
         };
-        format!("{:?}", val)
+        write!(f, "{{tv.sec: {}, tv.tv_nsec: {}}}", tp.tv_sec, tp.tv_nsec)
     }
 }
 
@@ -624,14 +644,14 @@ struct timezone {
     tz_dsttime: i32,
 }
 
-fn show_timezone(tp: u64) -> String {
+fn fmt_timezone(f: &mut fmt::Formatter, tp: u64) -> fmt::Result {
     if tp == 0 {
-        String::from("NULL")
+        write!(f, "NULL")
     } else {
-        let val = unsafe {
+        let tz = unsafe {
             core::ptr::read(tp as *const timezone)
         };
-        format!("{:?}", val)
+        write!(f, "{{tz_minuteswest: {}, tz_dsttime: {}}}", tz.tz_minuteswest, tz.tz_dsttime)
     }
 }
 
@@ -685,17 +705,22 @@ macro_rules! libc_signal_bit {
     }
 }
 
-fn show_rt_sigset(ptr: u64) -> String {
-    if ptr == 0 {
-        return String::from("NULL");
+struct RtSigset {
+    set: u64,
+}
+
+impl RtSigset {
+    pub fn new(val: u64) -> Self {
+        RtSigset {
+            set: val
+        }
     }
-    let set = unsafe {
-        core::ptr::read(ptr as *const u64)
-    };
-    if set == 0 {
-        String::from("[]")
-    } else {
-        let f = [ libc_signal_bit!(set, SIGHUP, HUP),
+}
+
+impl fmt::Display for RtSigset {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let set = self.set;
+        let s = [ libc_signal_bit!(set, SIGHUP, HUP),
                   libc_signal_bit!(set, SIGINT, INT),
                   libc_signal_bit!(set, SIGQUIT, QUIT),
                   libc_signal_bit!(set, SIGILL, ILL),
@@ -729,49 +754,62 @@ fn show_rt_sigset(ptr: u64) -> String {
         ].iter().filter_map(|x|*x).collect::<Vec<_>>().join("|");
         let rtsigs = set.wrapping_shr(32);
         if rtsigs != 0 {
-            format!("[{:#x}|{}]", rtsigs.wrapping_shl(32), f)
+            write!(f, "[{:#x}|{}]", rtsigs.wrapping_shl(32), s)
         } else {
-            format!("[{}]", f)
+            write!(f, "[{}]", s)
         }
-
     }
 }
 
-fn show_rt_signal(sig: i32) -> String {
-    libc_match_value!(sig, SIGHUP)
-        .or_else(|| libc_match_value!(sig, SIGHUP))
-        .or_else(|| libc_match_value!(sig, SIGINT))
-        .or_else(|| libc_match_value!(sig, SIGQUIT))
-        .or_else(|| libc_match_value!(sig, SIGILL))
-        .or_else(|| libc_match_value!(sig, SIGTRAP))
-        .or_else(|| libc_match_value!(sig, SIGABRT))
-        .or_else(|| libc_match_value!(sig, SIGBUS))
-        .or_else(|| libc_match_value!(sig, SIGFPE))
-        .or_else(|| libc_match_value!(sig, SIGKILL))
-        .or_else(|| libc_match_value!(sig, SIGUSR1))
-        .or_else(|| libc_match_value!(sig, SIGSEGV))
-        .or_else(|| libc_match_value!(sig, SIGUSR2))
-        .or_else(|| libc_match_value!(sig, SIGPIPE))
-        .or_else(|| libc_match_value!(sig, SIGALRM))
-        .or_else(|| libc_match_value!(sig, SIGTERM))
-        .or_else(|| libc_match_value!(sig, SIGSTKFLT))
-        .or_else(|| libc_match_value!(sig, SIGCHLD))
-        .or_else(|| libc_match_value!(sig, SIGCONT))
-        .or_else(|| libc_match_value!(sig, SIGSTOP))
-        .or_else(|| libc_match_value!(sig, SIGTSTP))
-        .or_else(|| libc_match_value!(sig, SIGTTIN))
-        .or_else(|| libc_match_value!(sig, SIGTTOU))
-        .or_else(|| libc_match_value!(sig, SIGURG))
-        .or_else(|| libc_match_value!(sig, SIGXCPU))
-        .or_else(|| libc_match_value!(sig, SIGXFSZ))
-        .or_else(|| libc_match_value!(sig, SIGVTALRM))
-        .or_else(|| libc_match_value!(sig, SIGPROF))
-        .or_else(|| libc_match_value!(sig, SIGWINCH))
-        .or_else(|| libc_match_value!(sig, SIGIO))
-        .or_else(|| libc_match_value!(sig, SIGPWR))
-        .or_else(|| libc_match_value!(sig, SIGSYS))
-        .map(|s| String::from(s))
-        .unwrap_or_else(|| sig.to_string())
+fn fmt_rt_sigset_p(f: &mut fmt::Formatter, ptr: u64) -> fmt::Result {
+    if ptr == 0 {
+        return write!(f, "NULL");
+    }
+    let set = unsafe {
+        core::ptr::read(ptr as *const u64)
+    };
+    if set == 0 {
+        write!(f, "[]")
+    } else {
+        write!(f, "{}", RtSigset::new(set))
+    }
+}
+
+fn fmt_rt_signal(f: &mut fmt::Formatter, sig: i32) -> fmt::Result {
+    write!(f, "{}", libc_match_value!(sig, SIGHUP)
+           .or_else(|| libc_match_value!(sig, SIGHUP))
+           .or_else(|| libc_match_value!(sig, SIGINT))
+           .or_else(|| libc_match_value!(sig, SIGQUIT))
+           .or_else(|| libc_match_value!(sig, SIGILL))
+           .or_else(|| libc_match_value!(sig, SIGTRAP))
+           .or_else(|| libc_match_value!(sig, SIGABRT))
+           .or_else(|| libc_match_value!(sig, SIGBUS))
+           .or_else(|| libc_match_value!(sig, SIGFPE))
+           .or_else(|| libc_match_value!(sig, SIGKILL))
+           .or_else(|| libc_match_value!(sig, SIGUSR1))
+           .or_else(|| libc_match_value!(sig, SIGSEGV))
+           .or_else(|| libc_match_value!(sig, SIGUSR2))
+           .or_else(|| libc_match_value!(sig, SIGPIPE))
+           .or_else(|| libc_match_value!(sig, SIGALRM))
+           .or_else(|| libc_match_value!(sig, SIGTERM))
+           .or_else(|| libc_match_value!(sig, SIGSTKFLT))
+           .or_else(|| libc_match_value!(sig, SIGCHLD))
+           .or_else(|| libc_match_value!(sig, SIGCONT))
+           .or_else(|| libc_match_value!(sig, SIGSTOP))
+           .or_else(|| libc_match_value!(sig, SIGTSTP))
+           .or_else(|| libc_match_value!(sig, SIGTTIN))
+           .or_else(|| libc_match_value!(sig, SIGTTOU))
+           .or_else(|| libc_match_value!(sig, SIGURG))
+           .or_else(|| libc_match_value!(sig, SIGXCPU))
+           .or_else(|| libc_match_value!(sig, SIGXFSZ))
+           .or_else(|| libc_match_value!(sig, SIGVTALRM))
+           .or_else(|| libc_match_value!(sig, SIGPROF))
+           .or_else(|| libc_match_value!(sig, SIGWINCH))
+           .or_else(|| libc_match_value!(sig, SIGIO))
+           .or_else(|| libc_match_value!(sig, SIGPWR))
+           .or_else(|| libc_match_value!(sig, SIGSYS))
+           .map(|s| String::from(s))
+           .unwrap_or_else(|| sig.to_string()))
 }
 
 #[repr(C)]
@@ -782,7 +820,6 @@ struct kernel_sigaction {
     sa_mask: u64,
 }
 
-// {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x7f9dd58cbf20}
 impl Display for kernel_sigaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{sa_handler={}, sa_mask={}, sa_flags={}, sa_restorer={:#x}}}",
@@ -791,10 +828,7 @@ impl Display for kernel_sigaction {
                    libc::SIG_IGN => String::from("SIG_IGN"),
                    _ => format!("{:#x}", self.sa_handler),
                },
-               {
-                   let mask_p: *const u64 = &self.sa_mask;
-                   show_rt_sigset(mask_p as u64)
-               },
+               self.sa_mask,
                {
                    let flags = self.sa_flags as i32;
                    let mut v: Vec<_> = 
@@ -814,13 +848,30 @@ impl Display for kernel_sigaction {
     }
 }
 
-fn show_rt_sigaction(act_p: u64) -> String {
+fn fmt_rt_sigaction(f: &mut fmt::Formatter, act_p: u64) -> fmt::Result {
     if act_p == 0 {
-        String::from("NULL")
+        write!(f, "NULL")
     } else {
         let act = unsafe {
             core::ptr::read(act_p as *const kernel_sigaction)
         };
-        format!("{}", act)
+        write!(f, "{}", act)
+    }
+}
+
+const UTSNAME_LENGTH: usize = 65; /* sys/utsname.h */
+
+fn fmt_uname_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
+    match ptr__ {
+        None => write!(f, "NULL"),
+        Some(ptr) => {
+            let uts = ptr.as_ptr() as *const i8;
+            let ptr_2 = UTSNAME_LENGTH + uts as usize;
+            let sysname_p = ptr!(i8, uts);
+            let nodename_p = ptr!(i8, ptr_2);
+            write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}",
+                   sysname_p.map(from_cstr).unwrap_or_else(|| Cow::from("NULL")),
+                   nodename_p.map(from_cstr).unwrap_or_else(|| Cow::from("NULL")))
+        }
     }
 }

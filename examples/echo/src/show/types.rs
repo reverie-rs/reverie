@@ -47,6 +47,7 @@ pub enum SyscallArg {
     LseekWhence(i32),
     Fcntl(i32, u64),
     Ioctl(i32, u64),
+    UnamePtr(Option<NonNull<void>>),
 }
 
 /// syscall info with syscall no and arguments
@@ -65,4 +66,5 @@ pub struct SyscallRetInfo {
     pub no: SyscallNo,
     pub args: Vec<SyscallArg>,
     pub retval: SyscallRet,
+    pub first_arg_is_outp: bool,
 }
