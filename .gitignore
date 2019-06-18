@@ -101,3 +101,7 @@ src/nr.rs
 syscalls/src/nr.rs
 tools_helper/src/consts.rs
 tools_helper/src/state.rs
+tools_helper/src/local_state.rs
+examples/det/src/ffi.rs
+examples/echo/src/consts.rs
+preloader/src/consts.rs
