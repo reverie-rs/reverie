@@ -62,6 +62,23 @@ void seccomp_bpf_print(struct sock_filter *filter, size_t count);
 #define IP(addr, jt) \
 	BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (addr), 0, 1), \
 	jt
+
+#define IP_GT(addr, jt) \
+	BPF_JUMP(BPF_JMP+BPF_JGT+BPF_K, (addr), 0, 1), \
+	jt
+
+#define IP_LT(addr, jt) \
+	BPF_JUMP(BPF_JMP+BPF_JGE+BPF_K, (addr), 1, 0), \
+	jt
+
+#define IP_JGT64(hi, lo, jt)			       \
+  BPF_JUMP(BPF_JMP+BPF_JGT+BPF_K, (hi), 2, 0),	       \
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (hi), 0, 2),       \
+    BPF_JUMP(BPF_JMP+BPF_JGT+BPF_K, (lo), 1, 0),       \
+	jt
+
+#define IP_JGT(addr, jt) IP_JGT64(((addr) >> 32), ((addr) & 0xffffffff), jt)
+
 /* Lame, but just an example */
 #define FIND_LABEL(labels, label) seccomp_bpf_label((labels), #label)
 
@@ -266,8 +283,36 @@ union arg64 {
 	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, \
 		 offsetof(struct seccomp_data, nr))
 
-#define LOAD_SYSCALL_IP \
-	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, \
-		offsetof(struct seccomp_data, instruction_pointer))
+/* Ensure that we load the logically correct offset. */
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define ENDIAN(_lo, _hi) _lo, _hi
+#define HI_IP offsetof(struct seccomp_data, instruction_pointer) + sizeof(__u32)
+#define LO_IP offsetof(struct seccomp_data, instruction_pointer)
+#elif __BYTE_ORDER == __BIG_ENDIAN
+#define ENDIAN(_lo, _hi) _hi, _lo
+#define HI_IP offsetof(struct seccomp_data, instruction_pointer)
+#define LO_IP offsetof(struct seccomp_data, instruction_pointer) + sizeof(__u32)
+#else
+#error "Unknown endianness"
+#endif
+
+/* Loads the arg into A */
+#define LOAD_SYSCALL_IP_32 \
+	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, LO_IP))
+
+/* Loads lo into M[0] and hi into M[1] and A */
+#define LOAD_SYSCALL_IP_64 \
+	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, LO_IP), \
+	BPF_STMT(BPF_ST, 0), /* lo -> M[0] */ \
+	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, HI_IP), \
+	BPF_STMT(BPF_ST, 1) /* hi -> M[1] */
+
+#if __BITS_PER_LONG == 32
+#define LOAD_SYSCALL_IP LOAD_SYSCALL_IP_32
+#elif __BITS_PER_LONG == 64
+#define LOAD_SYSCALL_IP LOAD_SYSCALL_IP_64
+#else
+#error __BITS_PER_LONG value unusable.
+#endif
 
 #endif  /* __BPF_HELPER_H__ */

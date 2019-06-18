@@ -1,0 +1,3 @@
+[submodule "rust-staticlib-linker"]
+	path = rust-staticlib-linker
+	url = https://github.com/wangbj/rust-staticlib-linker

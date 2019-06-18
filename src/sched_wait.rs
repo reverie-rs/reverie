@@ -208,7 +208,7 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
                 sched.add_and_schedule(task1);
             }
             Ok(RunTask::Forked(parent, child)) => {
-                sched.add(child);
+                sched.add_and_schedule(child);
                 sched.add_and_schedule(parent);
             }
             // task.run could fail when ptrace failed, this *can* happen

@@ -25,33 +25,19 @@ use systrace::{ns, consts, task, hooks};
 use systrace::sched::Scheduler;
 use systrace::sched_wait::SchedWait;
 use systrace::task::{RunTask, Task};
-use systrace::state::SystraceState;
-use systrace::state_tracer::*;
-
-// install seccomp-bpf filters
-extern "C" {
-    fn bpf_install();
-}
+use systrace::state::*;
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
-    let so = PathBuf::from("target").join("debug").join("libecho.so").canonicalize()?;
+    let so = PathBuf::from("lib").join("libecho.so").canonicalize()?;
     let parsed = hooks::resolve_syscall_hooks_from(so)?;
     assert_ne!(parsed.len(), 0);
     Ok(())
 }
 
-#[test]
-fn libtrampoline_trampoline_within_first_page() -> Result<()> {
-    let so = PathBuf::from("target").join("debug").join("libecho.so").canonicalize()?;
-    let parsed = hooks::resolve_syscall_hooks_from(so)?;
-    let filtered: Vec<_> = parsed.iter().filter(|hook| hook.offset < 0x10000).collect();
-    assert_eq!(parsed.len(), filtered.len());
-    Ok(())
-}
-
 struct Arguments<'a> {
     debug_level: i32,
+    preloader: PathBuf,
     tool_path: PathBuf,
     host_envs: bool,
     envs: HashMap<String, String>,
@@ -97,8 +83,7 @@ fn tracee_init_signals() {
 }
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
-    let tool = &argv.tool_path;
-    let libs: Vec<_> = vec![tool];
+    let libs: Vec<_> = vec![&argv.preloader];
     let ldpreload = String::from("LD_PRELOAD=")
         + &libs
             .iter()
@@ -148,11 +133,6 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .collect();
 
     log::info!("[main] launching: {} {:?}", &argv.program, &argv.program_args);
-    // install seccomp-bpf filters
-    // NB: the only syscall beyond this point should be
-    // execvpe only.
-    unsafe { bpf_install() };
-
     unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
@@ -218,8 +198,11 @@ fn run_tracer(
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {
-                let state = get_systrace_state();
-                show_perf_stats(state);
+                let _ = systrace_global_state()
+                    .lock().as_ref().and_then(|st| {
+                        show_perf_stats(st);
+                        Ok(())
+                    });
             }
             Ok(res)
         }
@@ -284,6 +267,13 @@ fn main() {
                 .long("debug")
                 .value_name("DEBUG_LEVEL")
                 .help("Set debug level [0..5]")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("preloader")
+                .long("preloader")
+                .value_name("PRELOADER")
+                .help("choose tool preloader")
                 .takes_value(true),
         )
         .arg(
@@ -357,12 +347,17 @@ fn main() {
         .value_of("tool")
         .expect("[main] tool not specified, default to none");
 
+    let preloader = matches.value_of("preloader")
+        .and_then(|pre| PathBuf::from(pre).canonicalize().ok())
+        .expect("[main] preloader not specified");
+
     let tool_path = PathBuf::from(tool)
         .canonicalize()
         .expect(&format!("[main] cannot locate {}", tool));
 
     let argv = Arguments {
         debug_level: log_level,
+        preloader: preloader.clone(),
         tool_path: tool_path.clone(),
         host_envs: !matches.is_present("-no-host-envs"),
         envs: matches

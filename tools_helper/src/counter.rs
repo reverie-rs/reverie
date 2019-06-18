@@ -1,27 +1,17 @@
+//! counter syscall events
+use crate::local_state::*;
 
-use core::ptr::NonNull;
-use core::sync::atomic::Ordering;
-use crate::consts;
-use crate::state::SystraceState;
-
+/// syscall events
 pub enum NoteInfo {
     SyscallEntry,
 }
 
-pub fn note_syscall(_no: i32, note: NoteInfo) {
-    let state = get_systrace_state();
+/// note a syscall event
+pub fn note_syscall(_p: &mut ProcessState, t: &mut ThreadState, _no: i32, note: NoteInfo) {
     match note {
         NoteInfo::SyscallEntry => {
-            state.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-            state.nr_syscalls_captured.fetch_add(1, Ordering::SeqCst);
+            t.nr_syscalls += 1;
+            t.nr_syscalls_captured += 1;
         }
-    }
-}
-
-fn get_systrace_state() -> &'static mut SystraceState {
-    unsafe {
-        let ptr = NonNull::new(consts::SYSTRACE_GLOBAL_STATE_ADDR as *mut SystraceState).unwrap();
-        let state = &mut *ptr.as_ptr();
-        state
     }
 }

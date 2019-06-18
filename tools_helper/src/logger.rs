@@ -1,18 +1,18 @@
-/// safe logger for writing systrace tools (shared library)
-///
-/// log is enabled by passing `SYSTOOL_LOG=xxx` from systrace
-///
-/// NB: tools can use rust `log` crate, but must use this
-/// logger as backend. That is because logging in captured syscalls is
-/// very low level, roughly the same (or sligher higher) level as signal
-/// handlers, allocation should be reduced to minimum (if not none); and
-/// must also keep thread-safe in mind.
-///
-/// NB: any allocation (i.e.: `toString`) is considered DANGEROUS.
-/// we use a global static ring buffer to avoid allocations, and use CAS
-/// spinlocks to prevent race condition. note the same thread can call
-/// spin lock multiple times.
-///
+//! safe logger for writing systrace tools (shared library)
+//!
+//! log is enabled by passing `SYSTOOL_LOG=xxx` from systrace
+//!
+//! NB: tools can use rust `log` crate, but must use this
+//! logger as backend. That is because logging in captured syscalls is
+//! very low level, roughly the same (or sligher higher) level as signal
+//! handlers, allocation should be reduced to minimum (if not none); and
+//! must also keep thread-safe in mind.
+//!
+//! NB: any allocation (i.e.: `toString`) is considered DANGEROUS.
+//! we use a global static ring buffer to avoid allocations, and use CAS
+//! spinlocks to prevent race condition. note the same thread can call
+//! spin lock multiple times.
+//!
 
 use log::{Log, Level, Metadata, Record, SetLoggerError};
 use core::fmt::{Arguments, Error, Write};
@@ -21,6 +21,7 @@ use syscalls::*;
 use crate::spinlock::{SpinLock, SPINLOCK_INIT};
 
 const RING_BUFF_SIZE: usize = 16384;
+
 struct RingBuffer {
     bytes: [u8; RING_BUFF_SIZE],
     size: isize,
@@ -98,10 +99,19 @@ fn update_buffer(rb: &mut RingBuffer, buffer: *const u8, n: isize, update_begin:
 #[macro_export]
 macro_rules! __log_format_args {
     ($($args:tt)*) => {
+        format_args!($($args)*)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __log_format_args_nl {
+    ($($args:tt)*) => {
         format_args_nl!($($args)*)
     };
 }
 
+/// log without checking log level
 #[macro_export(local_inner_macros)]
 macro_rules! msg {
     ($($arg:tt)*) => ({
@@ -109,11 +119,31 @@ macro_rules! msg {
     })
 }
 
+/// log without checking log level
+#[macro_export(local_inner_macros)]
+macro_rules! msgln {
+    ($($arg:tt)*) => ({
+        $crate::logger::__internal_ring_buffer_eprint(__log_format_args_nl!($($arg)*));
+    })
+}
+
+#[allow(unused)]
+#[doc(hidden)]
+pub fn __internal_do_rb_flush() {
+    LOGGER.flush();
+}
+
+/// flush the logger
+#[macro_export(local_inner_macros)]
+macro_rules! flush {
+    () => ({
+        $crate::logger::__internal_do_rb_flush();
+    })
+}
+
 fn ll_write(rawfd: i32, buffer: *const u8, size: usize)
 {
-    unsafe {
-        untraced_syscall(SYS_write as i32, rawfd as i64, buffer as i64, size as i64, 0, 0, 0)
-    };
+    let _ = syscall!(SYS_write, rawfd, buffer, size);
 }
 
 fn log_enabled(level: Level) -> bool {
@@ -188,6 +218,7 @@ where
     rb.is_empty = true;
 }
 
+/// initialize the logger
 pub fn init() -> Result<(), SetLoggerError> {
     let log_level_ptr = 0x7000_1038 as *const i64;
     let log_level = unsafe { core::ptr::read(log_level_ptr) };
@@ -213,6 +244,7 @@ impl Write for RingBuffer {
     }
 }
 
+#[doc(hidden)]
 pub fn __internal_ring_buffer_eprint(args: Arguments) {
     unsafe {
         rb_print_to(args, &mut RING_BUFFER)

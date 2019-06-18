@@ -11,5 +11,4 @@ path = "src/lib.rs"
 [dependencies]
 
 [build-dependencies]
-systrace = { path = ".." }
 sysnum = { path = "../sysnum" }

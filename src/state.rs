@@ -1,10 +1,10 @@
-/// systrace state/statistics shared between tracer and all tracees
-/// NB: the stats are shared globally
-
+//! systrace global state
 use std::sync::atomic::AtomicUsize;
+use std::sync::Mutex;
 
 #[repr(C)]
 #[derive(Debug)]
+/// systrace global state
 pub struct SystraceState {
     pub nr_syscalls: AtomicUsize,
     pub nr_syscalls_ptraced: AtomicUsize,
@@ -27,3 +27,20 @@ pub struct SystraceState {
     pub nr_process_spawns: AtomicUsize,
 }
 
+impl SystraceState {
+    pub fn new() -> Self {
+        let z: SystraceState = unsafe {
+            std::mem::zeroed()
+        };
+        z
+    }
+}
+
+lazy_static! {
+    static ref SYSTRACE_GLOBAL_STATE: Mutex<SystraceState> = Mutex::new(SystraceState::new());
+}
+
+/// get systrace global state, protected by mutex
+pub fn systrace_global_state() -> &'static Mutex<SystraceState> {
+    &SYSTRACE_GLOBAL_STATE
+}

@@ -10,7 +10,7 @@ fn main() {
         .include("../../trampoline")
         .file("../../trampoline/trampoline.S")
         .file("../../trampoline/raw_syscall.S")
-        .file("../../trampoline/trampoline_hook.c")
+        .file("../../trampoline/remote_call.S")
         .compile("my-trampoline");
     std::fs::copy("../../trampoline/ffi.rs", "src/ffi.rs").unwrap();
 

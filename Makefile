@@ -20,8 +20,12 @@ endif
 all:
 	$(MAKE) -C tests all
 	@cargo build $(WAY) --all
+	@cargo build --manifest-path examples/echo/Cargo.toml --target-dir=target
+	@cp -v target/$(TARGETDIR)/libpreloader.so lib/
 	@cp -v target/$(TARGETDIR)/libecho.so lib/
 	@cp -v target/$(TARGETDIR)/libnone.so lib/
+	@cp -v target/$(TARGETDIR)/libcounter.so lib/
+	@cp -v target/$(TARGETDIR)/libdet.so lib/
 	@cp -v target/$(TARGETDIR)/systrace bin/
 clean:
 	$(MAKE) -C tests clean

@@ -67,8 +67,4 @@ fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
 
 fn main() {
     gen_syscall_nrs(PathBuf::from("src").join("nr.rs")).unwrap();
-    cc::Build::new()
-        .file("src/bpf.c")
-        .file("src/bpf-helper.c")
-        .compile("my-asm-lib");
 }
