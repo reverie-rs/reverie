@@ -479,7 +479,7 @@ fn register_instrumentation_tool_local<T : SystraceTool>(_t : & T, r : RemoteRef
     println!(" * Process, and thread state allocated.");
 
     // Initialize instrumentor:
-    let mut inst = FakeInstrumentor{};
+    let mut inst = FakeInstrumentor{}; // TODO: GUEST mode instrumentor..
 
     // Temporarily call test events:    
     let e = Event::Syscall(0, SysArgs{arg0:0, arg1:1, arg2:2, arg3:3, arg4:4, arg5:5});
@@ -493,6 +493,9 @@ fn register_instrumentation_tool_local<T : SystraceTool>(_t : & T, r : RemoteRef
 /// inter-process communication.
 fn register_instrumentation_tool_global<T : SystraceTool>(_t : & T) {
     let _gs = T::init_global_state(None);    
+
+    let mut _inst = FakeInstrumentor{}; // TODO: Ptrace-mode instrumentor..
+
     println!(" * Global state allocated.");
 }
 
