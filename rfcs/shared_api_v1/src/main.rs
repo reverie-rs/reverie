@@ -349,6 +349,13 @@ pub type FunAddr = u64;
 pub struct CounterTool {}
 // AUDIT: is this singleton type idiomatic?
 
+/// Type-safe wrapper-methods for RPC calls.  These could be generated.
+impl CounterTool {    
+    fn incr<I : Instrumentor>(g: &mut Remoteable<u64>, i : &mut I, x : u64) -> () {
+       Self::exec_rpc(g, IncrMsg(x), i);
+    }
+}
+
 #[derive(PartialEq, Debug, Eq, Hash, Clone, Deserialize)] 
 pub struct IncrMsg(u64);
 
@@ -389,8 +396,8 @@ impl SystraceTool for CounterTool {
 
     fn handle_event<I:Instrumentor>(g: &mut Remoteable<Self::Glob>, _p: &mut Self::Proc, _t: &mut Self::Thrd, i : &mut I, e : Event) {
         println!(" - Counter tool recv event: {:?}", e);
-        match e {
-            Event::Syscall(_,_) => Self::exec_rpc(g, IncrMsg(1), i),
+        match e {            
+            Event::Syscall(_,_) => Self::incr(g, i, 1),
             _ => ()
         }
         ()
