@@ -1,18 +1,20 @@
 #![feature(async_await)]
 #![feature(associated_type_defaults)]
 #![allow(dead_code)]
+use futures::prelude::*;
+// use futures::future::Map;
 
 use libc::pid_t;
 use nix::sys::signal::Signal;
 use std::fmt::Debug;
 use std::ptr::NonNull;
 
-// #[macro_use]
-use serde::{Serialize}; // Deserialize
+use serde_derive::Deserialize; // For derive macros..
+use serde::{Serialize};
+use serde::de::DeserializeOwned;
 use serde_json;
 // extern crate serde_json;
 // use serde_json::{Result, Value};
-
 
 /// Instrumentor configuration set at startup time.
 pub struct StaticConfig {
@@ -170,10 +172,17 @@ pub trait GuestAccess : Injector {
     fn get_static_config(&self) -> StaticConfig;
     fn get_dynamic_config(&self) -> DynConfig;
 }
+
 // TODO: Full "Instrumentor" interface that allows sending global RPCs as well.
 pub trait Instrumentor : GuestAccess { 
-    /// Send an RPC message to wherever the global state is stored.
-    fn send_rpc(self : Self, args : String) -> ();
+    /// Send an RPC message to wherever the global state is stored, 
+    /// synchronously block until a response is received.
+    fn send_rpc_sync(self : Self, args : SerializedVal) -> SerializedVal;
+
+    // TODO - async version that returns a future.
+    fn send_rpc_async<F>(self : Self, args : SerializedVal) -> F
+         where F: Future<Item=SerializedVal>;
+    // fn send_rpc_async<F>(self : Self, args : String) -> impl Future<Item=String, Error=String>;
 }
 
 /// A reference to an object that MAY reside on another machine.
@@ -198,16 +207,21 @@ where
     // Self::Tmp: Debug,
     // Processor- and Thread-local state may need to migrated:
     Self::Proc: Serialize,
+    Self::Proc: DeserializeOwned,    
     Self::Thrd: Serialize,
+    Self::Thrd: DeserializeOwned,
     // In contrast, the global state should serialize into a remote 
     // HANDLE that allows RPC communication with the original.
     // Self::Glob: Serialize,
     Self::GlobMethodArgs : Serialize,
-    Self::GlobMethodResult : Serialize,
-    // Self : std::marker::Sized,
+    Self::GlobMethodArgs : DeserializeOwned,
+    Self::GlobMethodResult : Serialize, 
+    Self::GlobMethodResult : DeserializeOwned, 
+    Self : std::marker::Sized,
 {
     /// Global state shared by the tool across the whole process tree being instrumented.
-    type Glob = Self;
+    type Glob;
+    // type Glob = Self;
     // type Glob = Remote<Self>;
     
     /// Arguments to a global state RPC.  This is weakly typed, muxing together 
@@ -231,9 +245,24 @@ where
     ///
     fn init_global_state(gbuf: Option<NonNull<u8>>) -> Self::Glob;
 
-    /// Execute an RPC on the global state object.
-    fn execute_rpc<I: Instrumentor>(g: &mut Remote<Self::Glob>, args : Self::GlobMethodArgs, i : I)
+    /// Recieve an RPC-upcall on the global state object.
+    fn receive_rpc<I: Instrumentor>(g: &mut Self, args : Self::GlobMethodArgs, i : I)
        -> Self::GlobMethodResult;
+
+    // Make a remote procedure call either locally or remotely, as appropriate.
+    fn exec_rpc<I: Instrumentor>(g: &mut Remote<Self>, args : Self::GlobMethodArgs, i : I)
+       -> Self::GlobMethodResult 
+    {
+       match g {
+            Remote::Local(gl) => SystraceTool::receive_rpc(gl, args, i),
+            Remote::Remote(_uid) => {
+               let s = serde_json::to_string(&args).unwrap();
+               let r = i.send_rpc_sync(s);
+               let r2 : Self::GlobMethodResult = serde_json::from_str::<>(& r).unwrap();
+               r2
+            }
+        }
+    }
 
     /// Trigger to initialize state when a process is created, including the root process.
     /// Every process includes at least one thread, so this returns a thread state as well.
@@ -267,6 +296,9 @@ where
 
 /// Thread ID
 pub type TID = pid_t;
+
+// TODO: replace this with whatever is most idiomatic.
+pub type SerializedVal = String;
 
 // The value returned in RAX on x86_64:
 pub type SysCallRet = i64;
@@ -307,7 +339,7 @@ pub struct Counter {
     count : u64,
 }
 
-#[derive(PartialEq, Debug, Eq, Hash, Clone)] // Serialize, Deserialize
+#[derive(PartialEq, Debug, Eq, Hash, Clone, Deserialize)] 
 pub struct IncrMsg(u64);
 
 // [derive(Serialize,Deserialize)]
@@ -349,20 +381,11 @@ impl SystraceTool for Counter {
         ()
     }
 
-    fn execute_rpc<I:Instrumentor>(g: &mut Remote<Self::Glob>, args: Self::GlobMethodArgs, i : I) {
-        match g {
-            Remote::Local(gl) =>
-               match args {
-                 IncrMsg(n) => gl.count += n
-               }
-            Remote ::Remote(_uid) => {
-               let s = serde_json::to_string(&args).unwrap();
-               i.send_rpc(s)
-            }
+    fn receive_rpc<I:Instrumentor>(g: &mut Counter, args: Self::GlobMethodArgs, _i : I) {
+        match args {
+          IncrMsg(n) => g.count += n
         }
-        ()
     }
-
 }
 
 /// Hook up the give tool so that it becomes the single, global tool compiled 
@@ -381,7 +404,8 @@ fn register_instrumentation_tool_global<T : SystraceTool>(_t : T) {
 
 /// TODO: replace with some standardized entrypoint for the library, exposed to C code.
 fn init_upcall_example() {
-    register_instrumentation_tool_local(Counter{count:0})
+    register_instrumentation_tool_global(Counter{count:0})
+
 }
 
 

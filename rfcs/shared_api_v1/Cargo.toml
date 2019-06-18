@@ -12,6 +12,9 @@ members= ["."]
 [dependencies]
 serde = "1.0.91"
 serde_json = "1.0.39"
+serde_derive = "1.0.92"
 nix = "0.14.0"
 libc = "0.2.56"
-
+futures = "0.1.27"
+tokio = "0.1.21"
+tokio-threadpool = "0.1.14"
