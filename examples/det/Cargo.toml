@@ -17,3 +17,4 @@ libc = { version = "0.2", default-features = false }
 
 [build-dependencies]
 cc = "1.0.28"
+tempfile = "3.0.8"
