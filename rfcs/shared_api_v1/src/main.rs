@@ -1,21 +1,15 @@
 #![feature(async_await)]
-#![feature(associated_type_defaults)]
 #![allow(dead_code)]
-// use futures::prelude::*;
-// use futures::future::Map;
 
-use libc::pid_t;
+use nix::unistd;
+use nix::unistd::Pid;
 use nix::sys::signal::Signal;
-use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::marker::PhantomData;
 
-use serde_derive::Deserialize; // For derive macros..
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use serde_json;
-// extern crate serde_json;
-// use serde_json::{Result, Value};
 
 /// Instrumentor configuration set at startup time.
 pub struct StaticConfig {
@@ -107,7 +101,7 @@ pub enum Event {
     /// side effects will be seen from this TID.
     ExitThread(TID),
     /// Same but for processes.
-    ExitProc(pid_t),
+    ExitProc(Pid),
 
     /// Future/TODO: 
     /// Timer/heartbeat events: for future use with a deterministic (DLC) implementation.
@@ -120,7 +114,7 @@ pub enum Event {
 pub struct FullEvent {
     e : Event,
     tid : TID,
-    pid : pid_t,
+    pid : Pid,
     // Other context....?
 }
 
@@ -140,7 +134,7 @@ pub trait Injector {
     fn inject_syscall(&self, _: SysNo, _: SysArgs, k: fn(_: SysCallRet) -> ()) -> ();
 
     /// Look up the address of a function within the guest.
-    fn resolve_symbol_address(&self, _: pid_t, _: String) -> FunAddr;
+    fn resolve_symbol_address(&self, _: Pid, _: String) -> FunAddr;
 
     /// Run a function in the guest.
     ///
@@ -210,9 +204,6 @@ pub struct RemoteRef<T> {
 /// to distinguish one tool from another.
 pub trait SystraceTool
 where
-    Self::Glob: Debug,
-    Self::Proc: Debug,
-    Self::Thrd: Debug,
     // Self::Tmp: Debug,
     // Processor- and Thread-local state may need to migrated:
     Self::Proc: Serialize,
@@ -277,7 +268,7 @@ where
     /// Every process includes at least one thread, so this returns a thread state as well.
     /// 
     /// For now this assumes access to the global state, but that may change.
-    fn init_process_state(g: &Remoteable<Self::Glob>, id : pid_t ) -> (Self::Proc, Self::Thrd);
+    fn init_process_state(g: &Remoteable<Self::Glob>, id : Pid ) -> (Self::Proc, Self::Thrd);
 
     /// A guest process creates additional threads, which need their state initialized.
     /// This takes the thread-local state of the PARENT thread for reference.
@@ -306,7 +297,7 @@ where
 //--------------------------------------------------------------
 
 /// Thread ID
-pub type TID = pid_t;
+pub type TID = Pid;
 
 // TODO: replace this with whatever is most idiomatic.
 pub type SerializedVal = String;
@@ -386,7 +377,7 @@ impl SystraceTool for CounterTool {
         0 // Counter{count:0}
     }
 
-    fn init_process_state(_g :& Remoteable<u64>, _ : pid_t) -> ((),()) {
+    fn init_process_state(_g :& Remoteable<u64>, _ : Pid) -> ((),()) {
         ((),())
     }
 
@@ -416,11 +407,11 @@ impl SystraceTool for CounterTool {
 pub struct FakeInstrumentor {}
 
 impl Injector for FakeInstrumentor {
-    fn inject_syscall(&self, s: SysNo, a: SysArgs, _k: fn(_: SysCallRet) -> ()) -> () {
+    fn inject_syscall(&self, s: SysNo, a: SysArgs, _k: fn(_: SysCallRet) -> ()) {
        println!(" [FakeInstrumentor] inject syscall {:?},{:?}", s, a);
     }
 
-    fn resolve_symbol_address(&self, _: pid_t, s: String) -> FunAddr {
+    fn resolve_symbol_address(&self, _: Pid, s: String) -> FunAddr {
         println!(" [FakeInstrumentor] resolve symbol {}", s);
         0
     }
@@ -475,7 +466,7 @@ impl Instrumentor for FakeInstrumentor {
 /// Therefore, this will use local, in-process interactions with the guest.
 fn register_instrumentation_tool_local<T : SystraceTool>(_t : & T, r : RemoteRef<T::Glob>) {
     let mut rem = Remoteable::Remote(r);    
-    let (mut ps,mut ts) = T::init_process_state(& rem, 0);
+    let (mut ps,mut ts) = T::init_process_state(& rem, unistd::getpid());
     println!(" * Process, and thread state allocated.");
 
     // Initialize instrumentor:
