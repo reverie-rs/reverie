@@ -18,7 +18,7 @@ extern "C" {
 }
 
 /// NB: max insn allowed is 4096
-const SOCK_FILTER_MAX: usize = 256;
+const SOCK_FILTER_MAX: usize = 4096;
 
 pub fn bpf_whitelist_ips(ips: &[(u64, u64)]) -> Vec<u64> {
     let mut res: [u64; SOCK_FILTER_MAX] = unsafe {

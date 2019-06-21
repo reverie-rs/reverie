@@ -4,7 +4,7 @@
 #include <sys/types.h>
 #include <linux/filter.h>
 
-#define SOCK_FILTER_MAX 256
+#define SOCK_FILTER_MAX BPF_MAXINSNS
 
 struct range {
   unsigned long begin;
