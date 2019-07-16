@@ -68,7 +68,6 @@ void* _early_preload_dso(const char* dso) {
   Lmid_t id = LM_ID_NEWLM;
 
   handle = dlmopen(id, dso, RTLD_NOW);
-  printf("dso = %s\n", dso);
   assert(handle);
   assert(dlinfo(handle, RTLD_DI_LMID, &id) == 0);
 
