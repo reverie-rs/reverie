@@ -1180,6 +1180,18 @@ fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     Ok(RunTask::Exited(retval as i32))
 }
 
+enum PatchStatus{
+    NotTried,
+    Failed,
+    Successed,
+}
+
+#[repr(C)]
+struct SyscallInfo {
+    no: u64,
+    args: [u64; 6],
+}
+
 fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     let regs = task.getregs()?;
     let ev = task.getevent()?;
@@ -1212,24 +1224,57 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         return Ok(task);
     }
 
-    while !task.syscall_patch_lockset.borrow_mut().try_read_lock(tid, rip) {
+    // NB: another thread is patching this syscall, retry syscall
+    if !task.syscall_patch_lockset.borrow_mut().try_read_lock(tid, rip) {
+        let mut new_regs = regs;
+        new_regs.rax = regs.orig_rax;
+        let _ = skip_seccomp_syscall(&mut task, new_regs);
+        let _ = task.setregs(regs);
+        task.state = TaskState::Ready;
+        return Ok(task);
     }
 
-    let mut patched = false;
+    let mut patch_status = if task.ldpreload_address.is_some() && hook.is_none() {
+        PatchStatus::Failed
+    } else {
+        PatchStatus::NotTried
+
+    };
     if !(task.ldpreload_address.is_none() || hook.is_none()) {
         match patch_syscall_with(&mut task, hook.unwrap(), syscall, rip) {
-            Err(_) => patched = false,
-            Ok(_) => patched = true,
+            Err(_) => patch_status = PatchStatus::Failed,
+            Ok(_) => patch_status = PatchStatus::Successed,
         }
     }
 
     let state = systrace_global_state();
-    if !patched {
-        state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
-        state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    } else {
-        // others fields are updated in tracee instead.
-        state.lock().unwrap().nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
+    match patch_status {
+        PatchStatus::NotTried => {
+            state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
+            state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+        }
+        PatchStatus::Failed => {
+            let hook = task.get_preloaded_symbol_address("syscall_hook").expect("syscall_hook not found");
+            let mut new_regs = regs;
+            new_regs.rax = regs.orig_rax;
+            skip_seccomp_syscall(&mut task, new_regs).unwrap();
+            task.setregs(regs)?;
+
+            let rptr = task.rpc_data.unwrap().0.cast();
+            let info = SyscallInfo {
+                no: regs.orig_rax,
+                args: [regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9],
+            };
+            task.poke(rptr, &info).unwrap();
+            let args = &[rptr.as_ptr() as u64, 0, 0, 0, 0, 0];
+            let _ = unsafe {
+                rpc_call(&task, hook, args)
+            };
+        }
+        PatchStatus::Successed => {
+            // others fields are updated in tracee instead.
+            state.lock().unwrap().nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     Ok(task)
