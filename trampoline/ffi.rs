@@ -12,6 +12,11 @@ use crate::consts;
 use crate::captured_syscall;
 use crate::local_state::*;
 
+use std::borrow::*;
+
+use tools_helper::local_state::*;
+use syscalls::*;
+
 static SYSCALL_UNTRACED: u64 = 0x7000_0000;
 static SYSCALL_TRACED: u64 = 0x7000_0004;
 
@@ -132,22 +137,30 @@ struct syscall_info {
     args: [u64; 6],
 }
 
-static mut PSTATE: Option<*mut ProcessState> = None;
-
 #[no_mangle]
 unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
-    if let Some(pstate) = PSTATE.and_then(|p|p.as_mut()) {
-        let sc = info.as_ref().unwrap();
-        //let tid = syscall(SYS_gettid as i32, 0, 0, 0, 0, 0, 0).unwrap() as i32;
-        //let tp = pstate.get_thread_data(tid).map(|p| p as *mut ThreadState);
-        //if let Some(tstate) = tp.and_then(|p|p.as_mut()) {
-        let mut tstate: ThreadState = core::mem::zeroed();
-            let res = captured_syscall(pstate, &mut tstate, sc.no as i32,
-                                   sc.args[0] as i64, sc.args[1] as i64,
-                                   sc.args[2] as i64, sc.args[3] as i64,
-                                   sc.args[4] as i64, sc.args[5] as i64);
-            return res;
-        //}
+     if let Some(pstate) = PSTATE.and_then(|p|p.as_mut()) {
+         let sc = info.as_ref().unwrap();
+         let no = SyscallNo::from(sc.no as i32);
+         let tid = syscall!(SYS_gettid, 0, 0, 0, 0, 0, 0).unwrap() as i32;
+
+         // XXX: fake per thread state
+         let mut tstate = ThreadState::new();
+         let res = captured_syscall(pstate, &mut tstate, sc.no as i32,
+                          sc.args[0] as i64, sc.args[1] as i64,
+                          sc.args[2] as i64, sc.args[3] as i64,
+                          sc.args[4] as i64, sc.args[5] as i64);
+
+         /*
+         let res = THREAD_STATE.with(|tstate_| {
+             let mut tstate: &mut ThreadState = &mut tstate_.borrow_mut();
+             captured_syscall(pstate, &mut tstate, sc.no as i32,
+                              sc.args[0] as i64, sc.args[1] as i64,
+                              sc.args[2] as i64, sc.args[3] as i64,
+                              sc.args[4] as i64, sc.args[5] as i64)
+         });
+          */
+         return res;
     }
     return -38;      // ENOSYS
 }
