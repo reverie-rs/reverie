@@ -1,15 +1,15 @@
 //! `remote` implements APIs so that tracer can control tracees by ptrace interface
 use libc;
-use procfs;
-use log::{debug};
+use log::debug;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal};
 use nix::unistd;
 use nix::unistd::Pid;
+use procfs;
+use std::ffi::c_void;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
-use std::ffi::c_void;
 
 use crate::consts;
 use crate::consts::*;
@@ -60,9 +60,7 @@ where
 
 impl<T> Clone for RemotePtr<T> {
     fn clone(&self) -> Self {
-        RemotePtr {
-            ptr: self.ptr.clone(),
-        }
+        RemotePtr { ptr: self.ptr }
     }
 }
 
@@ -135,7 +133,8 @@ pub trait Remote {
 
     /// set breakpoint at inferior `addr` with handler `op`.
     fn setbp<F>(&mut self, addr: RemotePtr<c_void>, op: F) -> Result<()>
-        where F: 'static+FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
+    where
+        F: 'static + FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
 }
 
 /// tell the tracee to do context synchronization at given `rip`
@@ -159,26 +158,26 @@ pub fn synchronize_from(task: &TracedTask, rip: u64) {
     task.setregs(regs).unwrap();
 }
 
-pub fn remote_do_syscall(task: &TracedTask,
-                         nr: SyscallNo,
-                         a0: i64,
-                         a1: i64,
-                         a2: i64,
-                         a3: i64,
-                         a4: i64,
-                         a5: i64) -> Result<()>{
+pub fn remote_do_syscall(
+    task: &TracedTask,
+    nr: SyscallNo,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+    a5: i64,
+) -> Result<()> {
     let mut regs = task.getregs()?;
     let syscall_helper_addr_ptr = RemotePtr::new(consts::SYSTRACE_LOCAL_SYSCALL_HELPER as *mut u64);
     let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
     let return_address = regs.rip;
     regs.rip = syscall_helper_addr;
-    regs.rsp -= 9*8;   // return_address + nr + a0-a5 + pad
+    regs.rsp -= 9 * 8; // return_address + nr + a0-a5 + pad
     let remote_rsp = RemotePtr::new(regs.rsp as *mut i64);
-    let regs_to_save = vec![0, a5, a4, a3, a2, a1, a0, nr as i32 as i64, return_address as i64];
+    let regs_to_save = vec![0, a5, a4, a3, a2, a1, a0, nr as i64, return_address as i64];
     regs_to_save.iter().enumerate().for_each(|(k, x)| {
-        let current_rsp = unsafe {
-            remote_rsp.offset(k as isize)
-        };
+        let current_rsp = unsafe { remote_rsp.offset(k as isize) };
         task.poke(current_rsp, x).unwrap();
     });
     task.setregs(regs)
@@ -201,7 +200,7 @@ pub fn patch_syscall_at(
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let ip = resume_from;
     let rela: i64 = target as i64 - ip as i64 - jmp_insn_size as i64;
-    assert!(rela >= -1i64.wrapping_shl(31) && rela < 1i64.wrapping_shl(31));
+    assert!(rela >= -(1i64.wrapping_shl(31)) && rela < 1i64.wrapping_shl(31));
 
     let mut patch_bytes: Vec<u8> = Vec::new();
 
@@ -317,7 +316,7 @@ pub fn patch_syscall_at(
         patch_bytes,
         target
     );
-    let mut new_regs = regs.clone();
+    let mut new_regs = regs;
     new_regs.rax = regs.orig_rax; // for our patch, we use rax as syscall no.
     new_regs.rip = ip; // rewind pc back (-2).
     task.setregs(new_regs).unwrap();
