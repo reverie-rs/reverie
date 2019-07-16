@@ -54,7 +54,8 @@ pub fn dl_open_ns(dso: &str) -> Vec<LinkMap> {
     let pid = unistd::getpid();
     let mut res: Vec<LinkMap> = Vec::new();
     let handle = unsafe {
-        _early_preload_dso(dso.as_ptr() as *const i8)
+        let dso_ = String::from(dso) + "\0";
+        _early_preload_dso(dso_.as_ptr() as *const i8)
     };
     let head = std::ptr::NonNull::new(handle as *mut ll_link_map);
     let maps = procfs::Process::new(pid.as_raw()).and_then(|p| {
