@@ -1,10 +1,10 @@
 
 # examples/
 
-Example instrumentation tools built on top of systrace.
+Example instrumentation tools built on top of reverie.
 
 Copying one of these examples is the recommended way to get started
-using systrace.
+using reverie.
 
  * echotool (Rust) - echo each intercepted event, similar to `strace`.
 

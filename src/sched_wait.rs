@@ -19,7 +19,7 @@ use crate::sched::*;
 use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
-use crate::state::SystraceState;
+use crate::state::ReverieState;
 
 /// the scheduler
 pub struct SchedWait {

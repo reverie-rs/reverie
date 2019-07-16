@@ -58,7 +58,7 @@ lazy_static! {
 // get all symbols from tool dso
     static ref PRELOAD_TOOL_SYMS: HashMap<String, u64> = {
         let mut res = HashMap::new();
-        let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).unwrap();
+        let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
         let mut bytes: Vec<u8> = Vec::new();
         let mut file = File::open(so).unwrap();
         file.read_to_end(&mut bytes).unwrap();
@@ -88,10 +88,10 @@ fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<(u64, u64)> {
 
 /// our tool library has been fully loaded
 fn libtrampoline_load_address(pid: unistd::Pid) -> Option<(u64, u64)> {
-    let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).ok()?;
+    let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).ok()?;
     ptrace::read(
         pid,
-        consts::SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE as ptrace::AddressType,
+        consts::REVERIE_LOCAL_SYSCALL_TRAMPOLINE as ptrace::AddressType,
     ).ok().and_then(|addr| {
         if addr == 0 {
             None
@@ -103,7 +103,7 @@ fn libtrampoline_load_address(pid: unistd::Pid) -> Option<(u64, u64)> {
 
 lazy_static! {
     static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).unwrap();
+        let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
         hooks::resolve_syscall_hooks_from(
             PathBuf::from(so.clone())
         )
@@ -734,7 +734,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
     )?;
     assert!(at == allocated_at);
 
-    let so = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD).unwrap();
+    let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
 
     let preload_address = task.ldpreload_address.ok_or(Error::new(
         ErrorKind::Other,
@@ -1133,7 +1133,7 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let mut new_task = task.cloned();
     wait_sigstop(&new_task)?;
 
-    let state = systrace_global_state();
+    let state = reverie_global_state();
     state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_cloned.fetch_add(1, Ordering::SeqCst);
@@ -1147,7 +1147,7 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     let new_task = task.forked();
     wait_sigstop(&new_task)?;
 
-    let state = systrace_global_state();
+    let state = reverie_global_state();
     state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
@@ -1163,7 +1163,7 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     new_task.in_vfork = true;
     wait_sigstop(&new_task)?;
 
-    let state = systrace_global_state();
+    let state = reverie_global_state();
     state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
     state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
@@ -1174,7 +1174,7 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let _sig = task.signal_to_deliver;
     let retval = task.getevent()?;
-    let state = systrace_global_state();
+    let state = reverie_global_state();
     state.lock().unwrap().nr_exited.fetch_add(1, Ordering::SeqCst);
     let _ = ptrace::detach(task.gettid());
     Ok(RunTask::Exited(retval as i32))
@@ -1247,7 +1247,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         }
     }
 
-    let state = systrace_global_state();
+    let state = reverie_global_state();
     match patch_status {
         PatchStatus::NotTried => {
             state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
@@ -1295,9 +1295,9 @@ fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
 
 // set tool library log level
 fn systool_set_log_level(task: &TracedTask) {
-    let systool_log_ptr = consts::SYSTRACE_LOCAL_SYSTOOL_LOG_LEVEL as *mut i64;
+    let systool_log_ptr = consts::REVERIE_LOCAL_SYSTOOL_LOG_LEVEL as *mut i64;
     let rptr = RemotePtr::new(systool_log_ptr);
-    let lvl = std::env::var(consts::SYSTRACE_ENV_TOOL_LOG_KEY).map(|s| match &s[..] {
+    let lvl = std::env::var(consts::REVERIE_ENV_TOOL_LOG_KEY).map(|s| match &s[..] {
         "error" => 1,
         "warn" => 2,
         "info" => 3,
@@ -1317,8 +1317,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
     let tid = task.gettid();
     let mut regs = ptrace::getregs(tid)?;
     let mut saved_regs = regs.clone();
-    let page_addr = consts::SYSTRACE_PRIVATE_PAGE_OFFSET;
-    let page_size = consts::SYSTRACE_PRIVATE_PAGE_SIZE;
+    let page_addr = consts::REVERIE_PRIVATE_PAGE_OFFSET;
+    let page_size = consts::REVERIE_PRIVATE_PAGE_SIZE;
 
     regs.orig_rax = SYS_mmap as u64;
     regs.rax = regs.orig_rax;
@@ -1402,14 +1402,14 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
     let local_state_addr = task
         .untraced_syscall(SYS_mmap,
                           0,
-                          consts::SYSTRACE_GLOBAL_STATE_SIZE as i64,
+                          consts::REVERIE_GLOBAL_STATE_SIZE as i64,
                           (libc::PROT_READ | libc::PROT_WRITE) as i64,
                           (libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as i64,
                           -1i64,
                           0).unwrap();
-    ptrace::write(tid, consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as ptrace::AddressType, local_state_addr as *mut _)?;
+    ptrace::write(tid, consts::REVERIE_LOCAL_REVERIE_LOCAL_STATE as ptrace::AddressType, local_state_addr as *mut _)?;
 
-    let state = systrace_global_state();
+    let state = reverie_global_state();
 
     state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
 

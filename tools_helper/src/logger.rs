@@ -1,6 +1,6 @@
-//! safe logger for writing systrace tools (shared library)
+//! safe logger for writing reverie tools (shared library)
 //!
-//! log is enabled by passing `SYSTOOL_LOG=xxx` from systrace
+//! log is enabled by passing `SYSTOOL_LOG=xxx` from reverie
 //!
 //! NB: tools can use rust `log` crate, but must use this
 //! logger as backend. That is because logging in captured syscalls is

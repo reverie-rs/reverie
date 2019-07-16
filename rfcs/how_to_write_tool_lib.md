@@ -1,13 +1,13 @@
-*systrace* allows using a tool shared library (tool) with `--tool` switch.
-A tool basically implements `captured_syscall` C API, so after *systrace* 
+*reverie* allows using a tool shared library (tool) with `--tool` switch.
+A tool basically implements `captured_syscall` C API, so after *reverie* 
 successfully patched a syscall site, it can generate trampoline and can jump
 to `captured_syscall`, so that we can intercerpt the original syscalls.
 
-The tool is loaded by *systrace* using `LD_PRELOAD`, hence it is not usable 
+The tool is loaded by *reverie* using `LD_PRELOAD`, hence it is not usable 
 after `LD_PRELOAD` is finished. There're already about 20+ syscalls called
 by `ld-linux.so` and they're not catchable. For now this is a hard limitation,
 however, we can still catch them by `SECCOMP`. once the tool is
-(LD_PRE)loaded, *systrace* tries to patch any syscall with predefined rules
+(LD_PRE)loaded, *reverie* tries to patch any syscall with predefined rules
 (in `src/bpf.c`). please note we only apply patching when the `syscall` and
 following instructions match our predefined pattern, hence, if there's no 
 pattern match, patching would not occur. This makes write interception code

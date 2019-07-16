@@ -5,7 +5,7 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-DOCKER_NAME=systrace
+DOCKER_NAME=reverie
 
 # Build Rust code in release or debug mode?  (Blank for debug.)
 # WAY="--release"
@@ -26,11 +26,11 @@ all:
 	@cp -v target/$(TARGETDIR)/libnone.so lib/
 	@cp -v target/$(TARGETDIR)/libcounter.so lib/
 	@cp -v target/$(TARGETDIR)/libdet.so lib/
-	@cp -v target/$(TARGETDIR)/systrace bin/
+	@cp -v target/$(TARGETDIR)/reverie bin/
 clean:
 	$(MAKE) -C tests clean
 	$(RM) lib/lib*.so
-	$(RM) bin/systrace
+	$(RM) bin/reverie
 	@cargo clean
 
 test: tests

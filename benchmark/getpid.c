@@ -1,5 +1,5 @@
 /**
- * test `systrace` syscall patching overhead
+ * test `reverie` syscall patching overhead
  * best case: patch happens the very first time a syscall site (based on
  * `PC` value) is reached. After patching, the original `syscall` sequence
  * got replaced, hence has minimum impact on performance. Unfortunately

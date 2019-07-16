@@ -1,12 +1,12 @@
 # Syscall patching
 
-This document explains how `systrace` patches system calls.  It patches syscall
+This document explains how `reverie` patches system calls.  It patches syscall
 instructions in the user's program at runtime, with the help of seccomp and ptrace. A
 syscall site is a assembly sequence contains a `syscall` instruction (x86_64), and a
 pattern right after the very `syscall` instruction.
 
 ## The role of seccomp
-`systrace` is a *ptrace* based tracer, information about ptrace can be mostly found in `man 2 ptrace`.
+`reverie` is a *ptrace* based tracer, information about ptrace can be mostly found in `man 2 ptrace`.
 Since kernel 3.5, seccomp can be used together with `ptrace`, with option of `PTRACE_O_TRACESECCOMP`. 
 By default we setup seccomp to filter most syscalls except few blacklisted ones (such as `rt_sigreturn`), 
 in a way the filtered syscalls will enter ptrace stop, please see `man 2 seccomp`, section `SECCOMP_RET_TRACE`
@@ -77,7 +77,7 @@ because the address space is *64-bit*, there're could be multiple stub pages, bu
  to the trampoline easily.
 
 ## Patch in a multi threaded context
-Even though `systrace` is the only tracer, it can resume any ptrace stopped tracee, so the tracees run
+Even though `reverie` is the only tracer, it can resume any ptrace stopped tracee, so the tracees run
  in a multi threaded context; The *tracer* uses a pseudo read write lock to keep track of which thread 
 entered/exited or tried to apply patch, the tracer chooses whether or not a thread should take a
 read/write lock based on the recoards.

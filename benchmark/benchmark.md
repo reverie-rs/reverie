@@ -1,4 +1,4 @@
-On ubuntu-18.04, i5-4670 (4-core), using benchmark `getpid-many.c`, `getpid-many-threaded2.c`, `systrace` built with release mode.
+On ubuntu-18.04, i5-4670 (4-core), using benchmark `getpid-many.c`, `getpid-many-threaded2.c`, `reverie` built with release mode.
 
 The benchmark focuses on the worse case metrics, that is, every syscalls
 are getting patched. i.e.: `getpid-many` create a big chunk of `getpid`

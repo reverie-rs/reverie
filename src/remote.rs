@@ -169,7 +169,7 @@ pub fn remote_do_syscall(
     a5: i64,
 ) -> Result<()> {
     let mut regs = task.getregs()?;
-    let syscall_helper_addr_ptr = RemotePtr::new(consts::SYSTRACE_LOCAL_SYSCALL_HELPER as *mut u64);
+    let syscall_helper_addr_ptr = RemotePtr::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64);
     let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
     let return_address = regs.rip;
     regs.rip = syscall_helper_addr;

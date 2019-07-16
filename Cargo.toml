@@ -1,5 +1,5 @@
 [package]
-name = "systrace"
+name = "reverie"
 version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
@@ -9,11 +9,11 @@ members= [".", "syscalls", "tools_helper", "preloader", "examples/none", "exampl
 default-members = [".", "syscalls", "preloader", "tools_helper" ]
 
 [lib]
-name = "systrace"
+name = "reverie"
 path = "src/lib.rs"
 
 [[bin]]
-name = "systrace"
+name = "reverie"
 path = "src/main.rs"
 
 [dependencies]

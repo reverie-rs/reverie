@@ -169,25 +169,25 @@ unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
 #[used]
 static EARLY_TRAMPOLINE_INIT: extern fn() = {
     extern "C" fn trampoline_ctor() {
-        let syscall_hook_ptr = consts::SYSTRACE_LOCAL_SYSCALL_HOOK_ADDR as *mut u64;
+        let syscall_hook_ptr = consts::REVERIE_LOCAL_SYSCALL_HOOK_ADDR as *mut u64;
         unsafe {
             core::ptr::write(syscall_hook_ptr, syscall_hook as u64);
         }
 
-        let ready = consts::SYSTRACE_LOCAL_SYSCALL_TRAMPOLINE as *mut u64;
+        let ready = consts::REVERIE_LOCAL_SYSCALL_TRAMPOLINE as *mut u64;
         unsafe {
             core::ptr::write(ready, 1);
         }
-        let state_addr_ptr = consts::SYSTRACE_LOCAL_SYSTRACE_LOCAL_STATE as *const u64;
+        let state_addr_ptr = consts::REVERIE_LOCAL_REVERIE_LOCAL_STATE as *const u64;
         unsafe {
             let val = core::ptr::read(state_addr_ptr);
             PSTATE = Some(val as *mut ProcessState);
         }
-        let syscall_helper_ptr = consts::SYSTRACE_LOCAL_SYSCALL_HELPER as *mut u64;
+        let syscall_helper_ptr = consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64;
         unsafe {
             core::ptr::write(syscall_helper_ptr, _remote_syscall_helper as u64);
         }
-        let rpc_helper_ptr = consts::SYSTRACE_LOCAL_RPC_HELPER as *mut u64;
+        let rpc_helper_ptr = consts::REVERIE_LOCAL_RPC_HELPER as *mut u64;
         unsafe {
             core::ptr::write(rpc_helper_ptr, _remote_funccall_helper as u64);
         }

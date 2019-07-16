@@ -1,4 +1,4 @@
-//! systrace local states
+//! reverie local states
 //!
 //! `ThreadState`: per-thread states, doesn't require locks to update
 //!

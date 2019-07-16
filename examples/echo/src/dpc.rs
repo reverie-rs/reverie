@@ -51,7 +51,7 @@ static DPC_DSO_DTORS: extern fn() = {
     extern "C" fn dpc_dtor() {
         debug!("exiting dpc task..");
         let pid = syscall!(SYS_getpid).unwrap() as i32;
-        let _ = syscall!(SYS_close, consts::SYSTRACE_DPC_SOCKFD);
+        let _ = syscall!(SYS_close, consts::REVERIE_DPC_SOCKFD);
         let path = dpc_get_unp(pid);
         let _ = syscall!(SYS_unlink, path.as_ptr());
     };
@@ -71,7 +71,7 @@ fn dpc_main () {
     let _ = syscall!(SYS_unlink, path.as_ptr());
 
     let _tempfd = syscall!(SYS_socket, PF_UNIX, SOCK_STREAM, 0).unwrap();
-    let sockfd = consts::SYSTRACE_DPC_SOCKFD;
+    let sockfd = consts::REVERIE_DPC_SOCKFD;
     let sockfd_len = core::mem::size_of::<sockaddr>();
     let _ = syscall!(SYS_dup2, _tempfd, sockfd).unwrap();
     let _ = syscall!(SYS_close, _tempfd).unwrap();

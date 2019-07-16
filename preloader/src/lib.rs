@@ -29,7 +29,7 @@ struct sock_fprog {
 }
 
 fn preload_dl_ns() -> Result<()>{
-    if let Ok(dso) = std::env::var(consts::SYSTRACE_TRACEE_PRELOAD) {
+    if let Ok(dso) = std::env::var(consts::REVERIE_TRACEE_PRELOAD) {
         let linkmap = relink::dl_open_ns(&dso);
         let mut whitelist: Vec<_> = vec![(0x7000_0002, 0x7000_0002)];
         linkmap.iter().for_each(|lm| {

@@ -9,11 +9,11 @@ CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -f
 
 TARGET  := getpid getpid-many getpid-many-threaded getpid-many-threaded2 gettime-many
 
-SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../target/debug)
-SYSTRACE_PRELOADER    := $(shell realpath $(shell pwd)/../target/debug/libpreloader.so)
-SYSTRACE_TOOL         := $(shell realpath $(shell pwd)/../target/debug/libecho.so)
-SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --debug=4 --
-SYSTRACE       := $(shell realpath ../bin/systrace) --preloader=$(SYSTRACE_PRELOADER) --tool=$(SYSTRACE_TOOL) --debug=0 2>/dev/null --
+REVERIE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../target/debug)
+REVERIE_PRELOADER    := $(shell realpath $(shell pwd)/../target/debug/libpreloader.so)
+REVERIE_TOOL         := $(shell realpath $(shell pwd)/../target/debug/libecho.so)
+REVERIE_DEBUG := $(shell realpath ../bin/reverie) --tool=$(REVERIE_TOOL) --debug=4 --
+REVERIE       := $(shell realpath ../bin/reverie) --preloader=$(REVERIE_PRELOADER) --tool=$(REVERIE_TOOL) --debug=0 2>/dev/null --
 
 all: $(TARGET)
 
@@ -49,10 +49,10 @@ clean:
 
 benchmark: build-benchmark
 	-@$(ECHO) -ne "getpid..               " && ./getpid
-	-@$(ECHO) -ne "getpid (systrace)..    " && $(SYSTRACE) ./getpid
+	-@$(ECHO) -ne "getpid (reverie)..    " && $(REVERIE) ./getpid
 	-@$(ECHO) -ne "getpid-many..               " && ./getpid-many 10000
-	-@$(ECHO) -ne "getpid-many (systrace)..    " && $(SYSTRACE) ./getpid-many 10000
-	-@$(ECHO) -ne "getpid-many (systrace)..    " && $(SYSTRACE) ./getpid-many 100000
+	-@$(ECHO) -ne "getpid-many (reverie)..    " && $(REVERIE) ./getpid-many 10000
+	-@$(ECHO) -ne "getpid-many (reverie)..    " && $(REVERIE) ./getpid-many 100000
 
 bench: benchmark
 

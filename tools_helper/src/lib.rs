@@ -1,4 +1,4 @@
-//! systrace tools helper
+//! reverie tools helper
 //!
 
 #![feature(format_args_nl, slice_internals)]

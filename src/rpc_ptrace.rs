@@ -38,7 +38,7 @@ pub unsafe fn rpc_call(task: &TracedTask, func: u64, args: &[u64; 6]) -> i64 {
             // println!("write {:x?} = {:x}", at, v);
             task.poke(at, v).unwrap();
         });
-        let syscall_helper_addr_ptr = RemotePtr::new(consts::SYSTRACE_LOCAL_RPC_HELPER as *mut u64);
+        let syscall_helper_addr_ptr = RemotePtr::new(consts::REVERIE_LOCAL_RPC_HELPER as *mut u64);
         let syscall_helper_addr = task.peek(syscall_helper_addr_ptr).unwrap();
         regs.rip = syscall_helper_addr;
         regs.rsp = old_sp_adjusted;

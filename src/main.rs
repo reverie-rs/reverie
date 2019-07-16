@@ -21,11 +21,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::env;
 
-use systrace::{ns, consts, task, hooks};
-use systrace::sched::Scheduler;
-use systrace::sched_wait::SchedWait;
-use systrace::task::{RunTask, Task};
-use systrace::state::*;
+use reverie::{ns, consts, task, hooks};
+use reverie::sched::Scheduler;
+use reverie::sched_wait::SchedWait;
+use reverie::task::{RunTask, Task};
+use reverie::state::*;
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
@@ -137,8 +137,8 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
 
-fn show_perf_stats(state: &SystraceState) {
-    log::info!("Systrace global statistics (tracer + tracees):");
+fn show_perf_stats(state: &ReverieState) {
+    log::info!("Reverie global statistics (tracer + tracees):");
     let lines: Vec<String> = format!("{:#?}", state)
         .lines()
         .map(|s| String::from(s))
@@ -198,7 +198,7 @@ fn run_tracer(
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {
-                let _ = systrace_global_state()
+                let _ = reverie_global_state()
                     .lock().as_ref().and_then(|st| {
                         show_perf_stats(st);
                         Ok(())
@@ -260,7 +260,7 @@ fn populate_rpath(hint: Option<&str>, so: &str) -> Result<PathBuf> {
 }
 
 fn main() {
-    let matches = App::new("systrace - a fast syscall tracer and interceper")
+    let matches = App::new("reverie - a fast syscall tracer and interceper")
         .version("0.0.1")
         .arg(
             Arg::with_name("debug")
@@ -317,7 +317,7 @@ fn main() {
         )
         .arg(Arg::with_name("show-perf-stats")
              .long("show-perf-stats")
-             .help("show systrace softare performance counter statistics, --debug must be >= 3")
+             .help("show reverie softare performance counter statistics, --debug must be >= 3")
              .takes_value(false)
         )
         .arg(
@@ -380,7 +380,7 @@ fn main() {
             .unwrap_or_else(|| Vec::new()),
     };
 
-    std::env::set_var(consts::SYSTRACE_TRACEE_PRELOAD, tool_path.as_os_str());
+    std::env::set_var(consts::REVERIE_TRACEE_PRELOAD, tool_path.as_os_str());
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
         err => panic!("run app failed with error: {:?}", err),

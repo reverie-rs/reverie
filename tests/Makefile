@@ -6,12 +6,12 @@ CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
 TARGET  := x64-save-return-address openat1 openat2 open-many getpid write-many forkExec clock-nanosleep threads1 threads2 threads3 getpid-pie nanosleep segfault threads4 threads5 threads6 threads7 forkMany signal1 signal2 signal3 signal4 sigprocmask1 thread8-cond-wait thread9-cond-bcast
- 
-SYSTRACE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../lib)
-SYSTRACE_TOOL         := $(SYSTRACE_LIBRARY_PATH)/libecho.so
-SYSTRACE_PRELOADER    := $(SYSTRACE_LIBRARY_PATH)/libpreloader.so
-SYSTRACE_DEBUG := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --preloader=$(SYSTRACE_PRELOADER) --debug=4 --
-SYSTRACE       := $(shell realpath ../bin/systrace) --tool=$(SYSTRACE_TOOL) --preloader=$(SYSTRACE_PRELOADER) --debug=0 --
+
+REVERIE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../lib)
+REVERIE_TOOL         := $(REVERIE_LIBRARY_PATH)/libecho.so
+REVERIE_PRELOADER    := $(REVERIE_LIBRARY_PATH)/libpreloader.so
+REVERIE_DEBUG := $(shell realpath ../bin/reverie) --tool=$(REVERIE_TOOL) --preloader=$(REVERIE_PRELOADER) --debug=4 --
+REVERIE       := $(shell realpath ../bin/reverie) --tool=$(REVERIE_TOOL) --preloader=$(REVERIE_PRELOADER) --debug=0 --
 IO_REDIRECT = 2>/dev/null
 
 all: $(TARGET)
@@ -109,35 +109,35 @@ clean:
 
 tests: build-tests
 	./x64-save-return-address
-	RUST_BACKTRACE=1 $(SYSTRACE_DEBUG) ./openat1 $(IO_REDICT)
-	$(SYSTRACE_DEBUG) ./open-many $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./write-many $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./getpid $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./nanosleep $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./clock-nanosleep $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./getpid-pie $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./test1.sh $(IO_REDIRECT)
-	#timeout 30s $(SYSTRACE_DEBUG) ./test2.sh $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./segfault && exit 1 || exit 0 $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./threads1 $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./threads2 $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./threads3 $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./threads4 $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./threads5 $(IO_REDIRECT)
-	#timeout 30s $(SYSTRACE_DEBUG) ./threads6 $(IO_REDIRECT)
-	#timeout 30s $(SYSTRACE_DEBUG) ./threads7 $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./forkExec fork $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./forkExec vfork $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./forkMany $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./forkMany --block-sigchld $(IO_REDIRECT)
-	./signal1 $(IO_REDIRECT)
-	./signal2 $(IO_REDIRECT)
-	./signal3 $(IO_REDIRECT)
-	./sigprocmask1 $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./thread8-cond-wait $(IO_REDIRECT)
-	$(SYSTRACE_DEBUG) ./thread9-cond-bcast $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./test3.sh $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./test4.sh $(IO_REDIRECT)
-	timeout 30s $(SYSTRACE_DEBUG) ./test5.sh $(IO_REDIRECT)
+	RUST_BACKTRACE=1 $(REVERIE_DEBUG) ./openat1 $(IO_REDICT)
+	$(REVERIE_DEBUG) ./open-many $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./write-many $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./getpid $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./nanosleep $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./clock-nanosleep $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./getpid-pie $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./test1.sh $(IO_REDIRECT)
+	#timeout 30s $(REVERIE_DEBUG) ./test2.sh $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./segfault && exit 1 || exit 0 $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./threads1 $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./threads2 $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./threads3 $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./threads4 $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./threads5 $(IO_REDIRECT)
+	#timeout 30s $(REVERIE_DEBUG) ./threads6 $(IO_REDIRECT)
+	#timeout 30s $(REVERIE_DEBUG) ./threads7 $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./forkExec fork $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./forkExec vfork $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./forkMany $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./forkMany --block-sigchld $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./signal1 $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./signal2 $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./signal3 $(IO_REDIRECT)
+	$(REVERIE_DEBUG) ./sigprocmask1 $(IO_REDIRECT)
+	# $(REVERIE_DEBUG) ./thread8-cond-wait $(IO_REDIRECT)
+	# $(REVERIE_DEBUG) ./thread9-cond-bcast $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./test3.sh $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./test4.sh $(IO_REDIRECT)
+	timeout 30s $(REVERIE_DEBUG) ./test5.sh $(IO_REDIRECT)
 
 .PHONY: all tests clean

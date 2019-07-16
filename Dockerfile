@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 # Icky nondeterminism:
 RUN apt-get update -y && \
@@ -25,8 +25,8 @@ RUN curl https://sh.rustup.rs -sSf | \
 
 ENV PATH=/root/.cargo/bin:$PATH
 
-ADD ./ /systrace
+ADD ./ /reverie
 
-RUN cd /systrace/ && make
+RUN cd /reverie/ && make
 
-WORKDIR /systrace
+WORKDIR /reverie

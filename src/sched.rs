@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind, Result};
 
 use crate::remote::*;
 use crate::task::Task;
-use crate::state::SystraceState;
+use crate::state::ReverieState;
 
 pub trait Scheduler<Task> {
     fn new() -> Self
