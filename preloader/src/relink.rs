@@ -1,6 +1,9 @@
-//! relink
+//! load dynamic shared object (tool) into a new linker namespace
+//! the tool library and its dependencies thus will be isolated
+//! into a different linker namespace.
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::ptr::NonNull;
 use procfs::MemoryMap;
 use std::path::PathBuf;
@@ -50,13 +53,25 @@ fn into_ranges(maps: &Vec<MemoryMap>, base: u64, name: &PathBuf) -> Vec<MemoryMa
     }).cloned().collect()
 }
 
-pub fn dl_open_ns(dso: &str) -> Vec<LinkMap> {
+/// `dl_open_ns`: load dynamic shared library into a new linker namespace
+/// for more details, see: https://sourceware.org/glibc/wiki/LinkerNamespaces
+///
+/// NB: avoid heap allocation because `malloc`/`free` may get shadowed after
+/// `dlmopen` successed.
+pub fn dl_open_ns(dso: &OsStr) -> Vec<LinkMap> {
+    let handle = unsafe {
+        // make sure dso is null terminated without calling malloc
+        let mut path: [i8; 4096] = std::mem::zeroed();
+        std::ptr::copy_nonoverlapping(dso.to_str().unwrap().as_ptr() as *const i8,
+                                      path.as_mut_ptr(), dso.len());
+        _early_preload_dso(path.as_ptr())
+    };
+
+    // after `dlmopen` successed, malloc/free points to the new
+    // implementation and we're safe to use them
     let pid = unistd::getpid();
     let mut res: Vec<LinkMap> = Vec::new();
-    let handle = unsafe {
-        let dso_ = String::from(dso) + "\0";
-        _early_preload_dso(dso_.as_ptr() as *const i8)
-    };
+
     let head = std::ptr::NonNull::new(handle as *mut ll_link_map);
     let maps = procfs::Process::new(pid.as_raw()).and_then(|p| {
         p.maps()
@@ -81,6 +96,5 @@ pub fn dl_open_ns(dso: &str) -> Vec<LinkMap> {
         res.push(entry);
         _curr = NonNull::new(ll.l_next as *mut ll_link_map);
     }
-
     res
 }
