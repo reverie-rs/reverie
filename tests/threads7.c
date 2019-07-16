@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdarg.h>
 
-#define NR_THREADS 16L
+#define NR_THREADS 8L
 
 #define NSECS_PER_SEC     1000000000L
 #define FIVE_SECONDS      (5UL * NSECS_PER_SEC)

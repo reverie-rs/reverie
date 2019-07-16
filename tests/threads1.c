@@ -7,7 +7,7 @@
 #include <errno.h>
 #include <string.h>
 
-#define NR_THREADS 10L
+#define NR_THREADS 8L
 #define TIME_100MS 100000000UL
 
 static void test_clock_nanosleep(unsigned long ns) {
