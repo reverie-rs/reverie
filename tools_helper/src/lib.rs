@@ -3,8 +3,6 @@
 
 #![feature(format_args_nl, slice_internals)]
 
-#![cfg_attr(not(feature = "std"), no_std)]
-
 #[macro_use]
 pub mod logger;
 pub mod spinlock;
