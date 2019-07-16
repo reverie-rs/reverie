@@ -11,6 +11,11 @@ use serde::{Serialize, Deserialize};
 #[allow(unused_imports)]
 use core::ffi::c_void;
 
+use std::cell::RefCell;
+use std::collections::{HashSet, HashMap};
+
+use nix::unistd::Pid;
+
 /// resources belongs to threads
 #[repr(C)]
 #[derive(Serialize, Deserialize, Debug)]
@@ -66,7 +71,28 @@ impl ThreadState {
     }
 }
 
+thread_local! {
+    pub static THREAD_STATE: RefCell<ThreadState> = RefCell::new(ThreadState::new());
+}
+
+pub static mut PSTATE: Option<*mut ProcessState> = None;
+
 /// Resources belongs to process scope (intead of thread scope)
 #[derive(Debug)]
 pub struct ProcessState {
+}
+
+impl ProcessState {
+    pub fn new() -> Self {
+        let state: ProcessState = unsafe {
+            core::mem::zeroed()
+        };
+        state
+    }
+}
+
+#[derive(Debug)]
+pub struct GlobalState {
+    pub global_time: u64,
+    pub thread_states: HashMap<Pid, &'static ThreadState>,
 }
