@@ -7,7 +7,7 @@ jobs:
   steps:
     - script: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y
-        $HOME/.cargo/bin/rustup toolchain add nightly
+        rustup toolchain add nightly
       displayName: Install nightly Rust
 - job: Linux
   pool:
