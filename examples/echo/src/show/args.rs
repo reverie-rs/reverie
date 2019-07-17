@@ -222,6 +222,11 @@ impl SyscallInfo {
             SYS_sysinfo => {
                 vec![ SyscallArg::Ptr(ptr!(void, a0)) ]
             }
+            SYS_execve => {
+                vec![ SyscallArg::CStr(ptr!(i8, a0)),
+                      SyscallArg::CStrArrayNulTerminated(ptr!(void, a1)),
+                      SyscallArg::Envp(ptr!(void, a2))]
+            }
             _ => {
                 vec![ SyscallArg::Int(a0),
                       SyscallArg::Int(a1),
@@ -258,7 +263,8 @@ impl fmt::Display for SyscallRet {
                 }
             }
             SyscallRet::RetPtr(val) => write!(f, "{:#x}", val),
-            SyscallRet::RetVoid => Ok(()),
+            SyscallRet::RetVoid => write!(f, ""),
+            SyscallRet::NoReturn => write!(f, "?"),
         }
     }
 }
@@ -293,6 +299,9 @@ impl SyscallRetInfo {
     pub fn from(tid: i32, no: SyscallNo, args: Vec<SyscallArg>, retval: i64, first_arg_is_outp: bool) -> Self {
         let ret = match no {
             SYS_mmap => SyscallRet::RetPtr(retval as u64),
+            SYS_execve => SyscallRet::NoReturn,
+            SYS_exit_group => SyscallRet::NoReturn,
+            SYS_exit => SyscallRet::NoReturn,
             _        => SyscallRet::RetInt(retval),
         };
         SyscallRetInfo {
@@ -431,6 +440,16 @@ impl fmt::Display for SyscallArg {
             }
             SyscallArg::UnamePtr(ptr) => {
                 fmt_uname_ptr(f, ptr)
+            }
+            SyscallArg::CStrArrayNulTerminated(ptr) => {
+                unsafe {
+                    fmt_cstr_null_terminated(f, ptr)
+                }
+            }
+            SyscallArg::Envp(ptr) => {
+                unsafe {
+                    fmt_envp(f, ptr)
+                }
             }
         }
     }
@@ -874,4 +893,33 @@ fn fmt_uname_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::R
                    nodename_p.map(from_cstr).unwrap_or_else(|| Cow::from("NULL")))
         }
     }
+}
+
+unsafe fn fmt_cstr_null_terminated(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
+    let mut cnt = 0;
+    let mut res = Vec::new();
+    if let Some(pptr_) = ptr__ {
+        while let Some(ptr) = NonNull::new(core::ptr::read(pptr_.as_ptr().cast::<*mut u64>().offset(cnt)) as *mut i8) {
+            res.push("\"".to_owned() + &escape(&from_cstr(ptr)) + "\"");
+            cnt = 1 + cnt;
+        }
+        write!(f, "[{}]", res.join(", "))?;
+    }
+    Ok(())
+}
+
+unsafe fn fmt_envp(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
+    let mut cnt = 0;
+    if let Some(pptr_) = ptr__ {
+        while let Some(_ptr) = NonNull::new(core::ptr::read(pptr_.as_ptr().cast::<*mut u64>().offset(cnt)) as *mut i8) {
+            cnt = 1 + cnt;
+        }
+        let unit = if cnt == 1 {
+            "var"
+        } else {
+            "vars"
+        };
+        write!(f, "{:#x?} /* {} {} */", pptr_, cnt, unit)?;
+    }
+    Ok(())
 }

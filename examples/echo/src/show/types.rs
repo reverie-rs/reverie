@@ -9,6 +9,7 @@ pub enum SyscallRet {
     RetInt(i64),
     RetPtr(u64),
     RetVoid,
+    NoReturn,
 }
 
 /// syscall argument ADT for formatting args
@@ -24,6 +25,8 @@ pub enum SyscallArg {
     SizedU8Vec(usize, Option<NonNull<u8>>),
     SizedCStrOut(usize, Option<NonNull<i8>>),
     SizedU8VecOut(usize, Option<NonNull<u8>>),
+    CStrArrayNulTerminated(Option<NonNull<void>>),
+    Envp(Option<NonNull<void>>),
     I32(i32),
     Fd(i32),
     FdFlags(i32),
