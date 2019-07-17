@@ -40,6 +40,7 @@ extern "C" {
     fn _syscall_hook_trampoline_90_90_90();
     fn _syscall_hook_trampoline_ba_01_00_00_00();
     fn _syscall_hook_trampoline_89_c1_31_d2();
+    fn _syscall_hook_trampoline_89_d0_87_07();
     fn _syscall_hook_trampoline_c3_nop();
     fn _syscall_hook_trampoline_85_c0_0f_94_c2();
     fn _remote_syscall_helper();
@@ -88,6 +89,11 @@ unsafe extern "C" fn syscall_hook_trampoline_ba_01_00_00_00() {
 #[no_mangle]
 unsafe extern "C" fn syscall_hook_trampoline_89_c1_31_d2() {
     _syscall_hook_trampoline_89_c1_31_d2()
+}
+
+#[no_mangle]
+unsafe extern "C" fn syscall_hook_trampoline_89_d0_87_07() {
+    _syscall_hook_trampoline_89_d0_87_07()
 }
 
 #[no_mangle]

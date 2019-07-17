@@ -165,6 +165,15 @@ const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
         instructions: &[0x0f, 0x1f, 0x80, 0x00, 0x00, 0x00, 0x00],
         symbol: "_syscall_hook_trampoline_90_90_90",
     },
+    /* ubuntu 18.04 pthread_setcanceltype@libc-2.27.so, `syscall` followed by
+     * mov    %edx,%eax
+     * xchg   %eax,(%rdi)
+     */
+    SyscallPatchHook {
+        is_multi: true,
+        instructions: &[0x89, 0xd0, 0x87, 0x07],
+        symbol: "_syscall_hook_trampoline_89_d0_87_07",
+    },
 ];
 
 #[test]

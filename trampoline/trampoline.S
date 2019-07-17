@@ -162,6 +162,12 @@ SYSCALLHOOK_START(_syscall_hook_trampoline_89_c1_31_d2)
         xor %edx,%edx
 SYSCALLHOOK_END(_syscall_hook_trampoline_89_c1_31_d2)
 
+SYSCALLHOOK_START(_syscall_hook_trampoline_89_d0_87_07)
+        call __morestack
+        mov  %edx,%eax
+        xchg %eax,(%rdi)
+SYSCALLHOOK_END(_syscall_hook_trampoline_89_d0_87_07)
+
 SYSCALLHOOK_START(_syscall_hook_trampoline_c3_nop)
         callq __morestack
         /* The original instructions after the syscall are
