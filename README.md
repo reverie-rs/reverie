@@ -1,6 +1,6 @@
 # reverie
 
-[![Build Status](https://dev.azure.com/iu-parfunc/reverie/_apis/build/status/iu-parfunc.reverie?branchName=master)](https://dev.azure.com/iu-parfunc/reverie/_build/latest?definitionId=1&branchName=master)
+[![Build Status](https://dev.azure.com/iu-parfunc/reverie/_apis/build/status/iu-parfunc.reverie?branchName=master)](https://dev.azure.com/iu-parfunc/reverie/_build/latest?definitionId=2&branchName=master)
 
 A library to intercept Linux syscalls (and select x86_64
 instructions), and convert them into function calls.
