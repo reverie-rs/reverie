@@ -2,6 +2,7 @@ use crate::remote::*;
 use nix::unistd::Pid;
 use std::collections::{HashMap, HashSet};
 
+#[derive(Default)]
 pub struct RemoteRWLock {
     reader: HashSet<Pid>,
     writer: HashSet<Pid>,
@@ -19,7 +20,7 @@ impl RemoteRWLock {
     pub fn try_read_lock(&mut self, tid: Pid, at: u64) -> bool {
         self.reader.insert(tid);
         let r = self.reverse_loopup_table.get(&at);
-        if r.is_none() || r.unwrap().len() == 0 {
+        if r.is_none() || r.unwrap().is_empty() {
             self.writer.remove(&tid);
             self.reverse_loopup_table
                 .entry(at)
@@ -57,7 +58,7 @@ impl RemoteRWLock {
 
     pub fn try_write_lock(&mut self, tid: Pid, at: u64) -> bool {
         let r = self.reverse_loopup_table.get(&at);
-        if r.is_none() || r.unwrap().len() == 0 {
+        if r.is_none() || r.unwrap().is_empty() {
             self.writer.insert(tid);
             self.reader.remove(&tid);
             self.reverse_loopup_table

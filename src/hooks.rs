@@ -56,7 +56,7 @@ struct SyscallPatchHook<'a> {
     symbol: &'a str,
 }
 
-const SYSCALL_HOOKS: &'static [SyscallPatchHook] = &[
+const SYSCALL_HOOKS: &[SyscallPatchHook] = &[
     /* Many glibc syscall wrappers (e.g. read) have 'syscall' followed by
      * cmp $-4095,%rax */
     SyscallPatchHook {

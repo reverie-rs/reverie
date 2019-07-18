@@ -93,8 +93,7 @@ fn vdso_get_symbols_info() -> HashMap<String, (u64, usize)> {
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .filter(|e| e.pathname == procfs::MMapPath::Vdso)
-        .next()
+        .find(|e| e.pathname == procfs::MMapPath::Vdso)
         .and_then(|vdso| {
             let slice = unsafe {
                 std::slice::from_raw_parts(
@@ -144,18 +143,16 @@ fn vdso_patch_info_is_valid() {
 ///
 /// `task` must be in stopped state.
 pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
-    procfs::Process::new(task.getpid().as_raw())
+    if let Some(vdso) = procfs::Process::new(task.getpid().as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .filter(|e| e.pathname == procfs::MMapPath::Vdso)
-        .next()
-        .map(|vdso| {
+        .find(|e| e.pathname == procfs::MMapPath::Vdso) {
             task.untraced_syscall(
                 SYS_mprotect,
                 vdso.address.0 as i64,
                 (vdso.address.1 - vdso.address.0) as i64,
-                (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as i64,
+                i64::from(libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC),
                 0, 0, 0).unwrap();
             for (name, (offset, size, bytes)) in VDSO_PATCH_INFO.iter() {
                 let start = vdso.address.0 + offset;
@@ -168,8 +165,8 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
                 SYS_mprotect,
                 vdso.address.0 as i64,
                 (vdso.address.1 - vdso.address.0) as i64,
-                (libc::PROT_READ | libc::PROT_EXEC) as i64,
+                i64::from(libc::PROT_READ | libc::PROT_EXEC),
                 0, 0, 0).unwrap();
-        });
+        }
     Ok(())
 }

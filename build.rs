@@ -41,7 +41,7 @@ fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
     writeln!(f, "    fn to_string(&self) -> String {{")?;
     writeln!(
         f,
-        "        SYSCALL_NAMES[self.clone() as usize].to_string()"
+        "        SYSCALL_NAMES[*self as usize].to_string()"
     )?;
     writeln!(f, "    }}")?;
     writeln!(f, "}}")?;

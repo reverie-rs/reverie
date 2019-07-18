@@ -18,7 +18,7 @@ use nix::unistd::Pid;
 
 /// resources belongs to threads
 #[repr(C)]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct ThreadState {
     pub raw_thread_id: i32,
     /// number of syscalls (detected)
@@ -64,9 +64,7 @@ pub struct ThreadState {
 
 impl ThreadState {
     pub fn new() -> Self {
-        let state: ThreadState = unsafe {
-            core::mem::zeroed()
-        };
+        let state: ThreadState = std::default::Default::default();
         state
     }
 }
@@ -78,16 +76,13 @@ thread_local! {
 pub static mut PSTATE: Option<*mut ProcessState> = None;
 
 /// Resources belongs to process scope (intead of thread scope)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ProcessState {
 }
 
 impl ProcessState {
     pub fn new() -> Self {
-        let state: ProcessState = unsafe {
-            core::mem::zeroed()
-        };
-        state
+        ProcessState {}
     }
 }
 

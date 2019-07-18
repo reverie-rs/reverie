@@ -100,7 +100,7 @@ pub trait Remote {
         // to be initialized by copy_nonoverlapping.
         let mut res: T = unsafe { std::mem::uninitialized() };
         let ret_ptr: *mut T = &mut res;
-        unsafe { std::ptr::copy(bytes.as_ptr(), ret_ptr as *mut u8, size) };
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ret_ptr as *mut u8, size) };
         Ok(res)
     }
     /// poke a `Sized` remote pointer from inferior
@@ -112,8 +112,7 @@ pub trait Remote {
         let size = std::mem::size_of::<T>();
         let new_ptr = addr.cast::<u8>();
         let bytes: &[u8] = unsafe {
-            let raw_bytes = std::mem::transmute(value_ptr as *const u8);
-            std::slice::from_raw_parts(raw_bytes, size)
+            std::slice::from_raw_parts(value_ptr as *const u8, size)
         };
         self.poke_bytes(new_ptr, bytes)?;
         Ok(())
@@ -195,11 +194,11 @@ pub fn patch_syscall_at(
     hook: &hooks::SyscallHook,
     target: u64,
 ) {
-    let jmp_insn_size = 5;
+    let jmp_insn_size = 5i64;
     let regs = task.getregs().unwrap();
     let resume_from = regs.rip - SYSCALL_INSN_SIZE as u64;
     let ip = resume_from;
-    let rela: i64 = target as i64 - ip as i64 - jmp_insn_size as i64;
+    let rela: i64 = target as i64 - ip as i64 - jmp_insn_size;
     assert!(rela >= -(1i64.wrapping_shl(31)) && rela < 1i64.wrapping_shl(31));
 
     let mut patch_bytes: Vec<u8> = Vec::new();
@@ -360,8 +359,7 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
                 if start_from <= addr_hint && start_from + almost_2gb >= addr_hint {
                     Some(start_from)
                 } else if start_from >= addr_hint
-                    && start_from - addr_hint <= almost_2gb - (pages as u64 * page_size)
-                {
+                    && start_from - addr_hint <= almost_2gb - (pages as u64 * page_size) {
                     Some(start_from)
                 } else {
                     None

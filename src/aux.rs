@@ -29,10 +29,10 @@ pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
 
     loop {
         if auxv[k] == 0 {
-            k = 1 + k;
+            k += 1;
             break;
         }
-        k = 1 + k;
+        k += 1;
     }
 
     loop {
@@ -42,7 +42,7 @@ pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
         }
         let val = auxv[1+k];
         res.insert(key as usize, val);
-        k = 2 + k;
+        k += 2;
     }
 
     Ok(res)

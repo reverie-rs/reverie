@@ -9,6 +9,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use syscalls::syscall;
 
 /// spinlock struct
+#[derive(Default)]
 pub struct SpinLock {
     __lock: AtomicUsize,
 }

@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Default, Debug)]
 /// reverie global state
 pub struct ReverieState {
     pub nr_syscalls: AtomicUsize,

@@ -185,7 +185,7 @@ fn ring_buffer_write<F>(rb: &mut RingBuffer, s: &str, flush: F)
 where
     F: Fn(i32, *const u8, usize),
 {
-    match core::slice::memchr::memrchr('\n' as u8, s.as_bytes()) {
+    match core::slice::memchr::memrchr(b'\n', s.as_bytes()) {
         None => update_buffer(rb, s.as_ptr(), s.bytes().len() as isize, false),
         Some(i) => {
             let i = 1 + i;

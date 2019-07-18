@@ -114,14 +114,10 @@ fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
 fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     let mut retry = true;
     while retry {
-        let tid_ = tasks
+        let tid = tasks
             .run_queue
             .pop_front()
-            .or_else(|| tasks.blocked_queue.pop_front());
-        if tid_.is_none() {
-            return None;
-        }
-        let tid = tid_.unwrap();
+            .or_else(|| tasks.blocked_queue.pop_front())?;
         loop {
             let status = wait::waitpid(Some(tid), Some(WaitPidFlag::WNOHANG));
             retry = status == Ok(WaitStatus::StillAlive);
@@ -137,7 +133,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
-                        .expect(&format!("unknown pid {:}", tid));
+                        .unwrap_or_else(||panic!("unknown pid {:}", tid));
                     task.state = TaskState::Signaled(signal);
                     return Some(task);
                 }
@@ -145,14 +141,14 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     let task = tasks
                         .tasks
                         .remove(&tid)
-                        .expect(&format!("unknown pid {:}", tid));
+                        .unwrap_or_else(||panic!("unknown pid {:}", tid));
                     return Some(task);
                 }
                 Ok(WaitStatus::PtraceEvent(_, sig, event)) if sig == signal::SIGTRAP => {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
-                        .expect(&format!("unknown pid {:}", tid));
+                        .unwrap_or_else(||panic!("unknown pid {:}", tid));
                     task.state = TaskState::Event(event as u64);
                     return Some(task);
                 }
@@ -169,7 +165,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         let mut task = tasks
                             .tasks
                             .remove(&tid)
-                            .expect(&format!("unknown pid {:}", tid));
+                            .unwrap_or_else(||panic!("unknown pid {:}", tid));
                         if task.state != TaskState::Ready {
                             task.state = TaskState::Stopped(sig);
                         }

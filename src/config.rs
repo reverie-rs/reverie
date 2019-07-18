@@ -65,6 +65,12 @@ impl DynConfig {
     }
 }
 
+impl Default for DynConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Instrumentor configuration set at startup time.
 pub struct StaticConfig {
     pub mode : InstrumentMode,
@@ -87,13 +93,19 @@ impl StaticConfig {
         }
     }
 
-    pub fn mode<'a>(&'a mut self, mode: InstrumentMode) -> &'a mut StaticConfig {
+    pub fn mode(&mut self, mode: InstrumentMode) -> &mut Self {
         self.mode = mode;
         self
     }
 
-    pub fn filter<'a>(&'a mut self, pfn: fn (SyscallNo) -> bool) -> &'a mut StaticConfig {
+    pub fn filter(&mut self, pfn: fn (SyscallNo) -> bool) -> &mut Self {
         self.syscall_filter = pfn;
         self
+    }
+}
+
+impl Default for StaticConfig {
+    fn default() -> Self {
+        Self::new()
     }
 }
