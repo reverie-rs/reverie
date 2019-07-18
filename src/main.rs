@@ -113,7 +113,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
     }
 
     argv.envs.iter().for_each(|(k, v)| {
-        if v.len() == 0 {
+        if v.is_empty() {
             envs.push(k.to_string())
         } else {
             envs.push(format!("{}={}", k, v));
@@ -141,10 +141,10 @@ fn show_perf_stats(state: &ReverieState) {
     log::info!("Reverie global statistics (tracer + tracees):");
     let lines: Vec<String> = format!("{:#?}", state)
         .lines()
-        .map(|s| String::from(s))
+        .map(String::from)
         .collect();
-    for i in 1..lines.len()-1 {
-        log::info!("{}", lines[i]);
+    for s in lines.iter().take(lines.len()-1).skip(1) {
+        log::info!("{}", s);
     }
 
     let syscalls = state.nr_syscalls.load(Ordering::SeqCst);
@@ -175,7 +175,7 @@ fn run_tracer(
 
     match unistd::fork().expect("fork failed") {
         ForkResult::Child => {
-            return run_tracee(argv);
+            run_tracee(argv)
         }
         ForkResult::Parent { child } => {
             // wait for sigstop
@@ -252,11 +252,11 @@ fn populate_rpath(hint: Option<&str>, so: &str) -> Result<PathBuf> {
                     Err(_) => false,
                 }
             })
-            .map(|p| p.clone()),
+            .cloned(),
     };
     log::trace!("[main] library search path: {:?}", search_path);
     log::info!("[main] library-path chosen: {:?}", rpath);
-    rpath.ok_or(Error::new(ErrorKind::NotFound, "cannot find a valid library path"))
+    rpath.ok_or_else(||Error::new(ErrorKind::NotFound, "cannot find a valid library path"))
 }
 
 fn main() {
@@ -353,7 +353,7 @@ fn main() {
 
     let tool_path = PathBuf::from(tool)
         .canonicalize()
-        .expect(&format!("[main] cannot locate {}", tool));
+        .unwrap_or_else(|_|panic!("[main] cannot locate {}", tool));
 
     let argv = Arguments {
         debug_level: log_level,
@@ -364,8 +364,8 @@ fn main() {
             .values_of("env")
             .unwrap_or_default()
             .map(|s| {
-                let t: Vec<&str> = s.clone().split('=').collect();
-                debug_assert!(t.len() > 0);
+                let t: Vec<&str> = s.split('=').collect();
+                debug_assert!(!t.is_empty());
                 (t[0].to_string(), t[1..].join("="))
             })
             .collect(),
@@ -377,7 +377,7 @@ fn main() {
         program_args: matches
             .values_of("program_args")
             .map(|v| v.collect())
-            .unwrap_or_else(|| Vec::new()),
+            .unwrap_or_else(Vec::new),
     };
 
     std::env::set_var(consts::REVERIE_TRACEE_PRELOAD, tool_path.as_os_str());
@@ -387,7 +387,7 @@ fn main() {
     }
 }
 
-fn fern_with_output<'a>(output: Option<&'a str>) -> Result<fern::Dispatch> {
+fn fern_with_output(output: Option<&str>) -> Result<fern::Dispatch> {
     match output {
         None => {
                 Ok(fern::Dispatch::new()
@@ -413,7 +413,7 @@ fn fern_with_output<'a>(output: Option<&'a str>) -> Result<fern::Dispatch> {
     }
 }
 
-fn setup_logger<'a>(level: i32, output: Option<&'a str>) -> Result<()> {
+fn setup_logger(level: i32, output: Option<&str>) -> Result<()> {
     let log_level = match level {
         0 => log::LevelFilter::Off,
         1 => log::LevelFilter::Error,

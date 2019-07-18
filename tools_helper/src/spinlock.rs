@@ -20,9 +20,6 @@ const NEST_LEVEL_MASK: usize = 0xffffusize.wrapping_shl(NEST_LEVEL_SHIFT);
 const THREAD_ID_SHIFT: u32 = 0;
 const THREAD_ID_MASK: usize = 0xffffffffffffusize;
 
-/// spinlock static initializer
-pub const SPINLOCK_INIT: SpinLock = SpinLock { __lock: AtomicUsize::new(0) };
-
 #[allow(unused)]
 fn nest_level(x: usize) -> usize {
     (x & NEST_LEVEL_MASK).wrapping_shr(NEST_LEVEL_SHIFT)
@@ -46,7 +43,7 @@ fn dec_level(x: usize) -> usize {
 
 impl SpinLock {
     /// create a new (unlocked) spinlock
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         SpinLock { __lock: AtomicUsize::new(0) }
     }
     /// obtain a spinlock

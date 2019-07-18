@@ -356,10 +356,8 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
             let space = x2 - y1;
             let start_from = *y1;
             if space >= (pages as u64 * page_size) {
-                if start_from <= addr_hint && start_from + almost_2gb >= addr_hint {
-                    Some(start_from)
-                } else if start_from >= addr_hint
-                    && start_from - addr_hint <= almost_2gb - (pages as u64 * page_size) {
+                if (start_from <= addr_hint && start_from + almost_2gb >= addr_hint) ||
+                    (start_from >= addr_hint && start_from - addr_hint <= almost_2gb - (pages as u64 * page_size)) {
                     Some(start_from)
                 } else {
                     None

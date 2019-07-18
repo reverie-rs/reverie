@@ -18,7 +18,7 @@ use log::{Log, Level, Metadata, Record, SetLoggerError};
 use core::fmt::{Arguments, Error, Write};
 
 use syscalls::*;
-use crate::spinlock::{SpinLock, SPINLOCK_INIT};
+use crate::spinlock::SpinLock;
 
 const RING_BUFF_SIZE: usize = 16384;
 
@@ -41,7 +41,7 @@ static mut RING_BUFFER: RingBuffer = RingBuffer {
 
 struct RingBufferLogger {}
 static LOGGER: RingBufferLogger = RingBufferLogger {};
-static LOGGER_LOCK: SpinLock = SPINLOCK_INIT;
+static LOGGER_LOCK: SpinLock = SpinLock::new();
 
 fn enter_critical_section() {
     LOGGER_LOCK.lock();
