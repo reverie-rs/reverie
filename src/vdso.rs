@@ -159,6 +159,10 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
                 assert!(bytes.len() <= *size);
                 let rptr = RemotePtr::new(start as *mut u8);
                 task.poke_bytes(rptr, bytes).unwrap();
+                let fill: Vec<u8> = std::iter::repeat(0x90u8).take(size - bytes.len()).collect();
+                unsafe {
+                    task.poke_bytes(rptr.offset(bytes.len() as isize), fill.as_slice()).unwrap();
+                }
                 debug!("{} patched {}@{:x}", task.getpid(), name, start);
             }
             task.untraced_syscall(
