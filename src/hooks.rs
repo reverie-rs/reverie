@@ -169,11 +169,13 @@ const SYSCALL_HOOKS: &[SyscallPatchHook] = &[
      * mov    %edx,%eax
      * xchg   %eax,(%rdi)
      */
+    /* NB: disabled because of jump into middle of generated stub
     SyscallPatchHook {
         is_multi: true,
         instructions: &[0x89, 0xd0, 0x87, 0x07],
         symbol: "_syscall_hook_trampoline_89_d0_87_07",
     },
+    */
 ];
 
 #[test]
