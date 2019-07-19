@@ -3,7 +3,6 @@
 //! into a different linker namespace.
 
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::ptr::NonNull;
 use procfs::MemoryMap;
 use std::path::PathBuf;
@@ -55,16 +54,11 @@ fn into_ranges(maps: &Vec<MemoryMap>, base: u64, name: &PathBuf) -> Vec<MemoryMa
 
 /// `dl_open_ns`: load dynamic shared library into a new linker namespace
 /// for more details, see: https://sourceware.org/glibc/wiki/LinkerNamespaces
-///
-/// NB: avoid heap allocation because `malloc`/`free` may get shadowed after
-/// `dlmopen` successed.
-pub fn dl_open_ns(dso: &OsStr) -> Vec<LinkMap> {
+pub fn dl_open_ns(dso: String) -> Vec<LinkMap> {
     let handle = unsafe {
         // make sure dso is null terminated without calling malloc
-        let mut path: [i8; 4096] = std::mem::zeroed();
-        std::ptr::copy_nonoverlapping(dso.to_str().unwrap().as_ptr() as *const i8,
-                                      path.as_mut_ptr(), dso.len());
-        _early_preload_dso(path.as_ptr())
+        let path = dso + "\0";
+        _early_preload_dso(path.as_ptr() as *const i8)
     };
 
     // after `dlmopen` successed, malloc/free points to the new

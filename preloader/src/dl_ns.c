@@ -4,21 +4,13 @@
 
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/sysinfo.h>
 #include <stdio.h>
 #include <link.h>
 #include <dlfcn.h>
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
-
-/*
-__libc_get_nprocs:
-   0:	b8 02 00 00 00       	mov    $0x2,%eax
-   5:	c3                   	retq
-*/
-static const char fixup_opcode[] = {0xb8, 0x02, 0x00, 0x00, 0x00, 0xc3};
-
-extern int get_nprocs();
 
 /*
  * Ok, bear with me here. rust `libstd` loves thread local storage (TLS).
@@ -43,20 +35,32 @@ extern int get_nprocs();
 
  * hence we fixup `__get_nprocs`, by forcing it return 2.
  */
-static void __libc_get_nprocs_fixup(void) {
-  unsigned long addr = (unsigned long)get_nprocs;
-
-  unsigned long start = addr & ~0xfffull;
+static void __libc_get_nprocs_fixup(void* addr, int nprocs) {
+  unsigned long start = ((unsigned long) addr) & ~0xfffull;
   size_t len = 0x1000;
 
-  if (addr + sizeof(fixup_opcode) > start + 0x1000) {
+  /*
+    __libc_get_nprocs:
+        0:	b8 02 00 00 00       	mov    $0x2,%eax
+        5:	c3                   	retq
+  */
+  unsigned char fixup_opcode[] = {0xb8, 0x00, 0x00, 0x00, 0x00, 0xc3};
+
+  fixup_opcode[1] = nprocs & 0xff;
+  fixup_opcode[2] = (nprocs>>8) & 0xff;
+  fixup_opcode[3] = (nprocs>>16) & 0xff;
+  fixup_opcode[4] = (nprocs>>24) & 0xff;
+
+  if ((unsigned long)addr + sizeof(fixup_opcode) > start + 0x1000) {
     len = 0x2000;
   }
 
   if (mprotect((void*)start, len, PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
     fprintf(stderr, "mprotect failed: %s\n", strerror(errno));
   }
+
   memcpy((void*)addr, fixup_opcode, sizeof(fixup_opcode));
+
   if (mprotect((void*)start, len, PROT_READ | PROT_EXEC) != 0) {
     fprintf(stderr, "mprotect failed: %s\n", strerror(errno));
   }
@@ -67,11 +71,15 @@ void* _early_preload_dso(const char* dso) {
 
   Lmid_t id = LM_ID_NEWLM;
 
-  handle = dlmopen(id, dso, RTLD_NOW);
+  handle = dlmopen(id, dso, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE);
   assert(handle);
   assert(dlinfo(handle, RTLD_DI_LMID, &id) == 0);
 
-  __libc_get_nprocs_fixup();
+  /* XXX: assuming we're using glibc */
+  void* nl1_get_nprocs = dlsym(handle, "get_nprocs");
+
+  int nprocs = get_nprocs();
+  __libc_get_nprocs_fixup(nl1_get_nprocs, nprocs);
 
   return handle;
 }
