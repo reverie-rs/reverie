@@ -20,6 +20,7 @@ use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 use crate::state::ReverieState;
+use crate::debug;
 
 /// the scheduler
 pub struct SchedWait {
@@ -62,9 +63,17 @@ impl Scheduler<TracedTask> for SchedWait {
             // signal is to be delivered
             task.signal_to_deliver = None;
         }
+
+        if let Some(signo) = sig {
+            if signo == signal::SIGSEGV || signo == signal::SIGILL {
+                debug::show_fault_context(&task, signo);
+            }
+        }
+
         self.task_tree.insert(tid, task.getppid());
         self.tasks.insert(tid, task);
         self.run_queue.push_front(tid);
+
         if is_seccomp {
             let _ = ptrace::syscall(tid);
         } else {
@@ -169,6 +178,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         if task.state != TaskState::Ready {
                             task.state = TaskState::Stopped(sig);
                         }
+                        task.signal_to_deliver = Some(sig);
                         return Some(task);
                     }
                 }

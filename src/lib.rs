@@ -23,3 +23,4 @@ pub mod rpc_ptrace;
 pub mod auxv;
 pub mod aux;
 pub mod config;
+pub mod debug;
