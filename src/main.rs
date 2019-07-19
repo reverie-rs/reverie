@@ -274,14 +274,16 @@ fn main() {
                 .long("preloader")
                 .value_name("PRELOADER")
                 .help("choose tool preloader")
-                .takes_value(true),
+                .takes_value(true)
+                .required(true),
         )
         .arg(
             Arg::with_name("tool")
                 .long("tool")
                 .value_name("TOOL")
                 .help("choose which tool (/path/to/lib<TOOL>.so) to run, default to none (libnone.so) if not specified. ")
-                .takes_value(true),
+                .takes_value(true)
+                .required(true),
         )
         .arg(
             Arg::with_name("no-host-envs")
