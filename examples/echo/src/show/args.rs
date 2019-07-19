@@ -76,6 +76,11 @@ impl SyscallInfo {
                       SyscallArg::Hex(a1),
                       SyscallArg::MmapProt(a2 as i32)]
             }
+            SYS_madvise => {
+                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                      SyscallArg::Hex(a1),
+                      SyscallArg::MAdvise(a2 as i32)]
+            }
             SYS_close => {
                 vec![ SyscallArg::Fd(a0 as i32) ]
             }
@@ -450,6 +455,9 @@ impl fmt::Display for SyscallArg {
                 unsafe {
                     fmt_envp(f, ptr)
                 }
+            }
+            SyscallArg::MAdvise(advise) => {
+                fmt_madvise(f, advise)
             }
         }
     }
@@ -922,4 +930,29 @@ unsafe fn fmt_envp(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt:
         write!(f, "{:#x?} /* {} {} */", pptr_, cnt, unit)?;
     }
     Ok(())
+}
+
+fn fmt_madvise(f: &mut fmt::Formatter, advise: i32) -> fmt::Result {
+    let msg = match advise {
+        0  => "MADV_NORMAL",
+        1  => "MADV_RANDOM",
+        2  => "MADV_SEQUENTIAL",
+        3  => "MADV_WILLNEED",
+        4  => "MADV_DONTNEED",
+        8  => "MADV_FREE",
+        9  => "MADV_REMOVE",
+        10 => "MADV_DONTFORK",
+        11 => "MADV_DOFORK",
+        12 => "MADV_MERGEABLE",
+        13 => "MADV_UNMERGEABLE",
+        14 => "MADV_HUGEPAGE",
+        15 => "MADV_NOHUGEPAGE",
+        16 => "MADV_DONTDUMP",
+        17 => "MADV_DODUMP",
+        18 => "MADV_WIPEONFORK",
+        19 => "MADV_KEEPONFORK",
+        100 => "MADV_HWPOISON",
+        _ => "<unknown>",
+    };
+    write!(f, "{}", msg)
 }
