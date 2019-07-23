@@ -77,6 +77,7 @@ void* _early_preload_dso(const char* dso) {
 
   /* XXX: assuming we're using glibc */
   void* nl1_get_nprocs = dlsym(handle, "get_nprocs");
+  assert(nl1_get_nprocs);
 
   int nprocs = get_nprocs();
   __libc_get_nprocs_fixup(nl1_get_nprocs, nprocs);
