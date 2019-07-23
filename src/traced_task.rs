@@ -24,7 +24,7 @@ use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd;
 use nix::unistd::Pid;
-use std::io::{Read, Error, ErrorKind, Result};
+use std::io::{Read, Write, Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -375,6 +375,7 @@ impl Task for TracedTask {
                         None => {}
                         Some(f) => {
                             let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
+                            task.signal_to_deliver = None;
                             return f(task, rptr.cast());
                         }
                     }
@@ -1107,6 +1108,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     }
     let hook = find_syscall_hook(&task, regs.rip);
     trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}, preloaded: {}", tid, syscall, rip, hook, task.ldpreload_address.is_some());
+
     task.seccomp_hook_size = task.ldpreload_address
         .and_then(|_|hook.map(|x| x.instructions.len()));
 
@@ -1314,7 +1316,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
 
     if let Some(dyn_entry) = auxv.get(&auxv::AT_ENTRY) {
         let _rptr = RemotePtr::new(*dyn_entry as *mut c_void);
-        // task.setbp(rptr, Box::new(handle_program_entry_bkpt)).unwrap();
+        // task.setbp(_rptr, Box::new(handle_program_entry_bkpt)).unwrap();
     }
 
     if let Some(ldso_start) = auxv.get(&auxv::AT_BASE) {
