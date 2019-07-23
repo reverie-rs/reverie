@@ -67,6 +67,7 @@ fn from_nix_error(err: nix::Error) -> Error {
 }
 
 // hardcoded because `libc` does not export
+const PER_LINUX: u64 = 0x0;
 const ADDR_NO_RANDOMIZE: u64 = 0x0040000;
 
 fn tracee_init_signals() {
@@ -93,7 +94,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
 
     unsafe {
         assert!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
-        assert!(libc::personality(ADDR_NO_RANDOMIZE) != -1);
+        assert!(libc::personality(PER_LINUX | ADDR_NO_RANDOMIZE) != -1);
     };
 
     ptrace::traceme()
