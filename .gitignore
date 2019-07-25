@@ -68,7 +68,7 @@ Cargo.lock
 
 # Systrace specific things
 
-bin/systrace
+bin/reverie
 tests/clock-nanosleep
 tests/forkExec
 tests/forkMany
@@ -77,6 +77,7 @@ tests/getpid-pie
 tests/nanosleep
 tests/open-many
 tests/openat1
+tests/openat2
 tests/segfault
 tests/signal1
 tests/signal2
@@ -95,13 +96,16 @@ tests/threads7
 tests/write-many
 tests/x64-save-return-address
 examples/counter/src/ffi.rs
+examples/counter/src/consts.rs
 examples/echo/src/ffi.rs
+examples/echo/src/consts.rs
+examples/det/src/ffi.rs
+examples/det/src/consts.rs
 examples/none/src/ffi.rs
+examples/none/src/consts.rs
 src/nr.rs
 syscalls/src/nr.rs
 tools_helper/src/consts.rs
 tools_helper/src/state.rs
 tools_helper/src/local_state.rs
-examples/det/src/ffi.rs
-examples/echo/src/consts.rs
 preloader/src/consts.rs
