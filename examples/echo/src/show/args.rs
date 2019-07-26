@@ -1,4 +1,4 @@
-
+//! pretty print syscalls
 use syscalls::*;
 use core::fmt;
 use core::fmt::Display;
@@ -25,6 +25,8 @@ fn arg_out(arg: &SyscallArg) -> bool {
         SyscallArg::Timeval(_) => true,
         SyscallArg::Timespec(_) => true,
         SyscallArg::Timezone(_) => true,
+        SyscallArg::DirentPtr(_) => true,
+        SyscallArg::Dirent64Ptr(_) => true,
         _ => false,
     }
 }
@@ -58,6 +60,24 @@ impl SyscallInfo {
                           SyscallArg::CStr(ptr!(i8, a1)),
                           SyscallArg::FdFlags(a2 as i32)]
                 }
+            }
+            SYS_unlink => {
+                vec![ SyscallArg::CStr(ptr!(i8, a0)) ]
+            }
+            SYS_unlinkat => {
+                vec![ SyscallArg::DirFd(a0 as i32),
+                      SyscallArg::CStr(ptr!(i8, a1)),
+                      SyscallArg::DirFd(a2 as i32) ]
+            }
+            SYS_getdents => {
+                vec![ SyscallArg::DirFd(a0 as i32),
+                      SyscallArg::DirentPtr(ptr!(void, a1)),
+                      SyscallArg::Int(a2) ]
+            }
+            SYS_getdents64 => {
+                vec![ SyscallArg::DirFd(a0 as i32),
+                      SyscallArg::Dirent64Ptr(ptr!(void, a1)),
+                      SyscallArg::Int(a2) ]
             }
             SYS_mmap => {
                 vec![ SyscallArg::Ptr(ptr!(void, a0)),
@@ -379,6 +399,9 @@ impl fmt::Display for SyscallArg {
             SyscallArg::DirFd(dirfd) => {
                 match dirfd {
                     libc::AT_FDCWD => write!(f, "{}", "AT_FDCWD"),
+                    libc::AT_SYMLINK_NOFOLLOW => write!(f, "{}", "AT_SYMLINK_NOFOLLOW"),
+                    libc::AT_REMOVEDIR => write!(f, "{}", "AT_REMOVEDIR"),
+                    libc::AT_SYMLINK_FOLLOW => write!(f, "{}", "AT_SYMLINK_FOLLOW"),
                     _               => write!(f, "{}", dirfd),
                 }
             }
@@ -458,6 +481,16 @@ impl fmt::Display for SyscallArg {
             }
             SyscallArg::MAdvise(advise) => {
                 fmt_madvise(f, advise)
+            }
+            SyscallArg::DirentPtr(ptr) => {
+                unsafe {
+                    fmt_dirent_ptr(f, ptr)
+                }
+            }
+            SyscallArg::Dirent64Ptr(ptr) => {
+                unsafe {
+                    fmt_dirent64_ptr(f, ptr)
+                }
             }
         }
     }
@@ -955,4 +988,40 @@ fn fmt_madvise(f: &mut fmt::Formatter, advise: i32) -> fmt::Result {
         _ => "<unknown>",
     };
     write!(f, "{}", msg)
+}
+
+#[repr(C)]
+#[derive(Debug)]
+struct linux_dirent_partial {
+    d_ino: u64,
+    d_off: u64,
+    d_reclen: u16,
+}
+
+// the size upper limit is in getdents return value, but our SyscallArg doesn't have it
+// hence the best-effort try without using return values
+// the downside is even when getdents returns zero, this function still reports positive
+// entires (instead of zero).
+unsafe fn fmt_dirent_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
+    if let Some(ptr) = ptr__ {
+        let mut count = 0;
+
+        let mut curr = ptr.as_ptr() as *const linux_dirent_partial;
+        loop {
+            let ent = core::ptr::read(curr);
+            if (ent.d_reclen == 0) {
+                break;
+            }
+
+            count += 1;
+            curr = (curr as u64 + ent.d_reclen as u64) as *const linux_dirent_partial;
+        }
+        
+        write!(f, "/* {} entries */", count)?;
+    }
+    Ok(())
+}
+
+unsafe fn fmt_dirent64_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
+    fmt_dirent_ptr(f, ptr__)
 }

@@ -52,6 +52,8 @@ pub enum SyscallArg {
     Ioctl(i32, u64),
     UnamePtr(Option<NonNull<void>>),
     MAdvise(i32),
+    DirentPtr(Option<NonNull<void>>),
+    Dirent64Ptr(Option<NonNull<void>>),
 }
 
 /// syscall info with syscall no and arguments
