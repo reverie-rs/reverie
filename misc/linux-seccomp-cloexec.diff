@@ -1,0 +1,149 @@
+diff --git a/fs/exec.c b/fs/exec.c
+index c71cbfe6826a..6110b9d2f0c5 100644
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1823,6 +1823,7 @@ static int __do_execve_file(int fd, struct filename *filename,
+ 		goto out;
+ 
+ 	/* execve succeeded */
++	seccomp_execve();
+ 	current->fs->in_exec = 0;
+ 	current->in_execve = 0;
+ 	membarrier_execve(current);
+diff --git a/include/linux/seccomp.h b/include/linux/seccomp.h
+index 84868d37b35d..fa3fb207a1cb 100644
+--- a/include/linux/seccomp.h
++++ b/include/linux/seccomp.h
+@@ -7,7 +7,8 @@
+ #define SECCOMP_FILTER_FLAG_MASK	(SECCOMP_FILTER_FLAG_TSYNC | \
+ 					 SECCOMP_FILTER_FLAG_LOG | \
+ 					 SECCOMP_FILTER_FLAG_SPEC_ALLOW | \
+-					 SECCOMP_FILTER_FLAG_NEW_LISTENER)
++					 SECCOMP_FILTER_FLAG_NEW_LISTENER | \
++                                         SECCOMP_FILTER_FLAG_CLOEXEC)
+ 
+ #ifdef CONFIG_SECCOMP
+ 
+@@ -83,6 +84,7 @@ static inline int seccomp_mode(struct seccomp *s)
+ #ifdef CONFIG_SECCOMP_FILTER
+ extern void put_seccomp_filter(struct task_struct *tsk);
+ extern void get_seccomp_filter(struct task_struct *tsk);
++extern void seccomp_execve(void);
+ #else  /* CONFIG_SECCOMP_FILTER */
+ static inline void put_seccomp_filter(struct task_struct *tsk)
+ {
+@@ -92,6 +94,11 @@ static inline void get_seccomp_filter(struct task_struct *tsk)
+ {
+ 	return;
+ }
++static inline void seccomp_execve(void)
++{
++	return;
++}
++
+ #endif /* CONFIG_SECCOMP_FILTER */
+ 
+ #if defined(CONFIG_SECCOMP_FILTER) && defined(CONFIG_CHECKPOINT_RESTORE)
+diff --git a/include/uapi/linux/seccomp.h b/include/uapi/linux/seccomp.h
+index 90734aa5aa36..f91eaf72450c 100644
+--- a/include/uapi/linux/seccomp.h
++++ b/include/uapi/linux/seccomp.h
+@@ -22,7 +22,7 @@
+ #define SECCOMP_FILTER_FLAG_LOG			(1UL << 1)
+ #define SECCOMP_FILTER_FLAG_SPEC_ALLOW		(1UL << 2)
+ #define SECCOMP_FILTER_FLAG_NEW_LISTENER	(1UL << 3)
+-
++#define SECCOMP_FILTER_FLAG_CLOEXEC             (1UL << 4)
+ /*
+  * All BPF programs must return a 32-bit value.
+  * The bottom 16-bits are for optional return data.
+diff --git a/kernel/seccomp.c b/kernel/seccomp.c
+index dba52a7db5e8..555a19b1a5d8 100644
+--- a/kernel/seccomp.c
++++ b/kernel/seccomp.c
+@@ -110,6 +110,7 @@ struct notification {
+  *         outside of a lifetime-guarded section.  In general, this
+  *         is only needed for handling filters shared across tasks.
+  * @log: true if all actions except for SECCOMP_RET_ALLOW should be logged
++ * @remove_on_execve: true if filter must be removed on do_execve
+  * @prev: points to a previously installed, or inherited, filter
+  * @prog: the BPF program to evaluate
+  * @notif: the struct that holds all notification related information
+@@ -128,6 +129,7 @@ struct notification {
+ struct seccomp_filter {
+ 	refcount_t usage;
+ 	bool log;
++	bool remove_on_execve;
+ 	struct seccomp_filter *prev;
+ 	struct bpf_prog *prog;
+ 	struct notification *notif;
+@@ -560,6 +562,7 @@ void get_seccomp_filter(struct task_struct *tsk)
+ 	struct seccomp_filter *orig = tsk->seccomp.filter;
+ 	if (!orig)
+ 		return;
++
+ 	__get_seccomp_filter(orig);
+ }
+ 
+@@ -1235,6 +1238,50 @@ static struct file *init_listener(struct seccomp_filter *filter)
+ 	return ret;
+ }
+ 
++void seccomp_execve(void)
++{
++	struct seccomp_filter* cur = READ_ONCE(current->seccomp.filter), *prev;
++	struct seccomp_filter* new_head = NULL;
++	unsigned int refcount;
++
++	BUG_ON(!current->in_execve);
++	if (!cur)
++		return;
++
++	preempt_disable();
++	refcount = refcount_read(&cur->usage);
++	while (cur) {
++		if (!cur->remove_on_execve) {
++			new_head = cur;
++			refcount_set(&new_head->usage, refcount);
++			break;
++		} else {
++			cur = cur->prev;
++		}
++	}
++
++	if (!new_head) {
++		current->seccomp.filter = NULL;
++		goto out;
++	}
++
++	cur = new_head;
++	prev = cur->prev;
++
++	current->seccomp.filter = new_head;
++
++	while (prev) {
++		if (prev->remove_on_execve) {
++			cur->prev = prev->prev;
++		}
++		cur = cur->prev;
++		if (!cur) break;
++		prev = cur->prev;
++	}
++out:
++	preempt_enable();
++}
++
+ /**
+  * seccomp_set_mode_filter: internal function for setting seccomp filter
+  * @flags:  flags to change filter behavior
+@@ -1299,6 +1346,10 @@ static long seccomp_set_mode_filter(unsigned int flags,
+ 	    mutex_lock_killable(&current->signal->cred_guard_mutex))
+ 		goto out_put_fd;
+ 
++	if (flags & SECCOMP_FILTER_FLAG_CLOEXEC) {
++		prepared->remove_on_execve = true;
++	}
++
+ 	spin_lock_irq(&current->sighand->siglock);
+ 
+ 	if (!seccomp_may_assign_mode(seccomp_mode))
