@@ -22,8 +22,8 @@
 
     (47543 frames skipped..)
     frame #47544: 0x00007ffff7deea28 ld-linux-x86-64.so.2`__tls_get_addr at tls_get_addr.S:55
-    frame #47545: 0x00007ffff6ce800c
-    frame #47546: 0x00007ffff73c790a libc.so.6`arena_get2(size=576, avoid_arena=0x00007ffff609e0d0) at arena.c:888
+    frame #47545: 0x00007ffff6ce800c // <------- libecho.so calls __tls_get_addr, such as stdio::io::println.
+    frame #47546: 0x00007ffff73c790a libc.so.6`arena_get2(size=576, avoid_arena=0x00007ffff609e0d0) at arena.c:888     // <---- calls get_nprocs -> SYS_open, default namespace.
     frame #47547: 0x00007ffff73cc54d libc.so.6`tcache_init at arena.c:879
     frame #47548: 0x00007ffff73cc530 libc.so.6`tcache_init at malloc.c:2986
     frame #47549: 0x00007ffff73cd1cb libc.so.6`__GI___libc_malloc at malloc.c:2983
@@ -81,6 +81,7 @@ void* _early_preload_dso(const char* dso) {
 
   int nprocs = get_nprocs();
   __libc_get_nprocs_fixup(nl1_get_nprocs, nprocs);
+  __libc_get_nprocs_fixup(get_nprocs, nprocs);
 
   return handle;
 }
