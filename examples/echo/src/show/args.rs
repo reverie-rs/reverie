@@ -1004,20 +1004,7 @@ struct linux_dirent_partial {
 // entires (instead of zero).
 unsafe fn fmt_dirent_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
     if let Some(ptr) = ptr__ {
-        let mut count = 0;
-
-        let mut curr = ptr.as_ptr() as *const linux_dirent_partial;
-        loop {
-            let ent = core::ptr::read(curr);
-            if (ent.d_reclen == 0) {
-                break;
-            }
-
-            count += 1;
-            curr = (curr as u64 + ent.d_reclen as u64) as *const linux_dirent_partial;
-        }
-        
-        write!(f, "/* {} entries */", count)?;
+        write!(f, "{:x?} /* ?? entries */", ptr)?;
     }
     Ok(())
 }
