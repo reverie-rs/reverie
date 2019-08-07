@@ -64,10 +64,10 @@ pub fn __mmap(
         SYS_mmap,
         addr as i64,
         length as i64,
-        prot as i64,
-        flags as i64,
-        fd as i64,
-        offset as i64
+        i64::from(prot),
+        i64::from(flags),
+        i64::from(fd),
+        i64::from(offset)
     )
     .map(|x| x as *mut _)
 }
@@ -87,7 +87,7 @@ pub fn __mremap(
         old_addr as i64,
         old_size as i64,
         new_size as i64,
-        flags as i64
+        i64::from(flags)
     )
     .map(|x| x as i32)
 }
@@ -97,12 +97,12 @@ pub fn __mprotect(addr: *mut (), len: usize, prot: i32) -> Result<(), i64> {
         SYS_mprotect,
         addr as i64,
         len as i64,
-        prot as i64
+        i64::from(prot)
     )
     .map(|_| ())
 }
 
 pub fn __madvise(addr: *mut (), len: usize, advise: i32) -> Result<(), i64> {
-    syscall!(SYS_madvise, addr, len, advise)
+    syscall!(SYS_madvise, addr, len, i64::from(advise))
         .map(|_| ())
 }

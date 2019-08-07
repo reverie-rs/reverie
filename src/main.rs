@@ -68,7 +68,7 @@ fn from_nix_error(err: nix::Error) -> Error {
 
 // hardcoded because `libc` does not export
 const PER_LINUX: u64 = 0x0;
-const ADDR_NO_RANDOMIZE: u64 = 0x0040000;
+const ADDR_NO_RANDOMIZE: u64 = 0x0004_0000;
 
 fn tracee_init_signals() {
     unsafe {

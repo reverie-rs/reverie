@@ -81,14 +81,13 @@ fn show_proc_maps(maps: &procfs::MemoryMap) -> String {
 }
 
 fn task_rip_is_valid(task: &TracedTask, rip: u64) -> bool {
+    let mut has_valid_rip = None;
     if let Ok(mapping) = procfs::Process::new(task.getpid().as_raw()).and_then(|p| p.maps()) {
-        if let Some(_) = mapping.iter().find(|e| {
+        has_valid_rip = mapping.iter().find(|e| {
             e.perms.contains('x') && e.address.0 <= rip && e.address.1 > rip + 0x10
-        }) {
-            return true;
-        }
+        }).cloned();
     }
-    false
+    has_valid_rip.is_some()
 }
 
 pub fn show_fault_context(task: &TracedTask, sig: signal::Signal) {

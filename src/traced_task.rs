@@ -1154,6 +1154,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
             state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
             state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
         }
+        //PatchStatus::Failed => {}
         PatchStatus::Failed => {
             let hook = task.get_preloaded_symbol_address("syscall_hook").expect("syscall_hook not found");
             let mut new_regs = regs;
@@ -1401,7 +1402,7 @@ fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
             Ok(RunTask::Forked(mut parent, child)) => {
                 parent.dpc_task = Some(child.gettid());
                 assert_eq!(parent.gettid(), tid);
-                return Ok(RunTask::Forked(parent, child));
+                Ok(RunTask::Forked(parent, child))
             }
             _err => {
                 panic!("remote_do_clone failed: {:?}", _err);
