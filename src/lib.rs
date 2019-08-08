@@ -30,3 +30,4 @@ pub mod auxv;
 pub mod aux;
 pub mod config;
 pub mod debug;
+pub mod profiling;

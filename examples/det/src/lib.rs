@@ -31,7 +31,6 @@ pub static LOGICAL_TIME: AtomicUsize = AtomicUsize::new(744847200);
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     p: &mut ProcessState,
-    t: &mut ThreadState,
     no: i32,
     a0: i64,
     a1: i64,
@@ -40,7 +39,7 @@ pub extern "C" fn captured_syscall(
     a4: i64,
     a5: i64,
 ) -> i64 {
-    note_syscall(p, t, no, NoteInfo::SyscallEntry);
+    note_syscall(p, no, NoteInfo::SyscallEntry);
     let sc = syscalls::SyscallNo::from(no);
     #[allow(unused_assignments)]
     let mut res = -38; // ENOSYS

@@ -12,8 +12,6 @@ use crate::consts;
 use crate::captured_syscall;
 use crate::local_state::*;
 
-use std::borrow::*;
-
 use tools_helper::local_state::*;
 use syscalls::*;
 
@@ -145,28 +143,16 @@ struct syscall_info {
 
 #[no_mangle]
 unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
-     if let Some(pstate) = PSTATE.and_then(|p|p.as_mut()) {
-         let sc = info.as_ref().unwrap();
-         let no = SyscallNo::from(sc.no as i32);
-         let tid = syscall!(SYS_gettid, 0, 0, 0, 0, 0, 0).unwrap() as i32;
-
-         // XXX: fake per thread state
-         let mut tstate = ThreadState::new();
-         let res = captured_syscall(pstate, &mut tstate, sc.no as i32,
-                          sc.args[0] as i64, sc.args[1] as i64,
-                          sc.args[2] as i64, sc.args[3] as i64,
-                          sc.args[4] as i64, sc.args[5] as i64);
-
-         /*
-         let res = THREAD_STATE.with(|tstate_| {
-             let mut tstate: &mut ThreadState = &mut tstate_.borrow_mut();
-             captured_syscall(pstate, &mut tstate, sc.no as i32,
-                              sc.args[0] as i64, sc.args[1] as i64,
-                              sc.args[2] as i64, sc.args[3] as i64,
-                              sc.args[4] as i64, sc.args[5] as i64)
-         });
-          */
-         return res;
+    if let Some(cell) = &PSTATE {
+        let mut pstate = cell.get().as_mut().unwrap();
+        let sc = info.as_ref().unwrap();
+        let no = SyscallNo::from(sc.no as i32);
+        let tid = syscall!(SYS_gettid).unwrap() as i32;
+        let res = captured_syscall(&mut pstate, sc.no as i32,
+                                   sc.args[0] as i64, sc.args[1] as i64,
+                                   sc.args[2] as i64, sc.args[3] as i64,
+                                   sc.args[4] as i64, sc.args[5] as i64);
+        return res;
     }
     return -38;      // ENOSYS
 }
@@ -179,15 +165,9 @@ static EARLY_TRAMPOLINE_INIT: extern fn() = {
         unsafe {
             core::ptr::write(syscall_hook_ptr, syscall_hook as u64);
         }
-
         let ready = consts::REVERIE_LOCAL_SYSCALL_TRAMPOLINE as *mut u64;
         unsafe {
             core::ptr::write(ready, 1);
-        }
-        let state_addr_ptr = consts::REVERIE_LOCAL_REVERIE_LOCAL_STATE as *const u64;
-        unsafe {
-            let val = core::ptr::read(state_addr_ptr);
-            PSTATE = Some(val as *mut ProcessState);
         }
         let syscall_helper_ptr = consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64;
         unsafe {

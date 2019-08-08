@@ -1,4 +1,7 @@
 //! counter syscall events
+
+use std::sync::atomic::Ordering;
+
 use crate::local_state::*;
 
 /// syscall events
@@ -7,11 +10,12 @@ pub enum NoteInfo {
 }
 
 /// note a syscall event
-pub fn note_syscall(_p: &mut ProcessState, t: &mut ThreadState, _no: i32, note: NoteInfo) {
+#[allow(unused)]
+pub fn note_syscall(p: &mut ProcessState, no: i32, note: NoteInfo) {
     match note {
         NoteInfo::SyscallEntry => {
-            t.nr_syscalls += 1;
-            t.nr_syscalls_captured += 1;
+            p.stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+            p.stats.nr_syscalls_captured.fetch_add(1, Ordering::SeqCst);
         }
     }
 }

@@ -1034,9 +1034,9 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     wait_sigstop(&new_task)?;
 
     let state = reverie_global_state();
-    state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().nr_cloned.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_cloned.fetch_add(1, Ordering::SeqCst);
 
     init_rpc_stack_data(&mut new_task);
 
@@ -1044,16 +1044,16 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let new_task = task.forked();
+    let mut new_task = task.forked();
     wait_sigstop(&new_task)?;
 
     let state = reverie_global_state();
-    state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_forked.fetch_add(1, Ordering::SeqCst);
 
     let regs = new_task.getregs()?;
-    let _rptr = RemotePtr::new(regs.rip as *mut c_void);
+    let rptr = RemotePtr::new(regs.rip as *mut c_void);
     // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
     Ok((task, new_task))
 }
@@ -1064,10 +1064,13 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     wait_sigstop(&new_task)?;
 
     let state = reverie_global_state();
-    state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().nr_forked.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_forked.fetch_add(1, Ordering::SeqCst);
 
+    let regs = new_task.getregs()?;
+    let rptr = RemotePtr::new(regs.rip as *mut c_void);
+    //new_task.setbp(rptr, handle_fork_entry_bkpt)?;
     Ok((task, new_task))
 }
 
@@ -1075,7 +1078,7 @@ fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
     let _sig = task.signal_to_deliver;
     let retval = task.getevent()?;
     let state = reverie_global_state();
-    state.lock().unwrap().nr_exited.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_exited.fetch_add(1, Ordering::SeqCst);
     let _ = ptrace::detach(task.gettid());
     Ok(RunTask::Exited(retval as i32))
 }
@@ -1151,8 +1154,8 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     let state = reverie_global_state();
     match patch_status {
         PatchStatus::NotTried => {
-            state.lock().unwrap().nr_syscalls.fetch_add(1, Ordering::SeqCst);
-            state.lock().unwrap().nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
+            state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
+            state.lock().unwrap().stats.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
         }
         //PatchStatus::Failed => {}
         PatchStatus::Failed => {
@@ -1175,7 +1178,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         }
         PatchStatus::Successed => {
             // others fields are updated in tracee instead.
-            state.lock().unwrap().nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
+            state.lock().unwrap().stats.nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -1313,11 +1316,11 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
 
     let state = reverie_global_state();
 
-    state.lock().unwrap().nr_process_spawns.fetch_add(1, Ordering::SeqCst);
+    state.lock().unwrap().stats.nr_process_spawns.fetch_add(1, Ordering::SeqCst);
 
     if let Some(dyn_entry) = auxv.get(&auxv::AT_ENTRY) {
         let _rptr = RemotePtr::new(*dyn_entry as *mut c_void);
-        // task.setbp(_rptr, Box::new(handle_program_entry_bkpt)).unwrap();
+        task.setbp(_rptr, Box::new(handle_program_entry_bkpt)).unwrap();
     }
 
     if let Some(ldso_start) = auxv.get(&auxv::AT_BASE) {
@@ -1374,12 +1377,26 @@ type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<Run
 // for programs linked against glibc
 fn handle_program_entry_bkpt(mut task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
     populate_ldpreload(&mut task);
+    if let Some(init_proc_state) = task.get_preloaded_symbol_address("init_process_state") {
+        let args: &[u64; 6] = &[0, 0, 0, 0, 0, 0];
+        unsafe {
+            rpc_call(&task, init_proc_state, args)
+        };
+    }
+
     may_start_dpc_task(task)
 }
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc
 fn handle_fork_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
+    if let Some(init_proc_state) = task.get_preloaded_symbol_address("init_process_state") {
+        let args: &[u64; 6] = &[0, 0, 0, 0, 0, 0];
+        unsafe {
+            rpc_call(&task, init_proc_state, args)
+        };
+    }
+
     may_start_dpc_task(task)
 }
 

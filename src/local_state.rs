@@ -6,83 +6,115 @@
 //! threads in a process, member update requires proper syncing.
 //!
 
-use serde::{Serialize, Deserialize};
+// use serde::{Serialize, Deserialize};
 
 #[allow(unused_imports)]
 use core::ffi::c_void;
 
-use std::cell::RefCell;
-use std::collections::{HashSet, HashMap};
+use std::cell::{RefCell, UnsafeCell};
+use std::os::unix::io::RawFd;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+
+#[allow(unused_imports)]
+use std::collections::{HashMap, HashSet};
 
 use nix::unistd::Pid;
 
+use crate::consts;
+use crate::profiling::*;
+
 /// resources belongs to threads
 #[repr(C)]
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Debug)]
+//#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct ThreadState {
-    pub raw_thread_id: i32,
-    /// number of syscalls (detected)
-    pub nr_syscalls: u64,
-    /// number of syscalls ptraced
-    pub nr_syscalls_ptraced: u64,
-    /// number of syscalls get hot patched
-    pub nr_syscalls_patched: u64,
-    /// number of syscalls captured after hot patching
-    pub nr_syscalls_captured: u64,
-    /// number of retries for read syscall
-    pub nr_read_retries: u64,
-    /// number of retries for write syscall
-    pub nr_write_retries: u64,
-    /// number of getrandom syscall
-    pub nr_getrandom: u64,
-    /// number of opens of /dev/urandom
-    pub nr_urandom_opens: u64,
-    /// number of opens of /dev/random
-    pub nr_random_opens: u64,
-    /// number of time syscall
-    /// NB: VDSO could have been disabled during runtime
-    pub nr_time_calls: u64,
-    /// number of replayed syscalls
-    pub nr_total_replays: u64,
-    /// number of blocking replays
-    pub nr_blocking_replays: u64,
-    /// number of injected syscalls
-    pub nr_injected_syscalls: u64,
-    /// number of intercepted rdtsc instructions
-    pub nr_rdtsc_events: u64,
-    /// number of intercepted rdtscp instructions
-    pub nr_rdtscp_events: u64,
-    /// number of clone syscall
-    pub nr_cloned: u64,
-    /// number of fork syscall
-    pub nr_forked: u64,
-    /// number of exit syscall/event
-    pub nr_exited: u64,
-    /// number of process spawned (execve)
-    pub nr_process_spawned: u64,
+    pub process_state: Rc<RefCell<ProcessState>>,
 }
 
 impl ThreadState {
     pub fn new() -> Self {
-        let state: ThreadState = std::default::Default::default();
-        state
+        ThreadState {
+            process_state: Rc::new(RefCell::new(ProcessState::new())),
+        }
+    }
+
+    pub fn forked(&self) -> Self {
+        ThreadState {
+            process_state: Rc::new(RefCell::new(ProcessState::new())),
+        }
+    }
+
+    pub fn cloned(&self) -> Self {
+        ThreadState {
+            process_state: self.process_state.clone(),
+        }
     }
 }
 
-thread_local! {
-    pub static THREAD_STATE: RefCell<ThreadState> = RefCell::new(ThreadState::new());
+pub static mut PSTATE: Option<UnsafeCell<ProcessState>> = None;
+
+#[derive(Debug, Clone, Copy)]
+pub enum DescriptorScope {
+    Local,
+    Remote,
 }
 
-pub static mut PSTATE: Option<*mut ProcessState> = None;
+#[derive(Debug, Clone, Copy)]
+pub enum DescriptorBlockingFlag {
+    Blocking,
+    NonBlocking,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DescriptorType {
+    pub scope: DescriptorScope,
+    pub blocking: DescriptorBlockingFlag,
+}
 
 /// Resources belongs to process scope (intead of thread scope)
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ProcessState {
+    pub sockfd_read: Option<RawFd>,
+    pub sockfd_write: Option<RawFd>,
+
+    pub stats: SyscallStats,
+
+    pub fd_status: Arc<Mutex<HashMap<RawFd, DescriptorType>>>,
+    pub thread_states: Rc<RefCell<HashMap<Pid, ThreadState>>>,
 }
 
 impl ProcessState {
     pub fn new() -> Self {
-        ProcessState {}
+        ProcessState {
+            sockfd_read: None,
+            sockfd_write: None,
+            stats: SyscallStats::new(),
+            fd_status: Arc::new(Mutex::new(HashMap::new())),
+            thread_states: Rc::new(RefCell::new(HashMap::new())),
+        }
+    }
+    pub fn forked(&self) -> Self {
+        ProcessState {
+            sockfd_read: self.sockfd_read.clone(),
+            sockfd_write: self.sockfd_write.clone(),
+            fd_status: {
+                let fd_status_copied: HashMap<RawFd, DescriptorType> =
+                    self.fd_status.lock().unwrap().clone();
+                Arc::new(Mutex::new(fd_status_copied))
+            },
+            stats: SyscallStats::new(),
+            thread_states: { Rc::new(RefCell::new(HashMap::new())) },
+        }
+    }
+    pub fn cloned(&self) -> Self {
+        ProcessState {
+            sockfd_read: self.sockfd_read.clone(),
+            sockfd_write: self.sockfd_write.clone(),
+            stats: self.stats.clone(),
+            fd_status: self.fd_status.clone(),
+            thread_states: self.thread_states.clone(),
+        }
     }
 }
 
@@ -90,4 +122,11 @@ impl ProcessState {
 pub struct GlobalState {
     pub global_time: u64,
     pub thread_states: HashMap<Pid, &'static ThreadState>,
+}
+
+#[no_mangle]
+unsafe extern "C" fn init_process_state() {
+    let new_state = ProcessState::new();
+    let pstate = UnsafeCell::new(new_state);
+    PSTATE = Some(pstate);
 }

@@ -148,10 +148,10 @@ fn show_perf_stats(state: &ReverieState) {
         log::info!("{}", s);
     }
 
-    let syscalls = state.nr_syscalls.load(Ordering::SeqCst);
-    let syscalls_ptraced = state.nr_syscalls_ptraced.load(Ordering::SeqCst);
-    let syscalls_captured = state.nr_syscalls_captured.load(Ordering::SeqCst);
-    let syscalls_patched = state.nr_syscalls_patched.load(Ordering::SeqCst);
+    let syscalls = state.stats.nr_syscalls.load(Ordering::SeqCst);
+    let syscalls_ptraced = state.stats.nr_syscalls_ptraced.load(Ordering::SeqCst);
+    let syscalls_captured = state.stats.nr_syscalls_captured.load(Ordering::SeqCst);
+    let syscalls_patched = state.stats.nr_syscalls_patched.load(Ordering::SeqCst);
 
     log::info!("syscalls ptraced (slow): {:.2}%",
                100.0 * syscalls_ptraced as f64 / syscalls as f64);

@@ -7,7 +7,7 @@ fn main() -> Result<()> {
     let src_dir = std::fs::canonicalize(cwd.join("../src"))?;
     let dst_dir = std::fs::canonicalize(cwd.join("src"))?;
 
-    let files_to_copy = &[ "consts.rs", "state.rs", "local_state.rs"];
+    let files_to_copy = &[ "consts.rs", "profiling.rs", "state.rs", "local_state.rs"];
     files_to_copy.iter().for_each(|f| {
         let do_copy: Box<dyn Fn() -> Result<()>> = Box::new(|| {
             let mut src = File::open(src_dir.join(f))?;

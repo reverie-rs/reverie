@@ -23,7 +23,6 @@ static ECHO_DSO_CTORS: extern fn() = {
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     p: &mut ProcessState,
-    t: &mut ThreadState,
     no: i32,
     a0: i64,
     a1: i64,
@@ -32,7 +31,7 @@ pub extern "C" fn captured_syscall(
     a4: i64,
     a5: i64,
 ) -> i64 {
-    note_syscall(p, t, no, NoteInfo::SyscallEntry);
+    note_syscall(p, no, NoteInfo::SyscallEntry);
     let ret = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
     ret
 }

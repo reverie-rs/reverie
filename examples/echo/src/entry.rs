@@ -24,7 +24,6 @@ macro_rules! smsgln {
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     p: &mut ProcessState,
-    t: &mut ThreadState,
     no: i32,
     a0: i64,
     a1: i64,
@@ -34,7 +33,7 @@ pub extern "C" fn captured_syscall(
     a5: i64,
 ) -> i64 {
     let sc = syscalls::SyscallNo::from(no);
-    note_syscall(p, t, no, NoteInfo::SyscallEntry);
+    note_syscall(p, no, NoteInfo::SyscallEntry);
 
     let tid = syscall!(SYS_gettid).unwrap();
 

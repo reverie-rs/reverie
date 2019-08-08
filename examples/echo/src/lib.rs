@@ -1,4 +1,4 @@
-#![feature(format_args_nl, slice_internals, ptr_cast)]
+#![feature(format_args_nl, slice_internals)]
 #![allow(unused_attributes)]
 
 use tools_helper::*;
