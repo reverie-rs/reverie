@@ -4,6 +4,8 @@
 #[macro_use]
 extern crate lazy_static;
 
+extern crate libloading as lib;
+
 use clap::{App, Arg};
 use fern;
 use libc;
@@ -121,7 +123,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         }
     });
 
-    envs.push(ldpreload);
+    // envs.push(ldpreload);
     let program = CString::new(argv.program)?;
     let mut args: Vec<CString> = Vec::new();
     CString::new(argv.program).map(|s| args.push(s))?;
@@ -180,6 +182,7 @@ fn run_tracer(
         }
         ForkResult::Parent { child } => {
             // wait for sigstop
+            // let lib = lib::Library::new(argv.tool_path.clone()).unwrap();
             wait_sigstop(child)?;
             ptrace::setoptions(
                 child,

@@ -384,7 +384,7 @@ impl Task for TracedTask {
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(_ev) => handle_ptrace_event(task),
-            TaskState::Syscall => handle_syscall_exit(task),
+            TaskState::Syscall => unreachable!("got ptrace syscall, should be handled by seccomp"),
             TaskState::Exited(_exit_code) => unreachable!("run task which is already exited"),
         }
     }
@@ -931,53 +931,6 @@ fn should_restart_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -
     res
 }
 
-// PTRACE_SYSCALL stop. task was stopped because of syscall exit.
-// this is desired because some syscalls are blocking
-// we use it to do the read lock unlock
-fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
-    let tid = task.gettid();
-    let regs = task.getregs()?;
-    let rip = regs.rip;
-
-    trace!("=== seccomp syscall {:?} @{:x}, return: {:x} ({})", SyscallNo::from(regs.orig_rax as i32), rip, regs.rax, regs.rax as i64);
-
-    if should_restart_syscall(&mut task, regs) {
-        debug!("=== seccomp syscall {:?} @{:x} to be restarted", SyscallNo::from(regs.orig_rax as i32), rip);
-        debug_assert_eq!(task.state, TaskState::Syscall);
-        // will re-enter syscall exit, state is TaskState::Syscall
-        return Ok(RunTask::Runnable(task));
-    }
-
-    let mut sig: Option<signal::Signal> = None;
-    if let Some(hook_size) = task.seccomp_hook_size {
-        task.seccomp_hook_size = None;
-        let syscall_end = rip + hook_size as u64;
-        loop {
-            ptrace::step(tid, sig).expect("ptrace single step");
-            match wait::waitpid(Some(tid), None) {
-                Ok(WaitStatus::Stopped(tid1, sig1)) if tid1 == tid => {
-                    sig = if sig1 == signal::SIGTRAP {
-                        None
-                    } else {
-                        Some(sig1)
-                    }
-                }
-                unexpected => {
-                    panic!("waitpid({}): unexpected status {:?}, rip {:x}",
-                           tid, unexpected, rip);
-                }
-            }
-            let new_regs = ptrace::getregs(tid).unwrap_or_else(|_| panic!("tid {} ptrace getregs", tid));
-            if !(new_regs.rip > regs.rip && new_regs.rip < syscall_end) {
-                break;
-            }
-        }
-    }
-    task.syscall_patch_lockset.borrow_mut().try_read_unlock(tid, rip);
-    task.state = TaskState::Running;
-    Ok(RunTask::Runnable(task))
-}
-
 fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     let raw_event = match task.state {
         TaskState::Event(ev) => ev as i64,
@@ -1106,81 +1059,8 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         panic!("unfiltered syscall: {:?}", syscall);
     }
 
-    if task.ldpreload_address.is_none() {
-        task.ldpreload_address = libtrampoline_load_address(tid);
-    }
-    let hook = find_syscall_hook(&task, regs.rip);
-    trace!("{} seccomp syscall {:?}@{:x}, hook: {:x?}, preloaded: {}", tid, syscall, rip, hook, task.ldpreload_address.is_some());
-
-    task.seccomp_hook_size = task.ldpreload_address
-        .and_then(|_|hook.map(|x| x.instructions.len()));
-
-    // NB: in multi-threaded context, one core could enter ptrace_event_seccomp
-    // even another core already patched the very same syscall
-    // we skip the (seccomp) syscall, do a synchronization, and let
-    // it rerun from the begining of the patched instruction.
-    if !is_syscall_insn(tid, rip_before_syscall)? {
-        let mut new_regs = regs;
-        new_regs.rax = regs.orig_rax;
-        debug!("{} seccomp syscall {:?}@{:x} restart because it is already patched, rax: {:x}", tid, syscall, rip, regs.rax);
-        skip_seccomp_syscall(&mut task, new_regs).unwrap();
-        synchronize_from(&task, rip_before_syscall);
-        return Ok(task);
-    }
-
-    // NB: another thread is patching this syscall, retry syscall
-    if !task.syscall_patch_lockset.borrow_mut().try_read_lock(tid, rip) {
-        let mut new_regs = regs;
-        new_regs.rax = regs.orig_rax;
-        let _ = skip_seccomp_syscall(&mut task, new_regs);
-        let _ = task.setregs(regs);
-        task.state = TaskState::Ready;
-        return Ok(task);
-    }
-
-    let mut patch_status = if task.ldpreload_address.is_some() && hook.is_none() {
-        PatchStatus::Failed
-    } else {
-        PatchStatus::NotTried
-
-    };
-    if !(task.ldpreload_address.is_none() || hook.is_none()) {
-        match patch_syscall_with(&mut task, hook.unwrap(), syscall, rip) {
-            Err(_) => patch_status = PatchStatus::Failed,
-            Ok(_) => patch_status = PatchStatus::Successed,
-        }
-    }
-
-    let state = reverie_global_state();
-    match patch_status {
-        PatchStatus::NotTried => {
-            state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-            state.lock().unwrap().stats.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-        }
-        //PatchStatus::Failed => {}
-        PatchStatus::Failed => {
-            let hook = task.get_preloaded_symbol_address("syscall_hook").expect("syscall_hook not found");
-            let mut new_regs = regs;
-            new_regs.rax = regs.orig_rax;
-            skip_seccomp_syscall(&mut task, new_regs).unwrap();
-            task.setregs(regs)?;
-
-            let rptr = task.rpc_data.unwrap().0.cast();
-            let info = SyscallInfo {
-                no: regs.orig_rax,
-                args: [regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9],
-            };
-            task.poke(rptr, &info).unwrap();
-            let args = &[rptr.as_ptr() as u64, 0, 0, 0, 0, 0];
-            let _ = unsafe {
-                rpc_call(&task, hook, args)
-            };
-        }
-        PatchStatus::Successed => {
-            // others fields are updated in tracee instead.
-            state.lock().unwrap().stats.nr_syscalls_patched.fetch_add(1, Ordering::SeqCst);
-        }
-    }
+    let _ = ptrace::syscall(tid);
+    task.state = TaskState::Running;
 
     Ok(task)
 }
@@ -1320,7 +1200,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
 
     if let Some(dyn_entry) = auxv.get(&auxv::AT_ENTRY) {
         let _rptr = RemotePtr::new(*dyn_entry as *mut c_void);
-        task.setbp(_rptr, Box::new(handle_program_entry_bkpt)).unwrap();
+        // task.setbp(_rptr, Box::new(handle_program_entry_bkpt)).unwrap();
     }
 
     if let Some(ldso_start) = auxv.get(&auxv::AT_BASE) {
