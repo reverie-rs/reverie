@@ -7,8 +7,8 @@ use cc;
 fn main() -> Result<()> {
     cc::Build::new()
         .flag("-D_GNU_SOURCE=1")
-        .file("src/dl_ns.c")
+        .file("src/bpf_ll.c")
+        .file("src/bpf-helper.c")
         .compile("my-asm-lib");
-    std::fs::copy("../src/consts.rs", "src/consts.rs")?;
     Ok(())
 }

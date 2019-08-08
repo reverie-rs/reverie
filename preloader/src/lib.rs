@@ -7,6 +7,7 @@ pub mod relink;
 pub mod seccomp_bpf;
 
 use syscalls::*;
+use seccomp::*;
 
 #[link_section = ".init_array"]
 #[used]
@@ -78,7 +79,7 @@ fn preload_dl_ns() -> Result<()>{
             });
         });
         // println!("whitelist: {:#x?}", whitelist);
-        let bytes = seccomp_bpf::bpf_whitelist_ips(whitelist.as_mut());
+        let bytes = seccomp::seccomp_whitelist_ips(whitelist.as_mut());
         let prog = sock_fprog {
             len: bytes.len() as u32,
             filter: bytes.as_ptr() as *const sock_filter,

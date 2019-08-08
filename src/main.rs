@@ -23,6 +23,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::env;
 
+use seccomp::*;
+
 use reverie::{ns, consts, task, hooks};
 use reverie::sched::Scheduler;
 use reverie::sched_wait::SchedWait;
@@ -136,6 +138,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .collect();
 
     log::info!("[main] launching: {} {:?}", &argv.program, &argv.program_args);
+    seccomp::seccomp_whitelist_ips(&[(0x7000_0002u64, 0x7000_0002u64)]);
     unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
