@@ -30,6 +30,8 @@ pub fn reverie_global_state() -> &'static Mutex<ReverieState> {
 }
 
 pub trait GlobalState {
-    type Item;
     fn new() -> Self where Self: Sized;
+}
+
+pub trait ProcessState {
 }

@@ -389,7 +389,7 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
                 Ok(RunTask::Runnable(task))
             }
             TaskState::Event(_ev) => handle_ptrace_event(task),
-            TaskState::Syscall => unreachable!("got ptrace syscall, should be handled by seccomp"),
+            TaskState::Syscall => Ok(RunTask::Runnable(task)),
             TaskState::Exited(_exit_code) => unreachable!("run task which is already exited"),
         }
     }
@@ -1064,9 +1064,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         panic!("unfiltered syscall: {:?}", syscall);
     }
 
-    let _ = ptrace::syscall(tid);
-    task.state = TaskState::Running;
-
+    trace!("[pid {:?}] got syscall {:?}", tid, syscall);
     Ok(task)
 }
 
@@ -1166,6 +1164,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
         aux::getauxval(task).unwrap()
     };
 
+    trace!("!!!!!!!!!!!!!!!!! do_ptrace_exec");
     let bp_syscall_bp: i64 = 0xcc050fcc;
     let tid = task.gettid();
     let regs = ptrace::getregs(tid)?;

@@ -57,7 +57,6 @@ struct Arguments<'a> {
 struct DummyState(i64);
 
 impl GlobalState for DummyState {
-    type Item = i64;
     fn new() -> Self {
         DummyState(0)
     }
@@ -149,7 +148,7 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .collect();
 
     log::info!("[main] launching: {} {:?}", &argv.program, &argv.program_args);
-    seccomp::seccomp_whitelist_ips(&[(0x7000_0002u64, 0x7000_0002u64)]);
+    seccomp::seccomp_whitelist_ips(&[(0x7000_0002u64, 0x7000_0002u64)])?;
     unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }

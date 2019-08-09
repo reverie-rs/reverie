@@ -79,30 +79,7 @@ fn preload_dl_ns() -> Result<()>{
             });
         });
         // println!("whitelist: {:#x?}", whitelist);
-        let bytes = seccomp::seccomp_whitelist_ips(whitelist.as_mut());
-        let prog = sock_fprog {
-            len: bytes.len() as u32,
-            filter: bytes.as_ptr() as *const sock_filter,
-        };
-        let ptr = &prog as *const sock_fprog;
-        let r = unsafe {
-            libc::syscall(SYS_seccomp as i64,
-                          1,
-                          1 << 4,
-                          ptr as i64,
-                          0, 0, 0)
-        };
-        if r == -1 {
-            eprintln!("\n\n\t### seccomp doesn't support SECCOMP_FILTER_FLAG_CLOEXEC, execve may not work ###\n\n");
-            let r = unsafe {
-                libc::syscall(SYS_seccomp as i64,
-                              1,
-                              0,
-                              ptr as i64,
-                              0, 0, 0)
-            };
-            assert_eq!(r, 0);
-        }
+        let _ = seccomp::seccomp_whitelist_ips(whitelist.as_mut());
     }
     Ok(())
 }
