@@ -26,9 +26,10 @@ use std::env;
 use seccomp::*;
 
 use reverie::{ns, consts, task, hooks};
-use reverie::sched::Scheduler;
-use reverie::sched_wait::SchedWait;
+//use reverie::sched::Scheduler;
+use reverie::sched_wait::*;
 use reverie::task::{RunTask, Task};
+use reverie::traced_task::TracedTask;
 use reverie::state::*;
 
 #[test]
@@ -53,8 +54,18 @@ struct Arguments<'a> {
     program_args: Vec<&'a str>,
 }
 
+struct DummyState(i64);
+
+impl GlobalState for DummyState {
+    type Item = i64;
+    fn new() -> Self {
+        DummyState(0)
+    }
+}
+
 fn run_tracer_main(sched: &mut SchedWait) -> i32 {
-    sched.event_loop()
+    let mut glob = DummyState::new();
+    sched.event_loop(glob)
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -200,8 +211,8 @@ fn run_tracer(
                     | ptrace::Options::PTRACE_O_TRACESYSGOOD,
             ).map_err(|e| Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None).map_err(|e| Error::new(ErrorKind::Other, e))?;
-            let tracee = task::Task::new(child);
-            let mut sched: SchedWait = Scheduler::new();
+            let tracee = TracedTask::new(child);
+            let mut sched: SchedWait = SchedWait::new();
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {

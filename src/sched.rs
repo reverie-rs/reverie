@@ -8,17 +8,19 @@ use std::io::{Error, ErrorKind, Result};
 
 use crate::remote::*;
 use crate::task::Task;
-use crate::state::ReverieState;
+use crate::state::*;
 
-pub trait Scheduler<Task> {
-    fn new() -> Self
-    where
-        Self: Sized;
-    fn add(&mut self, task: Task);
-    fn add_blocked(&mut self, task: Task);
-    fn add_and_schedule(&mut self, task: Task);
-    fn remove(&mut self, task: &mut Task);
-    fn next(&mut self) -> Option<Task>;
+pub trait Scheduler {
+    type Item;
+    fn new() -> Self where Self::Item: Sized;
+    fn add(&mut self, task: Box<Task<Item = Self::Item>>);
+    fn add_blocked(&mut self, task: impl<Item> Task<Item = Self::Item>);
+    fn add_and_schedule(&mut self, task: impl<Item> Task<Item = Self::Item>);
+    fn remove(&mut self, task: &mut impl<Item> Task<Item = Self::Item>);
+    fn next(&mut self) -> Option<impl<Item> Task<Item = Self::Item>>;
     fn size(&self) -> usize;
-    fn event_loop(&mut self) -> i32;
+}
+
+pub trait SchedulerEventLoop<G>: Scheduler where G: GlobalState {
+    fn event_loop(&mut self, glob: &mut G) -> i32;
 }

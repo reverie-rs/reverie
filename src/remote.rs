@@ -20,6 +20,7 @@ use crate::nr::SyscallNo::*;
 use crate::stubs;
 use crate::task::{RunTask, Task};
 use crate::traced_task::TracedTask;
+use crate::state::GlobalState;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyscallStubPage {
@@ -188,7 +189,7 @@ pub fn remote_do_syscall(
 ///
 /// NB: this function calls `synchronized_from`
 ///
-pub fn patch_syscall_at(
+pub fn patch_syscall_at (
     task: &mut TracedTask,
     syscall: SyscallNo,
     hook: &hooks::SyscallHook,
@@ -306,9 +307,10 @@ pub fn patch_syscall_at(
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
+
     debug!(
         "{} patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})",
-        task.gettid(),
+        0, // Task::gettid(task),
         syscall,
         ip,
         original_bytes,

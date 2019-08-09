@@ -15,12 +15,13 @@ use crate::consts;
 use crate::nr::*;
 use crate::remote;
 use crate::remote::*;
-use crate::sched::*;
+//use crate::sched::*;
 use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 use crate::state::ReverieState;
 use crate::debug;
+use crate::state::*;
 
 /// the scheduler
 pub struct SchedWait {
@@ -30,9 +31,9 @@ pub struct SchedWait {
     task_tree: HashMap<Pid, Pid>,
 }
 
-impl Scheduler<TracedTask> for SchedWait {
+impl SchedWait {
     /// create a new `Sheduler`
-    fn new() -> Self {
+    pub fn new() -> Self {
         SchedWait {
             tasks: HashMap::new(),
             run_queue: VecDeque::new(),
@@ -41,20 +42,20 @@ impl Scheduler<TracedTask> for SchedWait {
         }
     }
     /// add a new task into `Scheduler` run (ready) queue
-    fn add(&mut self, task: TracedTask) {
-        let tid = Task::gettid(&task);
+    pub fn add(&mut self, task: TracedTask) {
+        let tid = task.gettid();
         self.task_tree.insert(task.gettid(), task.getppid());
         self.tasks.insert(tid, task);
         self.run_queue.push_back(tid);
     }
     /// add a new task into `Scheduler` blocked queue
-    fn add_blocked(&mut self, task: TracedTask) {
-        let tid = Task::gettid(&task);
+    pub fn add_blocked(&mut self, task: TracedTask) {
+        let tid = task.gettid();
         self.tasks.insert(tid, task);
         self.blocked_queue.push_back(tid);
     }
     /// add a new task into `Scheduler`, and run it
-    fn add_and_schedule(&mut self, mut task: TracedTask) {
+    pub fn add_and_schedule(&mut self, mut task: TracedTask) {
         let tid = task.gettid();
         let sig = task.signal_to_deliver;
         // PTRACE_EVENT_SECCOMP
@@ -81,27 +82,34 @@ impl Scheduler<TracedTask> for SchedWait {
         }
     }
     /// remove a task from `Scheduler`
-    fn remove(&mut self, task: &mut TracedTask) {
+    pub fn remove(&mut self, task: &mut TracedTask) {
         self.task_tree.remove(&Task::getpid(task));
         self.tasks.remove(&Task::getpid(task));
     }
     /// pick up next ready `Task` from `Scheduler`
     ///
     /// NB: `SchedWait` find out next ready task based on `waitpid`
-    fn next(&mut self) -> Option<TracedTask> {
+    pub fn next(&mut self) -> Option<TracedTask> {
         ptracer_get_next(self)
     }
     /// return number of tasks in `Scheduler`
-    fn size(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.tasks.len()
     }
+}
+
+pub trait SchedulerEventLoop<G> where G: GlobalState {
+    fn event_loop(&mut self, glob: G) -> i32;
+}
+
+impl <G> SchedulerEventLoop<G> for SchedWait where G: GlobalState {
     /// `Scheduler` (main) event loop
     ///
     /// The `Scheduler` continously pick next ready
     /// task and schedule/run it, unless there's no
     /// more task left, i.e.: when all tasks are exited.
-    fn event_loop(&mut self) -> i32 {
-        sched_wait_event_loop(self)
+    fn event_loop(&mut self, glob: G) -> i32 {
+        sched_wait_event_loop(self, glob)
     }
 }
 
@@ -200,11 +208,13 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     None
 }
 
-pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
+pub fn sched_wait_event_loop<G>(sched: &mut SchedWait, mut glob: G) -> i32
+    where G: GlobalState
+{
     let mut exit_code = 0i32;
     while let Some(task) = sched.next() {
         let tid = task.gettid();
-        let run_result = task.run();
+        let run_result = task.run(&mut glob);
         match run_result {
             Ok(RunTask::Exited(_code)) => exit_code = _code,
             Ok(RunTask::Blocked(task1)) => {

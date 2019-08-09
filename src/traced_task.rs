@@ -42,7 +42,7 @@ use crate::hooks;
 use crate::nr::*;
 use crate::remote;
 use crate::remote::*;
-use crate::sched::Scheduler;
+//use crate::sched::Scheduler;
 use crate::sched_wait::*;
 use crate::stubs;
 use crate::task::*;
@@ -205,6 +205,7 @@ impl std::fmt::Debug for TracedTask {
 }
 
 impl Task for TracedTask {
+    type Item = TracedTask;
     /// create a new `TracedTask` based on `pid`
     /// with `tid` = `pid` = `ppid`.
     fn new(pid: unistd::Pid) -> Self {
@@ -344,8 +345,12 @@ impl Task for TracedTask {
         self.pgid
     }
 
+}
+
+impl <G> Runnable<G> for TracedTask where G: GlobalState {
+    type Item = TracedTask;
     /// run a task, task ptrace event dispatcher
-    fn run(self) -> Result<RunTask<TracedTask>> {
+    fn run(self, glob: &mut G) -> Result<RunTask<TracedTask>> {
         let mut task = self;
         match task.state {
             TaskState::Running => Ok(RunTask::Runnable(task)),

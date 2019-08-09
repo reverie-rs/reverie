@@ -13,8 +13,9 @@ use crate::consts::*;
 use crate::hooks;
 use crate::nr;
 use crate::remote::*;
-use crate::sched::Scheduler;
+//use crate::sched::Scheduler;
 use crate::stubs;
+use crate::state::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TaskState {
@@ -41,22 +42,22 @@ pub enum RunTask<Task> {
 }
 
 pub trait Task {
-    fn new(pid: Pid) -> Self
-    where
-        Self: Sized;
-    fn cloned(&self) -> Self
-    where
-        Self: Sized;
-    fn forked(&self) -> Self
-    where
-        Self: Sized;
+    type Item;
+    fn new(pid: Pid) -> Self::Item
+        where Self::Item: Sized, Self: Sized;
+    fn cloned(&self) -> Self::Item
+        where Self::Item: Sized, Self: Sized;
+    fn forked(&self) -> Self::Item
+        where Self::Item: Sized, Self: Sized;
     fn gettid(&self) -> Pid;
     fn getpid(&self) -> Pid;
     fn getppid(&self) -> Pid;
     fn getpgid(&self) -> Pid;
     fn exited(&self) -> Option<i32>;
+}
+
+pub trait Runnable<G> where G: GlobalState {
+    type Item;
     /// take ownership of `self`
-    fn run(self) -> Result<RunTask<Self>>
-    where
-        Self: Sized;
+    fn run(self, glob: &mut G) -> Result<RunTask<Self::Item>> where Self::Item: Sized;
 }

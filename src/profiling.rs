@@ -1,6 +1,6 @@
 //! tracee profiling data
 
-use std::sync::atomic::{Ordering, AtomicUsize};
+use std::sync::atomic::{AtomicUsize};
 
 /// syscall statistic information
 #[derive(Debug, Default)]

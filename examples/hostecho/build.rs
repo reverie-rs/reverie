@@ -15,6 +15,7 @@ fn main() -> Result<()> {
     let src_files: Vec<_> = vec![ std::fs::canonicalize("../../src/local_state.rs").unwrap(),
                                   std::fs::canonicalize("../../src/profiling.rs").unwrap(),
                                   std::fs::canonicalize("../../src/state.rs").unwrap(),
+                                  std::fs::canonicalize("../../src/tools.rs").unwrap(),
                                   std::fs::canonicalize("../../src/consts.rs").unwrap()];
     let dst_dir = std::fs::canonicalize(cwd.join("src"))?;
 

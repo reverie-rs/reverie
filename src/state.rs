@@ -1,5 +1,6 @@
 //! reverie global state
 
+use std::cell::UnsafeCell;
 use std::sync::Mutex;
 
 use crate::profiling::*;
@@ -26,4 +27,9 @@ lazy_static! {
 /// get reverie global state, protected by mutex
 pub fn reverie_global_state() -> &'static Mutex<ReverieState> {
     &REVERIE_GLOBAL_STATE
+}
+
+pub trait GlobalState {
+    type Item;
+    fn new() -> Self where Self: Sized;
 }

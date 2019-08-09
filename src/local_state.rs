@@ -118,12 +118,6 @@ impl ProcessState {
     }
 }
 
-#[derive(Debug)]
-pub struct GlobalState {
-    pub global_time: u64,
-    pub thread_states: HashMap<Pid, &'static ThreadState>,
-}
-
 #[no_mangle]
 unsafe extern "C" fn init_process_state() {
     let new_state = ProcessState::new();
