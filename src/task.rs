@@ -13,7 +13,6 @@ use crate::consts::*;
 use crate::hooks;
 use crate::nr;
 use crate::remote::*;
-//use crate::sched::Scheduler;
 use crate::stubs;
 use crate::state::*;
 

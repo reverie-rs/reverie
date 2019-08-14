@@ -25,10 +25,10 @@ use std::env;
 
 use seccomp::*;
 
-use reverie::{ns, consts, task, hooks};
-//use reverie::sched::Scheduler;
+use api::task::*;
+
+use reverie::{ns, consts, hooks};
 use reverie::sched_wait::*;
-use reverie::task::{RunTask, Task};
 use reverie::traced_task::TracedTask;
 use reverie::state::*;
 

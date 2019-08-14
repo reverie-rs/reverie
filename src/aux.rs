@@ -10,9 +10,10 @@
 use std::io::Result;
 use std::collections::HashMap;
 
-use crate::task::Task;
+use api::task::*;
+use api::remote::*;
+
 use crate::traced_task::TracedTask;
-use crate::remote::*;
 
 const AUXV_MAX: usize = 256;
 
@@ -20,7 +21,7 @@ pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
     let mut res: HashMap<usize, u64>  = HashMap::new();
     let regs = task.getregs()?;
 
-    let sp = RemotePtr::new(regs.rsp as *mut u64);
+    let sp = Remoteable::remote(regs.rsp as *mut u64);
 
     let vec = task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
     let auxv: Vec<u64> = std::mem::transmute(vec);

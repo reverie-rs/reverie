@@ -18,9 +18,10 @@ use crate::nr;
 use crate::nr::SyscallNo;
 use crate::nr::SyscallNo::*;
 use crate::stubs;
-use crate::task::{RunTask, Task};
 use crate::traced_task::TracedTask;
-use crate::state::GlobalState;
+
+use api::task::*;
+use api::remote::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyscallStubPage {
@@ -28,44 +29,6 @@ pub struct SyscallStubPage {
     pub size: usize,
     pub allocated: usize,
 }
-
-/// a pointer belongs to tracee's address space
-#[derive(Debug)]
-pub struct RemotePtr<T> {
-    ptr: NonNull<T>,
-}
-
-impl<T> RemotePtr<T>
-where
-    T: Sized,
-{
-    pub fn new(ptr: *mut T) -> Self {
-        RemotePtr {
-            ptr: NonNull::new(ptr).unwrap(),
-        }
-    }
-    pub fn as_ptr(self) -> *mut T {
-        self.ptr.as_ptr()
-    }
-    pub fn cast<U>(self) -> RemotePtr<U> {
-        RemotePtr {
-            ptr: self.ptr.cast::<U>(),
-        }
-    }
-    pub unsafe fn offset(self, count: isize) -> Self {
-        RemotePtr {
-            ptr: NonNull::new(self.as_ptr().offset(count)).unwrap(),
-        }
-    }
-}
-
-impl<T> Clone for RemotePtr<T> {
-    fn clone(&self) -> Self {
-        RemotePtr { ptr: self.ptr }
-    }
-}
-
-impl<T: Sized> Copy for RemotePtr<T> {}
 
 /// doing syscalls from the tracer on behalf of tracee
 pub trait RemoteSyscall {
@@ -84,59 +47,6 @@ pub trait RemoteSyscall {
     ) -> Result<i64>;
 }
 
-/// trait implements most ptrace interface.
-pub trait Remote {
-    /// peek bytes from inferior
-    fn peek_bytes(&self, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>>;
-    /// poke bytes into inferior
-    fn poke_bytes(&self, addr: RemotePtr<u8>, bytes: &[u8]) -> Result<()>;
-    /// peek a `Sized` remote pointer from inferior
-    fn peek<T>(&self, addr: RemotePtr<T>) -> Result<T>
-    where
-        T: Sized,
-    {
-        let new_ptr = addr.cast::<u8>();
-        let size = std::mem::size_of::<T>();
-        let bytes: Vec<u8> = self.peek_bytes(new_ptr, size)?;
-        // to be initialized by copy_nonoverlapping.
-        let mut res: T = unsafe { std::mem::uninitialized() };
-        let ret_ptr: *mut T = &mut res;
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ret_ptr as *mut u8, size) };
-        Ok(res)
-    }
-    /// poke a `Sized` remote pointer from inferior
-    fn poke<T>(&self, addr: RemotePtr<T>, value: &T) -> Result<()>
-    where
-        T: Sized,
-    {
-        let value_ptr: *const T = value;
-        let size = std::mem::size_of::<T>();
-        let new_ptr = addr.cast::<u8>();
-        let bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(value_ptr as *const u8, size)
-        };
-        self.poke_bytes(new_ptr, bytes)?;
-        Ok(())
-    }
-    /// get inferior user regs
-    fn getregs(&self) -> Result<libc::user_regs_struct>;
-    /// set inferior user regs
-    fn setregs(&self, regs: libc::user_regs_struct) -> Result<()>;
-    /// get inferior ptrace event
-    fn getevent(&self) -> Result<i64>;
-    /// resume a stopped inferior
-    fn resume(&self, sig: Option<signal::Signal>) -> Result<()>;
-    /// single step a stopped inferior
-    fn step(&self, sig: Option<signal::Signal>) -> Result<()>;
-    /// get `siginfo_t` from stopped inferior
-    fn getsiginfo(&self) -> Result<libc::siginfo_t>;
-
-    /// set breakpoint at inferior `addr` with handler `op`.
-    fn setbp<F>(&mut self, addr: RemotePtr<c_void>, op: F) -> Result<()>
-    where
-        F: 'static + FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
-}
-
 /// tell the tracee to do context synchronization at given `rip`
 ///
 /// NB: this is required when tracee modified its code region
@@ -151,9 +61,11 @@ pub fn synchronize_from(task: &TracedTask, rip: u64) {
     regs.rip = 0x7000_0018u64;
     // push return address
     regs.rsp -= 8;
-    let remote_return_address_ptr = RemotePtr::new(regs.rsp as *mut u64);
+    let rsp_value = regs.rsp;
+    let &mut rsp = &mut rsp_value;
+    let remote_return_address_ptr = Remoteable::remote(Box::new(regs.rsp));
     let remote_return_address = rip;
-    task.poke(remote_return_address_ptr, &remote_return_address)
+    task.poke(remote_return_address_ptr, Box::new(remote_return_address))
         .unwrap();
     task.setregs(regs).unwrap();
 }
@@ -169,16 +81,16 @@ pub fn remote_do_syscall(
     a5: i64,
 ) -> Result<()> {
     let mut regs = task.getregs()?;
-    let syscall_helper_addr_ptr = RemotePtr::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64);
+    let syscall_helper_addr_ptr = Remoteable::remote(Box::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64));
     let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
     let return_address = regs.rip;
-    regs.rip = syscall_helper_addr;
+    regs.rip = syscall_helper_addr as u64;
     regs.rsp -= 9 * 8; // return_address + nr + a0-a5 + pad
-    let remote_rsp = RemotePtr::new(regs.rsp as *mut i64);
+    let remote_rsp = Remoteable::remote(Box::new(regs.rsp as i64));
     let regs_to_save = vec![0, a5, a4, a3, a2, a1, a0, nr as i64, return_address as i64];
     regs_to_save.iter().enumerate().for_each(|(k, x)| {
         let current_rsp = unsafe { remote_rsp.offset(k as isize) };
-        task.poke(current_rsp, x).unwrap();
+        task.poke(current_rsp, Box::new(*x)).unwrap();
     });
     task.setregs(regs)
 }
@@ -204,7 +116,7 @@ pub fn patch_syscall_at (
 
     let mut patch_bytes: Vec<u8> = Vec::new();
 
-    let remote_rip = RemotePtr::new(ip as *mut u8);
+    let remote_rip = Remoteable::remote(Box::new(ip));
 
     patch_bytes.push(0xe8);
     patch_bytes.push((rela & 0xff) as u8);

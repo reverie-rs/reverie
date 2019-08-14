@@ -9,19 +9,16 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
+use api::task::*;
+
 use procfs;
 
 use crate::consts;
-use crate::nr::*;
-use crate::remote;
-use crate::remote::*;
-//use crate::sched::*;
-use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 use crate::state::ReverieState;
 use crate::debug;
-use crate::state::*;
+
 
 /// the scheduler
 pub struct SchedWait {

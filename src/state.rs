@@ -28,10 +28,3 @@ lazy_static! {
 pub fn reverie_global_state() -> &'static Mutex<ReverieState> {
     &REVERIE_GLOBAL_STATE
 }
-
-pub trait GlobalState {
-    fn new() -> Self where Self: Sized;
-}
-
-pub trait ProcessState {
-}

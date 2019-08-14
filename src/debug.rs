@@ -1,7 +1,8 @@
 //! convenient functions for debugging tracees
 
-use crate::remote::{Remote, RemotePtr};
-use crate::task::Task;
+use api::task::*;
+use api::remote::*;
+
 use crate::traced_task::TracedTask;
 use nix::unistd::Pid;
 use nix::sys::ptrace;
@@ -103,7 +104,7 @@ pub fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
            show_stackframe(tid, regs.rsp, 0x40, 0x80));
 
     if task_rip_is_valid(task, regs.rip) {
-        let rptr = RemotePtr::new(regs.rip as *mut u8);
+        let rptr = Remoteable::remote(regs.rip as *mut u8);
         match task.peek_bytes(rptr, 16) {
             Err(_) => (),
             Ok(v)  => {

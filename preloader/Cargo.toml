@@ -15,7 +15,7 @@ path = "src/lib.rs"
 syscalls = { path = "../syscalls" }
 seccomp = { path = "../seccomp" }
 procfs = "0.5"
-nix = "0.14"
+nix = "0.15"
 libc = "0.2"
 
 [build-dependencies]

@@ -3,25 +3,29 @@ use syscalls::*;
 use core::fmt;
 use core::fmt::Display;
 use core::ptr::NonNull;
-use core::ffi::c_void as void;
-use std::borrow::Cow;
+use std::io::Result;
+
+use api::remote::{Remoteable, GuestMemoryAccess};
+use api::remote::*;
+use itertools::Itertools;
+use nix::unistd::Pid;
 
 use crate::show::types::*;
-use crate::show::fcntl::fmt_fcntl;
-use crate::show::ioctl::fmt_ioctl;
+//use crate::show::fcntl::fmt_fcntl;
+//use crate::show::ioctl::fmt_ioctl;
 
 macro_rules! ptr {
     ($ty: ty, $v: ident) => {
-        NonNull::new($v as *mut $ty)
+        Remoteable::remote($v as *mut $ty)
     }
 }
 
 fn arg_out(arg: &SyscallArg) -> bool {
     match arg {
-        SyscallArg::PtrOut(Some(_)) => true,
-        SyscallArg::SizedCStrOut(_, Some(_)) => true,
-        SyscallArg::SizedU8VecOut(_, Some(_)) => true,
-        SyscallArg::UnamePtr(Some(_)) => true,
+        SyscallArg::PtrOut(_) => true,
+        SyscallArg::SizedCStrOut(_, _) => true,
+        SyscallArg::SizedU8VecOut(_, _) => true,
+        SyscallArg::UnamePtr(_) => true,
         SyscallArg::Timeval(_) => true,
         SyscallArg::Timespec(_) => true,
         SyscallArg::Timezone(_) => true,
@@ -71,16 +75,16 @@ impl SyscallInfo {
             }
             SYS_getdents => {
                 vec![ SyscallArg::DirFd(a0 as i32),
-                      SyscallArg::DirentPtr(ptr!(void, a1)),
+                      SyscallArg::DirentPtr(ptr!(u64, a1)),
                       SyscallArg::Int(a2) ]
             }
             SYS_getdents64 => {
                 vec![ SyscallArg::DirFd(a0 as i32),
-                      SyscallArg::Dirent64Ptr(ptr!(void, a1)),
+                      SyscallArg::Dirent64Ptr(ptr!(u64, a1)),
                       SyscallArg::Int(a2) ]
             }
             SYS_mmap => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::Hex(a1),
                       SyscallArg::MmapProt(a2 as i32),
                       SyscallArg::MmapFlags(a3 as i32),
@@ -88,16 +92,16 @@ impl SyscallInfo {
                       SyscallArg::Int(a5)]
             }
             SYS_munmap => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::Hex(a1)]
             }
             SYS_mprotect => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::Hex(a1),
                       SyscallArg::MmapProt(a2 as i32)]
             }
             SYS_madvise => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::Hex(a1),
                       SyscallArg::MAdvise(a2 as i32)]
             }
@@ -143,11 +147,11 @@ impl SyscallInfo {
             }
             SYS_fstat => {
                 vec![ SyscallArg::Fd(a0 as i32),
-                      SyscallArg::PtrOut(ptr!(void, a1))]
+                      SyscallArg::PtrOut(ptr!(u64, a1))]
             }
             SYS_stat | SYS_lstat => {
                 vec![ SyscallArg::CStr(ptr!(i8, a0)),
-                      SyscallArg::PtrOut(ptr!(void, a1))]
+                      SyscallArg::PtrOut(ptr!(u64, a1))]
             }
             SYS_readlink => {
                 vec![ SyscallArg::CStr(ptr!(i8, a0)),
@@ -169,21 +173,21 @@ impl SyscallInfo {
             }
             SYS_wait4 => {
                 vec![ SyscallArg::I32(a0 as i32),
-                      SyscallArg::Ptr(ptr!(void, a1)),
+                      SyscallArg::Ptr(ptr!(u64, a1)),
                       SyscallArg::WaitpidOptions(a2 as i32),
-                      SyscallArg::Ptr(ptr!(void, a3))]
+                      SyscallArg::Ptr(ptr!(u64, a3))]
             }
             SYS_set_robust_list => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::Int(a1)]
             }
             SYS_get_robust_list => {
                 vec![ SyscallArg::I32(a0 as i32),
-                      SyscallArg::PtrOut(ptr!(void, a1)),
-                      SyscallArg::PtrOut(ptr!(void, a2))]
+                      SyscallArg::PtrOut(ptr!(u64, a1)),
+                      SyscallArg::PtrOut(ptr!(u64, a2))]
             }
             SYS_uname => {
-                vec![ SyscallArg::UnamePtr(ptr!(void, a0)) ]
+                vec![ SyscallArg::UnamePtr(ptr!(u64, a0)) ]
             }
             SYS_access => {
                 vec![ SyscallArg::CStr(ptr!(i8, a0)),
@@ -193,7 +197,7 @@ impl SyscallInfo {
                 Vec::new()
             }
             SYS_time => {
-                vec! [ SyscallArg::PtrOut(ptr!(void, a0)) ]
+                vec! [ SyscallArg::PtrOut(ptr!(u64, a0)) ]
             }
             SYS_gettimeofday => {
                 vec! [ SyscallArg::Timeval(a0 as u64),
@@ -212,11 +216,11 @@ impl SyscallInfo {
                        SyscallArg::Timespec(a1 as u64) ]
             }
             SYS_futex => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)),
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::FutexOp(a1 as i32),
                       SyscallArg::I32(a2 as i32),
                       SyscallArg::Timespec(a3 as u64),
-                      SyscallArg::Ptr(ptr!(void, a4)),
+                      SyscallArg::Ptr(ptr!(u64, a4)),
                       SyscallArg::I32 (a5 as i32)]
             }
             SYS_rt_sigprocmask => {
@@ -236,6 +240,7 @@ impl SyscallInfo {
                       SyscallArg::Int(a1),
                       SyscallArg::LseekWhence(a2 as i32)]
             }
+            /*
             SYS_fcntl => {
                 vec![ SyscallArg::Fd(a0 as i32),
                       SyscallArg::Fcntl(a1 as i32, a2 as u64)]
@@ -244,13 +249,14 @@ impl SyscallInfo {
                 vec![ SyscallArg::Fd(a0 as i32),
                       SyscallArg::Ioctl(a1 as i32, a2 as u64)]
             }
+            */
             SYS_sysinfo => {
-                vec![ SyscallArg::Ptr(ptr!(void, a0)) ]
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)) ]
             }
             SYS_execve => {
                 vec![ SyscallArg::CStr(ptr!(i8, a0)),
-                      SyscallArg::CStrArrayNulTerminated(ptr!(void, a1)),
-                      SyscallArg::Envp(ptr!(void, a2))]
+                      SyscallArg::CStrArrayNulTerminated(ptr!(i8, a1)),
+                      SyscallArg::Envp(ptr!(u64, a2))]
             }
             _ => {
                 vec![ SyscallArg::Int(a0),
@@ -266,14 +272,27 @@ impl SyscallInfo {
             !arg_out(a)
         }).count();
         SyscallInfo {
-            tid,
+            pid: Pid::from_raw(tid),
             no,
-            args,
+            args: args.iter().map(|a| InferiorSyscallArg::from(Pid::from_raw(tid), *a)).collect(),
             nargs_before: k,
+            retval: None,
         }
     }
-    pub fn args_after_syscall(&self) -> Vec<SyscallArg> {
+    pub fn args_after_syscall(&self) -> Vec<InferiorSyscallArg> {
         self.args.iter().skip(self.nargs_before).cloned().collect()
+    }
+    pub fn set_retval(self, retval: i64) -> Self {
+        let ret = match self.no {
+            SYS_mmap => SyscallRet::RetPtr(retval as u64),
+            SYS_execve => SyscallRet::NoReturn,
+            SYS_exit_group => SyscallRet::NoReturn,
+            SYS_exit => SyscallRet::NoReturn,
+            _        => SyscallRet::RetInt(retval),
+        };
+        let mut new_info = self;
+        new_info.retval = Some(ret);
+        new_info
     }
 }
 
@@ -294,105 +313,145 @@ impl fmt::Display for SyscallRet {
     }
 }
 
-impl fmt::Display for SyscallInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let suffix = if self.args.len() == self.nargs_before {
-            ") = "
+impl GuestMemoryAccess for InferiorSyscallArg {
+    fn peek_bytes(&self, addr: Remoteable<u8>, size: usize) -> Result<Vec<u8>> {
+        match addr {
+            Remoteable::Local(lptr) => {
+                let mut dest = Vec::with_capacity(size);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(lptr.as_ptr() as *const u8,
+                                                  dest.as_mut_ptr(),
+                                                  size)
+                };
+                Ok(dest)
+            }
+            Remoteable::Remote(rptr) => {
+                ptrace_peek_bytes(self.pid, rptr, size)
+            }
+        }
+    }
+    fn poke_bytes(&self, addr: Remoteable<u8>, bytes: &[u8]) -> Result<()> {
+        match addr {
+            Remoteable::Local(lptr) => {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(bytes.as_ptr(),
+                                                  lptr.as_ptr(),
+                                                  bytes.len())
+                };
+                Ok(())
+            }
+            Remoteable::Remote(rptr) => {
+                ptrace_poke_bytes(self.pid, rptr, bytes)
+            }
+        }
+    }
+}
+
+impl InferiorSyscallArg {
+    pub fn from_cstr(&self, ptr: Remoteable<i8>) -> String {
+        self.peek_cstring(ptr).unwrap_or_else(|_|String::new())
+    }
+    pub fn from_cstr_sized<'a>(&self, ptr: Remoteable<i8>, size: usize) -> String {
+        let slice: Vec<u8> = self.peek_bytes(ptr.cast(), size).unwrap_or_else(|_|Vec::new());
+        String::from_utf8_lossy(&slice).to_string()
+    }
+    pub fn from_cstr_sized_atmost(&self, ptr: Remoteable<i8>, size: usize, max_size: usize) -> String {
+        let slice: Vec<u8> = self.peek_bytes(ptr.cast(), size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
+        String::from_utf8_lossy(&slice).to_string()
+    }
+    pub fn fmt_cstr(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>) -> fmt::Result {
+        write!(f, "\"{}\"", self.from_cstr(ptr))
+    }
+    pub fn fmt_cstr_sized(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>, size: usize) -> fmt::Result {
+        write!(f, "\"{}\"", escape(self.from_cstr_sized(ptr, size)))
+    }
+    pub fn fmt_cstr_sized_atmost(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>, size: usize, max_size: usize) -> fmt::Result {
+        write!(f, "\"{}\"", escape(self.from_cstr_sized_atmost(ptr, size, max_size)))
+    }
+    pub fn fmt_u8vec_atmost(&self, f: &mut fmt::Formatter, ptr: Remoteable<u8>, size: usize, max_size: usize) ->  fmt::Result {
+        let slice :Vec<u8> = self.peek_bytes(ptr, size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
+        if size <= max_size {
+            write!(f, "{:x?}", slice)
         } else {
-            ""
-        };
-        write!(f, "[pid {:>4}] {:?}({}{}", self.tid, self.no,
-               self.args.iter()
-               .take(self.nargs_before)
-               .map(|arg|arg.to_string())
-               .collect::<Vec<_>>()
-               .join(", "),
-               suffix)
-    }
-}
-
-impl SyscallRet {
-    pub fn from(no: SyscallNo, retval: i64) -> Self {
-        match no {
-            SYS_mmap => SyscallRet::RetPtr(retval as u64),
-            _        => SyscallRet::RetInt(retval),
+            write!(f, "{:x?}...", slice)
         }
     }
-}
-
-impl SyscallRetInfo {
-    pub fn from(tid: i32, no: SyscallNo, args: Vec<SyscallArg>, retval: i64, first_arg_is_outp: bool) -> Self {
-        let ret = match no {
-            SYS_mmap => SyscallRet::RetPtr(retval as u64),
-            SYS_execve => SyscallRet::NoReturn,
-            SYS_exit_group => SyscallRet::NoReturn,
-            SYS_exit => SyscallRet::NoReturn,
-            _        => SyscallRet::RetInt(retval),
+    pub fn fmt_uname_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
+        let uts = self.peek_cstring(ptr.cast()).unwrap_or_else(|_| String::new());
+        let node = unsafe {
+            self.peek_cstring(ptr.cast().offset(UTSNAME_LENGTH as isize))
+                .unwrap_or_else(|_| String::new())
         };
-        SyscallRetInfo {
-            tid,
-            no,
-            args,
-            retval: ret,
-            first_arg_is_outp
-        }
+        write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}", uts, node)
     }
-}
-
-impl Display for SyscallRetInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let prefix = if self.first_arg_is_outp  {
-            ""
+    pub unsafe fn fmt_cstr_null_terminated(&self, f: &mut fmt::Formatter, pptr: Remoteable<u64>) -> fmt::Result {
+        let mut cnt = 0;
+        let mut res = Vec::new();
+        // while let Some(ptr) = NonNull::new(core::ptr::read(pptr_.as_ptr().cast::<*mut u64>().offset(cnt)) as *mut i8) {
+        loop {
+            let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
+            if addr == 0 {
+                break;
+            }
+            let z = match pptr {
+                Remoteable::Local(_)  => Remoteable::local(addr as *mut i8),
+                Remoteable::Remote(_) => Remoteable::remote(addr as *mut i8),
+            };
+            res.push("\"".to_owned() + &escape(self.from_cstr(z)) + "\"");
+            cnt = 1 + cnt;
+        }
+        write!(f, "[{}]", res.join(", "))
+    }
+    pub unsafe fn fmt_envp(&self, f: &mut fmt::Formatter, pptr: Remoteable<u64>) -> fmt::Result {
+        let mut cnt = 0;
+        loop {
+            let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
+            if addr == 0 {
+                break;
+            }
+            cnt += 1;
+        }
+        let unit = if cnt == 1 {
+            "var"
         } else {
-            ", "
+            "vars"
         };
-        if self.args.len() != 0 {
-            write!(f, "{}{}) = ", prefix,
-                   self.args.iter()
-                   .map(|arg|arg.to_string())
-                   .collect::<Vec<_>>()
-                   .join(", "))?;
-        }
-        write!(f, "{}", self.retval)
+        write!(f, "{:#x?} /* {} {} */", pptr, cnt, unit)
+    }
+    // the size upper limit is in getdents return value, but our SyscallArg doesn't have it
+    // hence the best-effort try without using return values
+    // the downside is even when getdents returns zero, this function still reports positive
+    // entires (instead of zero).
+    pub unsafe fn fmt_dirent_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
+        write!(f, "{:x?} /* ?? entries */", ptr)?;
+        Ok(())
+    }
+    pub unsafe fn fmt_dirent64_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
+        self.fmt_dirent_ptr(f, ptr)
     }
 }
 
-macro_rules! fmt_nullptr {
-    ($f: ident) => {
-        write!($f, "NULL")
-    }
-}
-
-impl fmt::Display for SyscallArg {
+impl Display for InferiorSyscallArg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self.arg {
             SyscallArg::Int(val) => write!(f, "{}", val),
             SyscallArg::UInt(val) => write!(f, "{}", val),
             SyscallArg::I32(val) => write!(f, "{}", val),
             SyscallArg::Fd(val) => write!(f, "{}", val),
             SyscallArg::Hex(val) => write!(f, "{:#x}", val),
-            SyscallArg::Ptr(Some(val)) | SyscallArg::PtrOut(Some(val)) => {
-                write!(f, "{:x?}", val)
+            SyscallArg::Ptr(p) | SyscallArg::PtrOut(p) => {
+                write!(f, "{:x?}", p)
             }
-            SyscallArg::Ptr(None)
-                | SyscallArg::PtrOut(None)
-                | SyscallArg::CStr(None)
-                | SyscallArg::SizedCStr(_, None)
-                | SyscallArg::SizedCStrOut(_, None)
-                | SyscallArg::SizedU8Vec(_, None)
-                | SyscallArg::SizedU8VecOut(_, None) => {
-                fmt_nullptr!(f)
+            SyscallArg::CStr(ptr) => {
+                self.fmt_cstr(f, ptr)
             }
-            SyscallArg::CStr(Some(ptr)) => {
-                fmt_cstr(f, ptr)
+            SyscallArg::SizedCStr(size, ptr)
+                | SyscallArg::SizedCStrOut(size, ptr) => {
+                self.fmt_cstr_sized_atmost(f, ptr, size, 32)
             }
-            SyscallArg::SizedCStr(size, Some(ptr))
-                | SyscallArg::SizedCStrOut(size, Some(ptr)) => {
-                fmt_cstr_sized_atmost(f, ptr, size, 32)
-            }
-            SyscallArg::SizedU8Vec(size, Some(ptr))
-                | SyscallArg::SizedU8VecOut(size, Some(ptr)) => {
-                fmt_u8vec_atmost(f, ptr, size, 16)
+            SyscallArg::SizedU8Vec(size, ptr)
+                | SyscallArg::SizedU8VecOut(size, ptr) => {
+                self.fmt_u8vec_atmost(f, ptr, size, 16)
             }
             SyscallArg::FdFlags(flags) => write!(f, "{}", show_fdflags(flags)),
             SyscallArg::FdModes(modes) => write!(f, "0{:o}", modes),
@@ -460,23 +519,25 @@ impl fmt::Display for SyscallArg {
                        .or_else(|| libc_match_value!(whence, SEEK_END))
                        .unwrap_or_else(|| "<whence: BAD_VALUE>"))
             }
+            /*
             SyscallArg::Fcntl(cmd, arg) => {
                 fmt_fcntl(cmd, arg, f)
             }
             SyscallArg::Ioctl(cmd, arg) => {
                 fmt_ioctl(cmd, arg, f)
             }
+            */
             SyscallArg::UnamePtr(ptr) => {
-                fmt_uname_ptr(f, ptr)
+                self.fmt_uname_ptr(f, ptr)
             }
             SyscallArg::CStrArrayNulTerminated(ptr) => {
                 unsafe {
-                    fmt_cstr_null_terminated(f, ptr)
+                    self.fmt_cstr_null_terminated(f, ptr.cast())
                 }
             }
             SyscallArg::Envp(ptr) => {
                 unsafe {
-                    fmt_envp(f, ptr)
+                    self.fmt_envp(f, ptr)
                 }
             }
             SyscallArg::MAdvise(advise) => {
@@ -484,21 +545,45 @@ impl fmt::Display for SyscallArg {
             }
             SyscallArg::DirentPtr(ptr) => {
                 unsafe {
-                    fmt_dirent_ptr(f, ptr)
+                    self.fmt_dirent_ptr(f, ptr)
                 }
             }
             SyscallArg::Dirent64Ptr(ptr) => {
                 unsafe {
-                    fmt_dirent64_ptr(f, ptr)
+                    self.fmt_dirent64_ptr(f, ptr)
                 }
             }
         }
     }
 }
 
-fn escape<'a>(s: &str) -> String {
+impl fmt::Display for SyscallInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let suffix = if self.args.len() == self.nargs_before {
+            ") = "
+        } else {
+            ""
+        };
+        let args_to_format = self.args.iter()
+            .take(self.nargs_before)
+            .format(", ");
+        write!(f, "[pid {:>4}] {:?}({}{}",
+               self.pid, self.no, args_to_format, suffix)
+    }
+}
+
+impl SyscallRet {
+    pub fn from(no: SyscallNo, retval: i64) -> Self {
+        match no {
+            SYS_mmap => SyscallRet::RetPtr(retval as u64),
+            _        => SyscallRet::RetInt(retval),
+        }
+    }
+}
+
+fn escape<T: AsRef<str>>(s: T) -> String {
     let mut res = String::new();
-    s.chars().for_each(|c| {
+    s.as_ref().chars().for_each(|c| {
         match c {
             '\n' => {
                 res.push_str("\\n");
@@ -514,61 +599,12 @@ fn escape<'a>(s: &str) -> String {
     res
 }
 
-fn from_cstr<'a>(ptr: NonNull<i8>) -> Cow<'a, str> {
-    unsafe {
-        std::ffi::CStr::from_ptr(ptr.as_ptr())
-            .to_string_lossy()
-    }
-}
-
-fn fmt_cstr(f: &mut fmt::Formatter, ptr: NonNull<i8>) -> fmt::Result {
-    write!(f, "\"{}\"", escape(&from_cstr(ptr)))
-}
-
-fn from_cstr_sized<'a>(ptr: NonNull<i8>, size: usize) -> &'a str {
-    unsafe {
-        let slice = std::slice::from_raw_parts(ptr.as_ptr() as *const u8, size);
-        std::str::from_utf8_unchecked(slice)
-    }
-}
-
-#[allow(unused)]
-fn fmt_cstr_sized(f: &mut fmt::Formatter, ptr: NonNull<i8>, size: usize) -> fmt::Result {
-    write!(f, "\"{}\"", escape(from_cstr_sized(ptr, size)))
-}
-
-#[allow(unused)]
-fn from_cstr_sized_atmost<'a>(ptr: NonNull<i8>, size: usize, max_size: usize) -> &'a str {
-    unsafe {
-        let slice = std::slice::from_raw_parts(
-            ptr.as_ptr() as *const u8,
-            std::cmp::min(size, max_size));
-        std::str::from_utf8_unchecked(slice)
-    }
-}
-
-#[allow(unused)]
-fn fmt_cstr_sized_atmost(f: &mut fmt::Formatter, ptr: NonNull<i8>, size: usize, max_size: usize) -> fmt::Result {
-    write!(f, "\"{}\"", escape(from_cstr_sized_atmost(ptr, size, max_size)))
-}
-
 #[allow(unused)]
 fn fmt_u8vec(f: &mut fmt::Formatter, ptr: NonNull<u8>, size: usize) ->  fmt::Result {
     let slice = unsafe {
         std::slice::from_raw_parts(ptr.as_ptr(), size)
     };
     write!(f, "{:x?}", slice)
-}
-
-fn fmt_u8vec_atmost(f: &mut fmt::Formatter, ptr: NonNull<u8>, size: usize, max_size: usize) ->  fmt::Result {
-    let slice = unsafe {
-        std::slice::from_raw_parts(ptr.as_ptr(), size)
-    };
-    if size <= max_size {
-        write!(f, "{:x?}", slice.iter().take(max_size).collect::<Vec<_>>())
-    } else {
-        write!(f, "{:x?}...", slice.iter().take(max_size).collect::<Vec<_>>())
-    }
 }
 
 fn show_mmap_prot(prot: i32) -> String {
@@ -921,50 +957,6 @@ fn fmt_rt_sigaction(f: &mut fmt::Formatter, act_p: u64) -> fmt::Result {
 
 const UTSNAME_LENGTH: usize = 65; /* sys/utsname.h */
 
-fn fmt_uname_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
-    match ptr__ {
-        None => write!(f, "NULL"),
-        Some(ptr) => {
-            let uts = ptr.as_ptr() as *const i8;
-            let ptr_2 = UTSNAME_LENGTH + uts as usize;
-            let sysname_p = ptr!(i8, uts);
-            let nodename_p = ptr!(i8, ptr_2);
-            write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}",
-                   sysname_p.map(from_cstr).unwrap_or_else(|| Cow::from("NULL")),
-                   nodename_p.map(from_cstr).unwrap_or_else(|| Cow::from("NULL")))
-        }
-    }
-}
-
-unsafe fn fmt_cstr_null_terminated(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
-    let mut cnt = 0;
-    let mut res = Vec::new();
-    if let Some(pptr_) = ptr__ {
-        while let Some(ptr) = NonNull::new(core::ptr::read(pptr_.as_ptr().cast::<*mut u64>().offset(cnt)) as *mut i8) {
-            res.push("\"".to_owned() + &escape(&from_cstr(ptr)) + "\"");
-            cnt = 1 + cnt;
-        }
-        write!(f, "[{}]", res.join(", "))?;
-    }
-    Ok(())
-}
-
-unsafe fn fmt_envp(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
-    let mut cnt = 0;
-    if let Some(pptr_) = ptr__ {
-        while let Some(_ptr) = NonNull::new(core::ptr::read(pptr_.as_ptr().cast::<*mut u64>().offset(cnt)) as *mut i8) {
-            cnt = 1 + cnt;
-        }
-        let unit = if cnt == 1 {
-            "var"
-        } else {
-            "vars"
-        };
-        write!(f, "{:#x?} /* {} {} */", pptr_, cnt, unit)?;
-    }
-    Ok(())
-}
-
 fn fmt_madvise(f: &mut fmt::Formatter, advise: i32) -> fmt::Result {
     let msg = match advise {
         0  => "MADV_NORMAL",
@@ -996,19 +988,4 @@ struct linux_dirent_partial {
     d_ino: u64,
     d_off: u64,
     d_reclen: u16,
-}
-
-// the size upper limit is in getdents return value, but our SyscallArg doesn't have it
-// hence the best-effort try without using return values
-// the downside is even when getdents returns zero, this function still reports positive
-// entires (instead of zero).
-unsafe fn fmt_dirent_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
-    if let Some(ptr) = ptr__ {
-        write!(f, "{:x?} /* ?? entries */", ptr)?;
-    }
-    Ok(())
-}
-
-unsafe fn fmt_dirent64_ptr(f: &mut fmt::Formatter, ptr__: Option<NonNull<void>>) -> fmt::Result {
-    fmt_dirent_ptr(f, ptr__)
 }

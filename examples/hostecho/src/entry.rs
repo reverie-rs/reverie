@@ -2,12 +2,14 @@
 //!
 use syscalls::*;
 
+use api::task::*;
+
 use crate::show::*;
-use crate::local_state::{ProcessState};
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(
-    p: &mut ProcessState,
+    g: &mut dyn GlobalState,
+    p: &mut dyn ProcessState,
     no: i32,
     a0: i64,
     a1: i64,
@@ -16,13 +18,16 @@ pub extern "C" fn captured_syscall(
     a4: i64,
     a5: i64,
 ) -> i64 {
+    println!("g: {:x?} p: {:x?} no: {}", g as *const _, p as *const _, no);
     let sc = syscalls::SyscallNo::from(no);
 
-    let tid = syscall!(SYS_gettid).unwrap();
+    let tid = 2;
+    //let tid = syscall!(SYS_gettid).unwrap();
 
     let info = SyscallInfo::from(tid as i32, sc, a0, a1, a2, a3, a4, a5);
     eprint!("{}", info);
     let ret = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
-    eprintln!("{}", SyscallRetInfo::from(tid as i32, sc, info.args_after_syscall(), ret, info.nargs_before == 0));
+    let info = info.set_retval(ret);
+    eprintln!("{}", info);
     ret
 }

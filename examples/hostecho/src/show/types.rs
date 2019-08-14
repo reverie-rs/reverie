@@ -1,32 +1,53 @@
 
-use core::ptr::NonNull;
-use core::ffi::c_void as void;
 use syscalls::SyscallNo;
+use api::remote::*;
+
+use nix::unistd::Pid;
+
+/// tracee's syscall arg
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct InferiorSyscallArg {
+    pub pid: Pid,
+    pub arg: SyscallArg,
+}
+
+impl InferiorSyscallArg {
+    pub fn from(pid: Pid, arg: SyscallArg) -> Self {
+        InferiorSyscallArg {
+            pid,
+            arg,
+        }
+    }
+}
 
 /// syscall return vaules for formatting purpose
 #[derive(Clone, Copy)]
 pub enum SyscallRet {
+    /// returned long
     RetInt(i64),
+    /// returned pointer
     RetPtr(u64),
+    /// no return value
     RetVoid,
+    /// syscall does not return, like exit_group
     NoReturn,
 }
 
 /// syscall argument ADT for formatting args
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SyscallArg {
     Int(i64),
     UInt(u64),
     Hex(i64),
-    Ptr(Option<NonNull<void>>),
-    PtrOut(Option<NonNull<void>>),
-    CStr(Option<NonNull<i8>>),
-    SizedCStr(usize, Option<NonNull<i8>>),
-    SizedU8Vec(usize, Option<NonNull<u8>>),
-    SizedCStrOut(usize, Option<NonNull<i8>>),
-    SizedU8VecOut(usize, Option<NonNull<u8>>),
-    CStrArrayNulTerminated(Option<NonNull<void>>),
-    Envp(Option<NonNull<void>>),
+    Ptr(Remoteable<u64>),
+    PtrOut(Remoteable<u64>),
+    CStr(Remoteable<i8>),
+    SizedCStr(usize, Remoteable<i8>),
+    SizedU8Vec(usize, Remoteable<u8>),
+    SizedCStrOut(usize, Remoteable<i8>),
+    SizedU8VecOut(usize, Remoteable<u8>),
+    CStrArrayNulTerminated(Remoteable<i8>),
+    Envp(Remoteable<u64>),
     I32(i32),
     Fd(i32),
     FdFlags(i32),
@@ -48,29 +69,25 @@ pub enum SyscallArg {
     RtSigaction(u64),
     RtSignal(i32),
     LseekWhence(i32),
-    Fcntl(i32, u64),
-    Ioctl(i32, u64),
-    UnamePtr(Option<NonNull<void>>),
+    // Fcntl(i32, u64),
+    // Ioctl(i32, u64),
+    UnamePtr(Remoteable<u64>),
     MAdvise(i32),
-    DirentPtr(Option<NonNull<void>>),
-    Dirent64Ptr(Option<NonNull<void>>),
+    DirentPtr(Remoteable<u64>),
+    Dirent64Ptr(Remoteable<u64>),
 }
 
 /// syscall info with syscall no and arguments
 #[derive(Clone)]
 pub struct SyscallInfo {
-    pub tid: i32,
+    /// pid (tid) of the syscall
+    pub pid: Pid,
+    /// syscall number
     pub no: SyscallNo,
-    pub args: Vec<SyscallArg>,
+    /// args
+    pub args: Vec<InferiorSyscallArg>,
+    /// args known before syscall return
     pub nargs_before: usize,
-}
-
-/// syscall info with syscall no and arguments
-#[derive(Clone)]
-pub struct SyscallRetInfo {
-    pub tid: i32,
-    pub no: SyscallNo,
-    pub args: Vec<SyscallArg>,
-    pub retval: SyscallRet,
-    pub first_arg_is_outp: bool,
+    /// syscall return value, None if syscall is not returned
+    pub retval: Option<SyscallRet>,
 }

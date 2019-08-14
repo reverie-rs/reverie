@@ -5,7 +5,7 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members= [".", "syscalls", "tools_helper", "seccomp", "preloader", "examples/none", "examples/echo", "examples/counter", "examples/det", "examples/hostecho" ]
+members= [".", "syscalls", "tools_helper", "seccomp", "preloader", "api", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
 default-members = [".", "syscalls", "seccomp", "preloader", "tools_helper" ]
 
 [lib]
@@ -20,7 +20,7 @@ path = "src/main.rs"
 libc = { version = "0.2", default-features = false }
 syscalls = { path = "syscalls" }
 seccomp = { path = "seccomp" }
-nix = "0.13"
+nix = "0.15"
 goblin = "0.0"
 procfs = "0.5"
 clap = "2.32"
@@ -32,6 +32,8 @@ fern = "0.5"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_json = "1.0"
 libloading = "0.5"
+api = { path = "api" }
+hostecho = { path = "examples/hostecho" }
 
 [build-dependencies]
 cc = "1.0"

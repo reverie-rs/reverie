@@ -9,14 +9,11 @@ fn main() -> Result<()> {
         .define("_GNU_SOURCE", "1")
         .flag("-fPIC")
         .include("../../include")
+        .file("../../trampoline/raw_syscall.S")
         .compile("my-trampoline");
 
     let cwd = std::env::current_dir()?;
-    let src_files: Vec<_> = vec![ std::fs::canonicalize("../../src/local_state.rs").unwrap(),
-                                  std::fs::canonicalize("../../src/profiling.rs").unwrap(),
-                                  std::fs::canonicalize("../../src/state.rs").unwrap(),
-                                  std::fs::canonicalize("../../src/tools.rs").unwrap(),
-                                  std::fs::canonicalize("../../src/consts.rs").unwrap()];
+    let src_files: Vec<_> = vec![ std::fs::canonicalize("../../src/consts.rs").unwrap() ];
     let dst_dir = std::fs::canonicalize(cwd.join("src"))?;
 
     src_files.iter().for_each(|f| {
