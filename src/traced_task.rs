@@ -55,6 +55,7 @@ use crate::rpc_ptrace::*;
 use crate::auxv;
 use crate::aux;
 use crate::debug;
+use crate::remote::*;
 
 lazy_static! {
 // get all symbols from tool dso
@@ -129,8 +130,8 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
             let stack_top = at + 0x4000;
             // stack grows from high -> low
             //let stack = (RemotePtr::new(stack_top as *mut u64), 0x4000);
-            let stack = (RemotePtr::new(stack_top as *mut u64), 0x4000 as usize);
-            let rpc_data = (RemotePtr::new((at + 0x4000) as *mut c_void), 0x4000);
+            let stack = (RemotePtr::new(stack_top as *mut u64).unwrap(), 0x4000 as usize);
+            let rpc_data = (RemotePtr::new((at + 0x4000) as *mut c_void).unwrap(), 0x4000);
             task.rpc_stack = Some(stack);
             task.rpc_data = Some(rpc_data);
         }
@@ -366,7 +367,7 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
                     match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
                         None => {},      // not a breakpoint
                         Some((saved_insn, op)) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
+                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
                             task.poke(Remoteable::Remote(rptr), &saved_insn)?;
                             regs.rip = rip_minus_1;
                             task.setregs(regs)?;
@@ -376,7 +377,7 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
                     match maybe_f {
                         None => {}
                         Some(f) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
+                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
                             task.signal_to_deliver = None;
                             return f(task, rptr.cast());
                         }
@@ -580,9 +581,9 @@ impl Ptracer for TracedTask {
 /// tracer can inject syscalls for the tracee
 ///
 /// NB: tracee must be in stopped state
-impl RemoteSyscall for TracedTask {
+impl TracedTask {
     /// inject a syscall which won't be traced by the tracer
-    fn untraced_syscall(
+    pub fn untraced_syscall(
         &mut self,
         nr: SyscallNo,
         a0: i64,
@@ -652,7 +653,8 @@ fn wait_sigtrap_sigchld(task: &mut TracedTask) -> Result<()> {
             task.signal_to_deliver = Some(signal::SIGCHLD)
         }
         otherwise => {
-            panic!("task {} expecting SIGTRAP|SIGCHLD but got {:?}", tid, otherwise);
+            warn!("task {} expecting SIGTRAP|SIGCHLD but got {:?}", tid, otherwise);
+            let _ = task.resume(Some(signal::SIGSEGV));
         }
     };
     Ok(())
@@ -699,7 +701,7 @@ fn remote_do_clone(
     // call to the thread_routine, but we'll have to adjust
     // our stack accordingly..
     let mut new_regs = new_task.getregs()?;
-    let fake_ra = Remoteable::remote(new_regs.rsp as *mut u64);
+    let fake_ra = Remoteable::remote(new_regs.rsp as *mut u64).unwrap();
     new_task.poke(fake_ra, &0xdeadbeef)?;
     new_regs.rip = entry;
     new_regs.rdi = args;
@@ -866,7 +868,7 @@ enum ProcessStatePtr {}
 
 extern "C" {
     fn captured_syscall(glob: &mut dyn GlobalState, proc: &mut dyn ProcessState, no: i32,
-                        a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> i64;
+                        args: SyscallArgs) -> i64;
 }
 
 fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
@@ -882,19 +884,26 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
 
     trace!("[pid {:?}] got syscall {:?}", tid, syscall);
 
+
     let mut glob = EchoGlobalState::new();
     let mut proc = EchoState::new(tid);
-    let ret = unsafe {
-        captured_syscall(&mut glob,
-                         &mut proc,
-                         regs.orig_rax as i32,
-                         regs.rdi as i64, regs.rsi as i64,
-                         regs.rdx as i64, regs.r8 as i64,
-                         regs.r9 as i64, regs.r10 as i64)
-    };
 
-    regs.rax = ret as u64;
-    task.setregs(regs)?;
+    if syscall != SYS_execve && syscall != SYS_execveat &&
+        syscall != SYS_exit && syscall != SYS_exit_group &&
+        syscall != SYS_fork && syscall != SYS_vfork && syscall != SYS_clone
+    {
+        skip_seccomp_syscall(&mut task, regs)?;
+        let args = SyscallArgs::from(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9);
+        let ret = unsafe {
+            captured_syscall(&mut glob,
+                             &mut proc,
+                             regs.orig_rax as i32,
+                             args)
+        };
+        regs.rax = ret as u64;
+        task.setregs(regs)?;
+    }
+
     /*
     if syscall != SYS_execve && syscall != SYS_execveat &&
         syscall != SYS_exit && syscall != SYS_exit_group &&
@@ -925,7 +934,7 @@ fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
 // set tool library log level
 fn systool_set_log_level(task: &TracedTask) {
     let systool_log_ptr = consts::REVERIE_LOCAL_SYSTOOL_LOG_LEVEL as *mut i64;
-    let rptr = Remoteable::remote(systool_log_ptr);
+    let rptr = Remoteable::remote(systool_log_ptr).unwrap();
     let lvl = std::env::var(consts::REVERIE_ENV_TOOL_LOG_KEY).map(|s| match &s[..] {
         "error" => 1,
         "warn" => 2,
@@ -984,6 +993,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
         }
     })?;
     assert_eq!(ret, page_addr);
+
+    gen_syscall_sequences_at(tid, 0x7000_0000)?;
 
     systool_set_log_level(task);
 

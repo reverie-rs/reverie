@@ -3,6 +3,7 @@
 use std::convert::TryFrom;
 use core::fmt;
 use std::collections::HashMap;
+use nix::unistd::Pid;
 
 /// ioctl requests: only a subset is defined
 #[derive(Clone, Copy, Debug)]
@@ -140,7 +141,7 @@ impl TryFrom<i32> for IoctlRequest {
 }
 
 /// ioctl request/arg formatter
-pub fn fmt_ioctl(request: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::Result {
+pub fn fmt_ioctl(_pid: Pid, request: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::Result {
     match IoctlRequest::try_from(request) {
         Err(_)  => write!(f, "unknown ioctl {:#x}, {:#X}", request, arg),
         Ok(req) => write!(f, "{:?}, {:#x}", req, arg),

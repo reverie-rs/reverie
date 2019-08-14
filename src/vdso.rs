@@ -146,7 +146,7 @@ fn vdso_patch_info_is_valid() {
 /// `task` must be in stopped state.
 pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
     if let Some(vdso) = procfs::Process::new(task.getpid().as_raw())
-        .and_then(|p| p.maps())
+        .and_then(|p| {p.maps()})
         .unwrap_or_else(|_| Vec::new())
         .iter()
         .find(|e| e.pathname == procfs::MMapPath::Vdso) {
@@ -159,7 +159,7 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
             for (name, (offset, size, bytes)) in VDSO_PATCH_INFO.iter() {
                 let start = vdso.address.0 + offset;
                 assert!(bytes.len() <= *size);
-                let rptr = Remoteable::remote(start as *mut u8);
+                let rptr = Remoteable::remote(start as *mut u8).unwrap();
                 task.poke_bytes(rptr, bytes).unwrap();
                 let fill: Vec<u8> = std::iter::repeat(0x90u8).take(size - bytes.len()).collect();
                 unsafe {

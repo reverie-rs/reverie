@@ -3,6 +3,7 @@
 use std::convert::TryFrom;
 use core::fmt;
 use crate::show::types::*;
+use nix::unistd::Pid;
 
 macro_rules! fcntl_cmd_match_value {
     ($flag:ident, $value:ident) => {
@@ -96,15 +97,17 @@ impl TryFrom<i32> for FcntlCmd {
 
 /// fcntl cmd/arg formatter
 /// NB: only a few fcntl can be formatted correctly
-pub fn fmt_fcntl(cmd: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::Result {
+pub fn fmt_fcntl(pid: Pid, cmd: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::Result {
     if let Ok(res) = FcntlCmd::try_from(cmd) {
         write!(f, "{:?}", res)?;
         match res {
             FcntlCmd::F_DUPFD | FcntlCmd::F_DUPFD_CLOEXEC | FcntlCmd::F_SETFD => {
-                write!(f, ", {}", SyscallArg::Fd(arg as i32))?;
+                write!(f, ", {}",
+                       InferiorSyscallArg::from(pid, SyscallArg::Fd(arg as i32)))?;
             }
             FcntlCmd::F_SETFL => {
-                write!(f, ", {}", SyscallArg::FdFlags(arg as i32))?;
+                write!(f, ", {}",
+                       InferiorSyscallArg::from(pid, SyscallArg::FdFlags(arg as i32)))?;
             }
             _ => {
                 ;

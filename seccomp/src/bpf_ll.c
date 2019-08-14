@@ -61,6 +61,7 @@ long bpf_ll_whitelist_ips(struct sock_filter* filter, struct range* ranges, size
     SYSCALL(__NR_fork, ALLOW),
     SYSCALL(__NR_vfork, ALLOW),
     SYSCALL(__NR_rt_sigreturn, ALLOW),
+    SYSCALL(__NR_arch_prctl, ALLOW),
     SYSCALL(__NR_clock_nanosleep, ALLOW),	// this syscall should not be patched
     LOAD_SYSCALL_IP,
   };

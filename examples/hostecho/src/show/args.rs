@@ -4,6 +4,7 @@ use core::fmt;
 use core::fmt::Display;
 use core::ptr::NonNull;
 use std::io::Result;
+use std::ffi::{CStr, CString};
 
 use api::remote::{Remoteable, GuestMemoryAccess};
 use api::remote::*;
@@ -11,8 +12,8 @@ use itertools::Itertools;
 use nix::unistd::Pid;
 
 use crate::show::types::*;
-//use crate::show::fcntl::fmt_fcntl;
-//use crate::show::ioctl::fmt_ioctl;
+use crate::show::fcntl::fmt_fcntl;
+use crate::show::ioctl::fmt_ioctl;
 
 macro_rules! ptr {
     ($ty: ty, $v: ident) => {
@@ -41,7 +42,13 @@ fn arg_in(arg: &SyscallArg) -> bool {
 }
 
 impl SyscallInfo {
-    pub fn from(tid: i32, no: SyscallNo, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> Self {
+    pub fn from(tid: Pid, no: SyscallNo, args: &SyscallArgs) -> Self {
+        let (a0, a1, a2, a3, a4, a5) = (args.arg0 as i64,
+                                        args.arg1 as i64,
+                                        args.arg2 as i64,
+                                        args.arg3 as i64,
+                                        args.arg4 as i64,
+                                        args.arg5 as i64);
         let args = match no {
             SYS_open => {
                 if a1 as i32 & libc::O_CREAT == libc::O_CREAT {
@@ -76,12 +83,15 @@ impl SyscallInfo {
             SYS_getdents => {
                 vec![ SyscallArg::DirFd(a0 as i32),
                       SyscallArg::DirentPtr(ptr!(u64, a1)),
-                      SyscallArg::Int(a2) ]
+                      SyscallArg::Int(a2 as i64) ]
             }
             SYS_getdents64 => {
                 vec![ SyscallArg::DirFd(a0 as i32),
                       SyscallArg::Dirent64Ptr(ptr!(u64, a1)),
-                      SyscallArg::Int(a2) ]
+                      SyscallArg::Int(a2 as i64) ]
+            }
+            SYS_brk => {
+                vec![ SyscallArg::Ptr(ptr!(u64, a0)) ]
             }
             SYS_mmap => {
                 vec![ SyscallArg::Ptr(ptr!(u64, a0)),
@@ -240,7 +250,6 @@ impl SyscallInfo {
                       SyscallArg::Int(a1),
                       SyscallArg::LseekWhence(a2 as i32)]
             }
-            /*
             SYS_fcntl => {
                 vec![ SyscallArg::Fd(a0 as i32),
                       SyscallArg::Fcntl(a1 as i32, a2 as u64)]
@@ -249,7 +258,6 @@ impl SyscallInfo {
                 vec![ SyscallArg::Fd(a0 as i32),
                       SyscallArg::Ioctl(a1 as i32, a2 as u64)]
             }
-            */
             SYS_sysinfo => {
                 vec![ SyscallArg::Ptr(ptr!(u64, a0)) ]
             }
@@ -272,9 +280,9 @@ impl SyscallInfo {
             !arg_out(a)
         }).count();
         SyscallInfo {
-            pid: Pid::from_raw(tid),
+            pid: tid,
             no,
-            args: args.iter().map(|a| InferiorSyscallArg::from(Pid::from_raw(tid), *a)).collect(),
+            args: args.iter().map(|a| InferiorSyscallArg::from(tid, *a)).collect(),
             nargs_before: k,
             retval: None,
         }
@@ -285,6 +293,7 @@ impl SyscallInfo {
     pub fn set_retval(self, retval: i64) -> Self {
         let ret = match self.no {
             SYS_mmap => SyscallRet::RetPtr(retval as u64),
+            SYS_brk => SyscallRet::RetPtr(retval as u64),
             SYS_execve => SyscallRet::NoReturn,
             SYS_exit_group => SyscallRet::NoReturn,
             SYS_exit => SyscallRet::NoReturn,
@@ -296,12 +305,12 @@ impl SyscallInfo {
     }
 }
 
-impl fmt::Display for SyscallRet {
+impl Display for SyscallRet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             SyscallRet::RetInt(val) => {
                 if *val as u64 >= 0xfffffffffffff000 {
-                    write!(f, "{} ({})", val, std::io::Error::from_raw_os_error(-val as i32))
+                    write!(f, "{} ({})", -1, std::io::Error::from_raw_os_error(-val as i32))
                 } else {
                     write!(f, "{}", val)
                 }
@@ -334,9 +343,8 @@ impl GuestMemoryAccess for InferiorSyscallArg {
         match addr {
             Remoteable::Local(lptr) => {
                 unsafe {
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(),
-                                                  lptr.as_ptr(),
-                                                  bytes.len())
+                    std::ptr::copy_nonoverlapping
+                        (bytes.as_ptr(), lptr.as_ptr(), bytes.len())
                 };
                 Ok(())
             }
@@ -348,86 +356,147 @@ impl GuestMemoryAccess for InferiorSyscallArg {
 }
 
 impl InferiorSyscallArg {
-    pub fn from_cstr(&self, ptr: Remoteable<i8>) -> String {
-        self.peek_cstring(ptr).unwrap_or_else(|_|String::new())
+    pub fn from_cstr(&self, ptr: Remoteable<i8>) -> CString {
+        self.peek_cstring(ptr).unwrap_or_else(|_| CString::new("").unwrap())
     }
-    pub fn from_cstr_sized<'a>(&self, ptr: Remoteable<i8>, size: usize) -> String {
+    pub fn from_cstr_sized<'a>(&self, ptr: Remoteable<i8>, size: usize) -> CString {
         let slice: Vec<u8> = self.peek_bytes(ptr.cast(), size).unwrap_or_else(|_|Vec::new());
-        String::from_utf8_lossy(&slice).to_string()
+        unsafe {
+            CString::from_vec_unchecked(slice)
+        }
     }
-    pub fn from_cstr_sized_atmost(&self, ptr: Remoteable<i8>, size: usize, max_size: usize) -> String {
+    pub fn from_cstr_sized_atmost(&self, ptr: Remoteable<i8>, size: usize, max_size: usize) -> CString {
         let slice: Vec<u8> = self.peek_bytes(ptr.cast(), size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
-        String::from_utf8_lossy(&slice).to_string()
-    }
-    pub fn fmt_cstr(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>) -> fmt::Result {
-        write!(f, "\"{}\"", self.from_cstr(ptr))
-    }
-    pub fn fmt_cstr_sized(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>, size: usize) -> fmt::Result {
-        write!(f, "\"{}\"", escape(self.from_cstr_sized(ptr, size)))
-    }
-    pub fn fmt_cstr_sized_atmost(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>, size: usize, max_size: usize) -> fmt::Result {
-        write!(f, "\"{}\"", escape(self.from_cstr_sized_atmost(ptr, size, max_size)))
-    }
-    pub fn fmt_u8vec_atmost(&self, f: &mut fmt::Formatter, ptr: Remoteable<u8>, size: usize, max_size: usize) ->  fmt::Result {
-        let slice :Vec<u8> = self.peek_bytes(ptr, size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
-        if size <= max_size {
-            write!(f, "{:x?}", slice)
-        } else {
-            write!(f, "{:x?}...", slice)
+        unsafe {
+            CString::from_vec_unchecked(slice)
         }
     }
-    pub fn fmt_uname_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
-        let uts = self.peek_cstring(ptr.cast()).unwrap_or_else(|_| String::new());
-        let node = unsafe {
-            self.peek_cstring(ptr.cast().offset(UTSNAME_LENGTH as isize))
-                .unwrap_or_else(|_| String::new())
-        };
-        write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}", uts, node)
+    pub fn fmt_cstr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => write!(f, "\"{}\"", escape(self.from_cstr(ptr)))
+        }
     }
-    pub unsafe fn fmt_cstr_null_terminated(&self, f: &mut fmt::Formatter, pptr: Remoteable<u64>) -> fmt::Result {
-        let mut cnt = 0;
-        let mut res = Vec::new();
-        // while let Some(ptr) = NonNull::new(core::ptr::read(pptr_.as_ptr().cast::<*mut u64>().offset(cnt)) as *mut i8) {
-        loop {
-            let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
-            if addr == 0 {
-                break;
+    pub fn fmt_cstr_sized(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>, size: usize) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) =>  write!(f, "\"{}\"", escape(self.from_cstr_sized(ptr, size))),
+        }
+    }
+    pub fn fmt_cstr_sized_atmost(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>, size: usize, max_size: usize) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => write!(f, "\"{}\"", escape(self.from_cstr_sized_atmost(ptr, size, max_size))),
+        }
+    }
+    pub fn fmt_u8vec_atmost(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u8>>, size: usize, max_size: usize) ->  fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => {
+                let slice :Vec<u8> = self.peek_bytes(ptr, size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
+                if size <= max_size {
+                    write!(f, "{:x?}", slice)
+                } else {
+                    write!(f, "{:x?}...", slice)
+                }
             }
-            let z = match pptr {
-                Remoteable::Local(_)  => Remoteable::local(addr as *mut i8),
-                Remoteable::Remote(_) => Remoteable::remote(addr as *mut i8),
-            };
-            res.push("\"".to_owned() + &escape(self.from_cstr(z)) + "\"");
-            cnt = 1 + cnt;
         }
-        write!(f, "[{}]", res.join(", "))
     }
-    pub unsafe fn fmt_envp(&self, f: &mut fmt::Formatter, pptr: Remoteable<u64>) -> fmt::Result {
-        let mut cnt = 0;
-        loop {
-            let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
-            if addr == 0 {
-                break;
+    pub fn fmt_uname_ptr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u64>>) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => {
+                let uts = self.peek_cstring(ptr.cast()).unwrap_or_else(|_| CString::new("").unwrap());
+                let node = unsafe {
+                    self.peek_cstring(ptr.cast().offset(UTSNAME_LENGTH as isize))
+                        .unwrap_or_else(|_| CString::new("").unwrap())
+                };
+                write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}", uts, node)
             }
-            cnt += 1;
         }
-        let unit = if cnt == 1 {
-            "var"
-        } else {
-            "vars"
-        };
-        write!(f, "{:#x?} /* {} {} */", pptr, cnt, unit)
+    }
+    pub unsafe fn fmt_cstr_null_terminated(&self, f: &mut fmt::Formatter, pptr_: Option<Remoteable<u64>>) -> fmt::Result {
+        match pptr_ {
+            None => write!(f, "NULL"),
+            Some(pptr) => {
+                let mut cnt = 0;
+                let mut res = Vec::new();
+                loop {
+                    let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
+                    if addr == 0 {
+                        break;
+                    }
+                    let z = match pptr {
+                        Remoteable::Local(_)  => Remoteable::local(addr as *mut i8).unwrap(),
+                        Remoteable::Remote(_) => Remoteable::remote(addr as *mut i8).unwrap(),
+                    };
+                    res.push("\"".to_owned() + &escape(self.from_cstr(z)) + "\"");
+                    cnt = 1 + cnt;
+                }
+                write!(f, "[{}]", res.join(", "))
+            }
+        }
+    }
+    pub unsafe fn fmt_envp(&self, f: &mut fmt::Formatter, pptr_: Option<Remoteable<u64>>) -> fmt::Result {
+        match pptr_ {
+            None => write!(f, "NULL"),
+            Some(pptr) => {
+                let mut cnt = 0;
+                loop {
+                    let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
+                    if addr == 0 {
+                        break;
+                    }
+                    cnt += 1;
+                }
+                let unit = if cnt == 1 {
+                    "var"
+                } else {
+                    "vars"
+                };
+                write!(f, "{:#x?} /* {} {} */", pptr, cnt, unit)
+            }
+        }
     }
     // the size upper limit is in getdents return value, but our SyscallArg doesn't have it
     // hence the best-effort try without using return values
     // the downside is even when getdents returns zero, this function still reports positive
     // entires (instead of zero).
-    pub unsafe fn fmt_dirent_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
-        write!(f, "{:x?} /* ?? entries */", ptr)?;
-        Ok(())
+    pub unsafe fn fmt_dirent_ptr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u64>>) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => write!(f, "{:x?} /* ?? entries */", ptr)
+        }
     }
-    pub unsafe fn fmt_dirent64_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
-        self.fmt_dirent_ptr(f, ptr)
+    pub unsafe fn fmt_dirent64_ptr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u64>>) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => write!(f, "{:x?} /* ?? entries */", ptr)
+        }
+    }
+    pub fn fmt_rt_sigset_p(&self, f: &mut fmt::Formatter,
+                           ptr_: Option<Remoteable<u64>>) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => {
+                let set = self.peek(ptr).unwrap_or(0);
+                if set == 0 {
+                    write!(f, "[]")
+                } else {
+                    write!(f, "{}", RtSigset::new(set))
+                }
+            }
+        }
+    }
+    fn fmt_rt_sigaction(&self, f: &mut fmt::Formatter,
+                        ptr_: Option<Remoteable<kernel_sigaction>>) -> fmt::Result {
+        match ptr_ {
+            None => write!(f, "NULL"),
+            Some(ptr) => {
+                let act =  self.peek(ptr).unwrap();
+                write!(f, "{}", act)
+            }
+        }
     }
 }
 
@@ -439,8 +508,11 @@ impl Display for InferiorSyscallArg {
             SyscallArg::I32(val) => write!(f, "{}", val),
             SyscallArg::Fd(val) => write!(f, "{}", val),
             SyscallArg::Hex(val) => write!(f, "{:#x}", val),
-            SyscallArg::Ptr(p) | SyscallArg::PtrOut(p) => {
-                write!(f, "{:x?}", p)
+            SyscallArg::Ptr(p_) | SyscallArg::PtrOut(p_) => {
+                match p_ {
+                    None => write!(f, "NULL"),
+                    Some(p) => write!(f, "{:x?}", p),
+                }
             }
             SyscallArg::CStr(ptr) => {
                 self.fmt_cstr(f, ptr)
@@ -505,13 +577,13 @@ impl Display for InferiorSyscallArg {
                        .unwrap_or_else(|| ""))
             }
             SyscallArg::RtSigSet(set) => {
-                fmt_rt_sigset_p(f, set)
+                self.fmt_rt_sigset_p(f, ptr!(u64, set))
             }
             SyscallArg::RtSignal(sig) => {
                 fmt_rt_signal(f, sig)
             }
             SyscallArg::RtSigaction(act) => {
-                fmt_rt_sigaction(f, act)
+                self.fmt_rt_sigaction(f, ptr!(kernel_sigaction, act))
             }
             SyscallArg::LseekWhence(whence) => {
                 write!(f, "{}", libc_match_value!(whence, SEEK_SET)
@@ -519,20 +591,18 @@ impl Display for InferiorSyscallArg {
                        .or_else(|| libc_match_value!(whence, SEEK_END))
                        .unwrap_or_else(|| "<whence: BAD_VALUE>"))
             }
-            /*
             SyscallArg::Fcntl(cmd, arg) => {
-                fmt_fcntl(cmd, arg, f)
+                fmt_fcntl(self.pid, cmd, arg, f)
             }
             SyscallArg::Ioctl(cmd, arg) => {
-                fmt_ioctl(cmd, arg, f)
+                fmt_ioctl(self.pid, cmd, arg, f)
             }
-            */
             SyscallArg::UnamePtr(ptr) => {
                 self.fmt_uname_ptr(f, ptr)
             }
             SyscallArg::CStrArrayNulTerminated(ptr) => {
                 unsafe {
-                    self.fmt_cstr_null_terminated(f, ptr.cast())
+                    self.fmt_cstr_null_terminated(f, ptr.map(|p|p.cast()))
                 }
             }
             SyscallArg::Envp(ptr) => {
@@ -557,18 +627,43 @@ impl Display for InferiorSyscallArg {
     }
 }
 
-impl fmt::Display for SyscallInfo {
+fn fmt_pre_syscall(info: &SyscallInfo, f: &mut fmt::Formatter) -> fmt::Result {
+    let suffix = if info.args.len() == info.nargs_before {
+        ") = "
+    } else {
+        ""
+    };
+    let args_to_format = info.args.iter()
+        .take(info.nargs_before)
+        .format(", ");
+    write!(f, "[pid {:>4}] {:?}({}{}",
+           info.pid, info.no, args_to_format, suffix)
+}
+
+fn fmt_post_syscall(info: &SyscallInfo, f: &mut fmt::Formatter) -> fmt::Result {
+    let prefix = if info.nargs_before == 0 || info.nargs_before == info.args.len() {
+        ""
+    } else {
+        ","
+    };
+    let suffix = if info.args.len() != info.nargs_before {
+        ") = "
+    } else {
+        ""
+    };
+    let args_to_format = info.args.iter()
+        .skip(info.nargs_before)
+        .format(", ");
+    write!(f, "{}{}{} {}", prefix,
+           args_to_format, suffix, info.retval.unwrap_or(SyscallRet::NoReturn))
+}
+
+impl Display for SyscallInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let suffix = if self.args.len() == self.nargs_before {
-            ") = "
-        } else {
-            ""
-        };
-        let args_to_format = self.args.iter()
-            .take(self.nargs_before)
-            .format(", ");
-        write!(f, "[pid {:>4}] {:?}({}{}",
-               self.pid, self.no, args_to_format, suffix)
+        match self.retval {
+            Some(_) => fmt_post_syscall(self, f),
+            None    => fmt_pre_syscall(self, f),
+        }
     }
 }
 
@@ -581,18 +676,18 @@ impl SyscallRet {
     }
 }
 
-fn escape<T: AsRef<str>>(s: T) -> String {
+fn escape<T: AsRef<CStr>>(s: T) -> String {
     let mut res = String::new();
-    s.as_ref().chars().for_each(|c| {
+    s.as_ref().to_bytes().iter().for_each(|c| {
         match c {
-            '\n' => {
+            b'\n' => {
                 res.push_str("\\n");
             }
-            '\t' => {
+            b'\t' => {
                 res.push_str("\\t");
             }
             _ => {
-                res.push(c);
+                res.push(*c as char);
             }
         }
     });
@@ -857,20 +952,6 @@ impl fmt::Display for RtSigset {
     }
 }
 
-fn fmt_rt_sigset_p(f: &mut fmt::Formatter, ptr: u64) -> fmt::Result {
-    if ptr == 0 {
-        return write!(f, "NULL");
-    }
-    let set = unsafe {
-        core::ptr::read(ptr as *const u64)
-    };
-    if set == 0 {
-        write!(f, "[]")
-    } else {
-        write!(f, "{}", RtSigset::new(set))
-    }
-}
-
 fn fmt_rt_signal(f: &mut fmt::Formatter, sig: i32) -> fmt::Result {
     write!(f, "{}", libc_match_value!(sig, SIGHUP)
            .or_else(|| libc_match_value!(sig, SIGHUP))
@@ -941,17 +1022,6 @@ impl Display for kernel_sigaction {
                    v.join("|")
                },
                self.sa_restorer)
-    }
-}
-
-fn fmt_rt_sigaction(f: &mut fmt::Formatter, act_p: u64) -> fmt::Result {
-    if act_p == 0 {
-        write!(f, "NULL")
-    } else {
-        let act = unsafe {
-            core::ptr::read(act_p as *const kernel_sigaction)
-        };
-        write!(f, "{}", act)
     }
 }
 

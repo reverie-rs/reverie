@@ -11,12 +11,11 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
+use syscalls::*;
+
 use crate::consts;
 use crate::consts::*;
 use crate::hooks;
-use crate::nr;
-use crate::nr::SyscallNo;
-use crate::nr::SyscallNo::*;
 use crate::stubs;
 use crate::traced_task::TracedTask;
 
@@ -28,23 +27,6 @@ pub struct SyscallStubPage {
     pub address: u64,
     pub size: usize,
     pub allocated: usize,
-}
-
-/// doing syscalls from the tracer on behalf of tracee
-pub trait RemoteSyscall {
-    /// inject syscall into tracee and return the syscall
-    /// return value. the injected syscall won't be trapped
-    /// by seccomp.
-    fn untraced_syscall(
-        &mut self,
-        nr: nr::SyscallNo,
-        a0: i64,
-        a1: i64,
-        a2: i64,
-        a3: i64,
-        a4: i64,
-        a5: i64,
-    ) -> Result<i64>;
 }
 
 /// tell the tracee to do context synchronization at given `rip`
@@ -61,11 +43,9 @@ pub fn synchronize_from(task: &TracedTask, rip: u64) {
     regs.rip = 0x7000_0018u64;
     // push return address
     regs.rsp -= 8;
-    let rsp_value = regs.rsp;
-    let &mut rsp = &mut rsp_value;
-    let remote_return_address_ptr = Remoteable::remote(Box::new(regs.rsp));
+    let remote_return_address_ptr = Remoteable::remote(regs.rsp as *mut u64).unwrap();
     let remote_return_address = rip;
-    task.poke(remote_return_address_ptr, Box::new(remote_return_address))
+    task.poke(remote_return_address_ptr, &remote_return_address)
         .unwrap();
     task.setregs(regs).unwrap();
 }
@@ -81,16 +61,16 @@ pub fn remote_do_syscall(
     a5: i64,
 ) -> Result<()> {
     let mut regs = task.getregs()?;
-    let syscall_helper_addr_ptr = Remoteable::remote(Box::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64));
+    let syscall_helper_addr_ptr = Remoteable::remote(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64).unwrap();
     let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
     let return_address = regs.rip;
     regs.rip = syscall_helper_addr as u64;
     regs.rsp -= 9 * 8; // return_address + nr + a0-a5 + pad
-    let remote_rsp = Remoteable::remote(Box::new(regs.rsp as i64));
+    let remote_rsp = Remoteable::remote(regs.rsp as *mut i64).unwrap();
     let regs_to_save = vec![0, a5, a4, a3, a2, a1, a0, nr as i64, return_address as i64];
     regs_to_save.iter().enumerate().for_each(|(k, x)| {
         let current_rsp = unsafe { remote_rsp.offset(k as isize) };
-        task.poke(current_rsp, Box::new(*x)).unwrap();
+        task.poke(current_rsp, x).unwrap();
     });
     task.setregs(regs)
 }
@@ -116,7 +96,7 @@ pub fn patch_syscall_at (
 
     let mut patch_bytes: Vec<u8> = Vec::new();
 
-    let remote_rip = Remoteable::remote(Box::new(ip));
+    let remote_rip = Remoteable::remote(ip as *mut u64).unwrap();
 
     patch_bytes.push(0xe8);
     patch_bytes.push((rela & 0xff) as u8);
@@ -206,7 +186,7 @@ pub fn patch_syscall_at (
         .cloned()
         .skip(SYSCALL_INSN_SIZE)
         .collect();
-    let original_bytes = task.peek_bytes(remote_rip, patch_bytes.len()).unwrap();
+    let original_bytes = task.peek_bytes(remote_rip.cast(), patch_bytes.len()).unwrap();
     // split into chunks so that ptrace::write is called
     // explicitly avoid process_vm_writev because the later
     // requires memory map permission change
@@ -215,10 +195,10 @@ pub fn patch_syscall_at (
     for (k, chunk) in patch_tail.chunks(std::mem::size_of::<u64>()).enumerate() {
         let rptr: RemotePtr<u8> = RemotePtr::new(
             (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE) as *mut u8,
-        );
-        task.poke_bytes(rptr, chunk).unwrap();
+        ).unwrap();
+        task.poke_bytes(Remoteable::Remote(rptr.cast::<u8>()), chunk).unwrap();
     }
-    task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();
+    task.poke_bytes(remote_rip.cast(), patch_head.as_slice()).unwrap();
 
     debug!(
         "{} patched {:?}@{:x} {:02x?} => {:02x?} (callq {:x})",

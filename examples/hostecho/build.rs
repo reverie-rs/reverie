@@ -9,7 +9,6 @@ fn main() -> Result<()> {
         .define("_GNU_SOURCE", "1")
         .flag("-fPIC")
         .include("../../include")
-        .file("../../trampoline/raw_syscall.S")
         .compile("my-trampoline");
 
     let cwd = std::env::current_dir()?;

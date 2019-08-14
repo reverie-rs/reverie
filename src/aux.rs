@@ -21,7 +21,7 @@ pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
     let mut res: HashMap<usize, u64>  = HashMap::new();
     let regs = task.getregs()?;
 
-    let sp = Remoteable::remote(regs.rsp as *mut u64);
+    let sp = Remoteable::remote(regs.rsp as *mut u64).unwrap();
 
     let vec = task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
     let auxv: Vec<u64> = std::mem::transmute(vec);

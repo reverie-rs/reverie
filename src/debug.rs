@@ -104,7 +104,7 @@ pub fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
            show_stackframe(tid, regs.rsp, 0x40, 0x80));
 
     if task_rip_is_valid(task, regs.rip) {
-        let rptr = Remoteable::remote(regs.rip as *mut u8);
+        let rptr = Remoteable::remote(regs.rip as *mut u8).unwrap();
         match task.peek_bytes(rptr, 16) {
             Err(_) => (),
             Ok(v)  => {

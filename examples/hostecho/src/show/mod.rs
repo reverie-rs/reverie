@@ -1,8 +1,8 @@
 //! linux syscall Arguments formatter
 
 mod types;
-//mod fcntl;
-//mod ioctl;
+mod fcntl;
+mod ioctl;
 mod args;
 
 /// `SyscallArg` type

@@ -1,8 +1,7 @@
 //! echo entrypoint who defines `captured_syscall`
 //!
-use syscalls::*;
-
 use api::task::*;
+use api::remote::*;
 
 use crate::show::*;
 
@@ -11,23 +10,16 @@ pub extern "C" fn captured_syscall(
     g: &mut dyn GlobalState,
     p: &mut dyn ProcessState,
     no: i32,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
+    args: SyscallArgs
 ) -> i64 {
-    println!("g: {:x?} p: {:x?} no: {}", g as *const _, p as *const _, no);
     let sc = syscalls::SyscallNo::from(no);
 
-    let tid = 2;
-    //let tid = syscall!(SYS_gettid).unwrap();
+    let tid = p.gettid();
 
-    let info = SyscallInfo::from(tid as i32, sc, a0, a1, a2, a3, a4, a5);
+    let info = SyscallInfo::from(tid, sc, &args);
     eprint!("{}", info);
-    let ret = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
-    let info = info.set_retval(ret);
+    let retval = p.inject_syscall(sc, args);
+    let info = info.set_retval(retval);
     eprintln!("{}", info);
-    ret
+    retval
 }
