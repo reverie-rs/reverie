@@ -106,6 +106,7 @@ examples/none/src/consts.rs
 src/nr.rs
 syscalls/src/nr.rs
 tools_helper/src/consts.rs
+tools_helper/src/profiling.rs
 tools_helper/src/state.rs
 tools_helper/src/local_state.rs
 preloader/src/consts.rs
