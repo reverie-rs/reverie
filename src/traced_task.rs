@@ -863,14 +863,6 @@ struct SyscallInfo {
     args: [u64; 6],
 }
 
-enum GlobalStatePtr {}
-enum ProcessStatePtr {}
-
-extern "C" {
-    fn captured_syscall(glob: &mut dyn GlobalState, proc: &mut dyn ProcessState, no: i32,
-                        args: SyscallArgs) -> i64;
-}
-
 fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     let mut regs = task.getregs()?;
     let ev = task.getevent()?;
@@ -884,7 +876,6 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
 
     trace!("[pid {:?}] got syscall {:?}", tid, syscall);
 
-
     let mut glob = EchoGlobalState::new();
     let mut proc = EchoState::new(tid);
 
@@ -894,12 +885,10 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
     {
         skip_seccomp_syscall(&mut task, regs)?;
         let args = SyscallArgs::from(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9);
-        let ret = unsafe {
-            captured_syscall(&mut glob,
-                             &mut proc,
-                             regs.orig_rax as i32,
-                             args)
-        };
+        let ret = hostecho::captured_syscall(&mut glob,
+                                             &mut proc,
+                                             regs.orig_rax as i32,
+                                             args);
         regs.rax = ret as u64;
         task.setregs(regs)?;
     }

@@ -27,9 +27,9 @@ fn arg_out(arg: &SyscallArg) -> bool {
         SyscallArg::SizedCStrOut(_, _) => true,
         SyscallArg::SizedU8VecOut(_, _) => true,
         SyscallArg::UnamePtr(_) => true,
-        SyscallArg::Timeval(_) => true,
-        SyscallArg::Timespec(_) => true,
-        SyscallArg::Timezone(_) => true,
+        SyscallArg::TimevalPtr(_) => true,
+        SyscallArg::TimespecPtr(_) => true,
+        SyscallArg::TimezonePtr(_) => true,
         SyscallArg::DirentPtr(_) => true,
         SyscallArg::Dirent64Ptr(_) => true,
         _ => false,
@@ -210,39 +210,47 @@ impl SyscallInfo {
                 vec! [ SyscallArg::PtrOut(ptr!(u64, a0)) ]
             }
             SYS_gettimeofday => {
-                vec! [ SyscallArg::Timeval(a0 as u64),
-                       SyscallArg::Timezone(a1 as u64) ]
+                vec! [ SyscallArg::TimevalPtr(ptr!(u64, a0)),
+                       SyscallArg::TimezonePtr(ptr!(u64, a1)) ]
             }
             SYS_settimeofday => {
-                vec! [ SyscallArg::Timeval(a0 as u64),
-                       SyscallArg::Timezone(a1 as u64) ]
+                vec! [ SyscallArg::TimevalPtr(ptr!(u64, a0)),
+                       SyscallArg::TimezonePtr(ptr!(u64, a1)) ]
             }
             SYS_clock_gettime => {
                 vec! [ SyscallArg::ClockId(a0 as i32),
-                       SyscallArg::Timespec(a1 as u64) ]
+                       SyscallArg::TimespecPtr(ptr!(u64, a1)) ]
             }
             SYS_clock_settime => {
                 vec! [ SyscallArg::ClockId(a0 as i32),
-                       SyscallArg::Timespec(a1 as u64) ]
+                       SyscallArg::TimespecPtr(ptr!(u64, a1)) ]
             }
             SYS_futex => {
                 vec![ SyscallArg::Ptr(ptr!(u64, a0)),
                       SyscallArg::FutexOp(a1 as i32),
                       SyscallArg::I32(a2 as i32),
-                      SyscallArg::Timespec(a3 as u64),
+                      SyscallArg::TimespecPtr(ptr!(u64, a3)),
                       SyscallArg::Ptr(ptr!(u64, a4)),
                       SyscallArg::I32 (a5 as i32)]
             }
+            SYS_nanosleep => {
+                vec! [ SyscallArg::TimespecPtr(ptr!(u64, a0)),
+                       SyscallArg::TimespecPtr(ptr!(u64, a1)) ]
+            }
+            SYS_clock_nanosleep => {
+                vec! [ SyscallArg::TimespecPtr(ptr!(u64, a0)),
+                       SyscallArg::TimespecPtr(ptr!(u64, a1)) ]
+            }
             SYS_rt_sigprocmask => {
                 vec![ SyscallArg::RtSigHow(a0 as i32),
-                      SyscallArg::RtSigSet(a1 as u64),
-                      SyscallArg::RtSigSet(a2 as u64),
+                      SyscallArg::RtSigSetPtr(ptr!(u64, a1)),
+                      SyscallArg::RtSigSetPtr(ptr!(u64, a2)),
                       SyscallArg::I32(a3 as i32)]
             }
             SYS_rt_sigaction => {
                 vec![ SyscallArg::RtSignal(a0 as i32),
-                      SyscallArg::RtSigaction(a1 as u64),
-                      SyscallArg::RtSigaction(a2 as u64),
+                      SyscallArg::RtSigactionPtr(ptr!(u64, a1)),
+                      SyscallArg::RtSigactionPtr(ptr!(u64, a2)),
                       SyscallArg::I32(a3 as i32)]
             }
             SYS_lseek => {
@@ -386,7 +394,15 @@ impl InferiorSyscallArg {
     pub fn fmt_cstr_sized_atmost(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>, size: usize, max_size: usize) -> fmt::Result {
         match ptr_ {
             None => write!(f, "NULL"),
-            Some(ptr) => write!(f, "\"{}\"", escape(self.from_cstr_sized_atmost(ptr, size, max_size))),
+            Some(ptr) => {
+                let suffix = if max_size < size {
+                    "..."
+                } else {
+                    ""
+                };
+                write!(f, "\"{}\"{}",
+                       escape(self.from_cstr_sized_atmost(ptr, size, max_size)), suffix)
+            }
         }
     }
     pub fn fmt_u8vec_atmost(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u8>>, size: usize, max_size: usize) ->  fmt::Result {
@@ -475,28 +491,33 @@ impl InferiorSyscallArg {
         }
     }
     pub fn fmt_rt_sigset_p(&self, f: &mut fmt::Formatter,
-                           ptr_: Option<Remoteable<u64>>) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => {
-                let set = self.peek(ptr).unwrap_or(0);
-                if set == 0 {
-                    write!(f, "[]")
-                } else {
-                    write!(f, "{}", RtSigset::new(set))
-                }
-            }
+                           ptr: Remoteable<u64>) -> fmt::Result {
+        let set = self.peek(ptr).unwrap_or(0);
+        if set == 0 {
+            write!(f, "[]")
+        } else {
+            write!(f, "{}", RtSigset::new(set))
         }
     }
-    fn fmt_rt_sigaction(&self, f: &mut fmt::Formatter,
-                        ptr_: Option<Remoteable<kernel_sigaction>>) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => {
-                let act =  self.peek(ptr).unwrap();
-                write!(f, "{}", act)
-            }
-        }
+    fn fmt_rt_sigaction_p(&self, f: &mut fmt::Formatter,
+                        ptr: Remoteable<kernel_sigaction>) -> fmt::Result {
+        let act =  self.peek(ptr).unwrap();
+        write!(f, "{}", act)
+    }
+    fn fmt_timeval_p(&self, f: &mut fmt::Formatter, tp: Remoteable<timeval>) -> fmt::Result {
+        let tv = self.peek(tp).unwrap();
+        write!(f, "{{tv_sec: {}, tv_usec: {}}}", tv.tv_sec, tv.tv_usec)
+    }
+
+    fn fmt_timespec_p(&self, f: &mut fmt::Formatter, tp: Remoteable<timespec>) -> fmt::Result {
+        let tp = self.peek(tp).unwrap();
+        write!(f, "{{tv_sec: {}, tv_nsec: {}}}", tp.tv_sec, tp.tv_nsec)
+    }
+
+    fn fmt_timezone_p(&self, f: &mut fmt::Formatter, tp: Remoteable<timezone>) -> fmt::Result {
+        let tz = self.peek(tp).unwrap();
+        write!(f, "{{tz_minuteswest: {}, tz_dsttime: {}}}", tz.tz_minuteswest, tz.tz_dsttime)
+
     }
 }
 
@@ -554,15 +575,24 @@ impl Display for InferiorSyscallArg {
             SyscallArg::WaitpidOptions(options) => {
                 write!(f, "{}", show_waitpid_options(options))
             }
-            SyscallArg::Timeval(tp) => {
-                fmt_timeval(f, tp)
+            SyscallArg::TimevalPtr(tv_) => {
+                match tv_ {
+                    None     => write!(f, "NULL"),
+                    Some(tv) => self.fmt_timeval_p(f, tv.cast())
+                }
             }
 
-            SyscallArg::Timespec(tp) => {
-                fmt_timespec(f, tp)
+            SyscallArg::TimespecPtr(tp_) => {
+                match tp_ {
+                    None     => write!(f, "NULL"),
+                    Some(tp) => self.fmt_timespec_p(f, tp.cast())
+                }
             }
-            SyscallArg::Timezone(tp) => {
-                fmt_timezone(f, tp)
+            SyscallArg::TimezonePtr(tz_) => {
+                match tz_ {
+                    None     => write!(f, "NULL"),
+                    Some(tz) => self.fmt_timezone_p(f, tz.cast())
+                }
             }
             SyscallArg::ClockId(id) => {
                 write!(f, "{}", show_clock_id(id))
@@ -576,14 +606,20 @@ impl Display for InferiorSyscallArg {
                        .or_else(|| libc_match_value!(how, SIG_SETMASK))
                        .unwrap_or_else(|| ""))
             }
-            SyscallArg::RtSigSet(set) => {
-                self.fmt_rt_sigset_p(f, ptr!(u64, set))
+            SyscallArg::RtSigSetPtr(set) => {
+                match set {
+                    None => write!(f, "NULL"),
+                    Some(ptr) => self.fmt_rt_sigset_p(f, ptr.cast()),
+                }
             }
             SyscallArg::RtSignal(sig) => {
                 fmt_rt_signal(f, sig)
             }
-            SyscallArg::RtSigaction(act) => {
-                self.fmt_rt_sigaction(f, ptr!(kernel_sigaction, act))
+            SyscallArg::RtSigactionPtr(act) => {
+                match act {
+                    None => write!(f, "NULL"),
+                    Some(ptr) => self.fmt_rt_sigaction_p(f, ptr.cast()),
+                }
             }
             SyscallArg::LseekWhence(whence) => {
                 write!(f, "{}", libc_match_value!(whence, SEEK_SET)
@@ -687,7 +723,11 @@ fn escape<T: AsRef<CStr>>(s: T) -> String {
                 res.push_str("\\t");
             }
             _ => {
-                res.push(*c as char);
+                if *c >= 0x20 && *c < 0x7f {
+                    res.push(*c as char);
+                } else {
+                    res.push_str(&format!("\\{:o}", c));
+                }
             }
         }
     });
@@ -806,44 +846,11 @@ struct timespec {
     tv_nsec: u64,
 }
 
-fn fmt_timeval(f: &mut fmt::Formatter, tp: u64) -> fmt::Result {
-    if tp == 0 {
-        write!(f, "NULL")
-    } else {
-        let tv = unsafe {
-            core::ptr::read(tp as *const timeval)
-        };
-        write!(f, "{{tv.sec: {}, tv.tv_usec: {}}}", tv.tv_sec, tv.tv_usec)
-    }
-}
-
-fn fmt_timespec(f: &mut fmt::Formatter, tp: u64) -> fmt::Result {
-    if tp == 0 {
-        write!(f, "NULL")
-    } else {
-        let tp = unsafe {
-            core::ptr::read(tp as *const timespec)
-        };
-        write!(f, "{{tv.sec: {}, tv.tv_nsec: {}}}", tp.tv_sec, tp.tv_nsec)
-    }
-}
-
 #[repr(C)]
 #[derive(Debug)]
 struct timezone {
     tz_minuteswest: i32,
     tz_dsttime: i32,
-}
-
-fn fmt_timezone(f: &mut fmt::Formatter, tp: u64) -> fmt::Result {
-    if tp == 0 {
-        write!(f, "NULL")
-    } else {
-        let tz = unsafe {
-            core::ptr::read(tp as *const timezone)
-        };
-        write!(f, "{{tz_minuteswest: {}, tz_dsttime: {}}}", tz.tz_minuteswest, tz.tz_dsttime)
-    }
 }
 
 fn show_clock_id(id: i32) -> String {

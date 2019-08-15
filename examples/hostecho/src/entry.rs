@@ -5,8 +5,7 @@ use api::remote::*;
 
 use crate::show::*;
 
-#[no_mangle]
-pub extern "C" fn captured_syscall(
+pub fn captured_syscall(
     g: &mut dyn GlobalState,
     p: &mut dyn ProcessState,
     no: i32,

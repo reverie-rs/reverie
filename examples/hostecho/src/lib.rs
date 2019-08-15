@@ -18,3 +18,5 @@ static ECHO_DSO_CTORS: extern fn() = {
     };
     echo_ctor
 };
+
+pub use crate::entry::captured_syscall;
