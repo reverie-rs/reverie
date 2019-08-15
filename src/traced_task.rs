@@ -239,9 +239,7 @@ impl Task for TracedTask {
 
     /// cloned a `TracedTask`
     /// called only when received ptrace clone event.
-    fn cloned(&self) -> Self {
-        let pid_raw = self.getevent().unwrap_or_else(|_|panic!("{:?} ptrace getevent", self));
-        let child = Pid::from_raw(pid_raw as libc::pid_t);
+    fn cloned(&self, child: Pid) -> Self {
         let new_task = TracedTask {
             tid: child,
             pid: self.pid,
@@ -272,9 +270,7 @@ impl Task for TracedTask {
 
     /// fork a `TracedTask`
     /// called when received ptrace fork/vfork event
-    fn forked(&self) -> Self {
-        let pid_raw = self.getevent().unwrap_or_else(|_|panic!("{:?} ptrace getevent", self));
-        let child = Pid::from_raw(pid_raw as libc::pid_t);
+    fn forked(&self, child: Pid) -> Self {
         TracedTask {
             tid: child,
             pid: child,
@@ -316,11 +312,9 @@ impl Task for TracedTask {
 
     /// get task exit code
     /// called when task exits
-    fn exited(&self) -> Option<i32> {
-        match &self.state {
-            TaskState::Exited(exit_code) => Some(*exit_code as i32),
-            _otherwise => None,
-        }
+    fn exited(&self, code: i32) -> Option<i32> {
+        debug_assert!(self.state == TaskState::Exited(code));
+        Some(code)
     }
 
     /// get task tid
@@ -351,13 +345,10 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
     fn run(self, glob: &mut G) -> Result<RunTask<TracedTask>> {
         let mut task = self;
         match task.state {
-            TaskState::Running => Ok(RunTask::Runnable(task)),
+            TaskState::Running | TaskState::Ready => Ok(RunTask::Runnable(task)),
             TaskState::Signaled(signal) => {
                 let _ = ptrace::cont(task.gettid(), Some(signal));
                 Ok(RunTask::Exited(0x80 | signal as i32))
-            }
-            TaskState::Ready => {
-                Ok(RunTask::Runnable(task))
             }
             TaskState::Stopped(signal) => {
                 if signal == signal::SIGTRAP {
@@ -386,9 +377,28 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
                 task.signal_to_deliver = Some(signal);
                 Ok(RunTask::Runnable(task))
             }
-            TaskState::Event(_ev) => handle_ptrace_event(task),
-            TaskState::Syscall => Ok(RunTask::Runnable(task)),
-            TaskState::Exited(_exit_code) => unreachable!("run task which is already exited"),
+            TaskState::Exec => {
+                do_ptrace_exec(&mut task).unwrap();
+                Ok(RunTask::Runnable(task))
+            }
+            TaskState::Fork(child) => {
+                let pair = do_ptrace_fork(task, child)?;
+                Ok(RunTask::Forked(pair.0, pair.1))
+            }
+            TaskState::Clone(child) => {
+                let pair = do_ptrace_clone(task, child)?;
+                Ok(RunTask::Forked(pair.0, pair.1))
+            }
+            TaskState::Seccomp(syscall) => {
+                do_ptrace_seccomp(task, syscall).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
+            }
+            TaskState::Syscall => {
+                debug!("got unexpected ptrace syscall");
+                Ok(RunTask::Runnable(task))
+            }
+            TaskState::Exited(exit_code) => {
+                do_ptrace_event_exit(task, exit_code)
+            }
         }
     }
 }
@@ -404,7 +414,10 @@ impl TracedTask {
 
     /// return whether or net task state is seccomp stop
     pub fn task_state_is_seccomp(&self) -> bool {
-        self.state == TaskState::Event(7)
+        match self.state {
+            TaskState::Seccomp(_) => true,
+            _                     => false,
+        }
     }
 
     /// get ld preloaded tool symbol address
@@ -660,6 +673,36 @@ fn wait_sigtrap_sigchld(task: &mut TracedTask) -> Result<()> {
     Ok(())
 }
 
+fn task_clone(task: &TracedTask) -> TracedTask {
+    let new_pid = ptrace::getevent(task.gettid()).unwrap() as i32;
+    let child = Pid::from_raw(new_pid);
+    TracedTask {
+        tid: child,
+        pid: task.pid,
+        ppid: task.pid,
+        pgid: task.pgid,
+        dpc_task: None,
+        state: TaskState::Ready,
+        in_vfork: false,
+        seccomp_hook_size: None,
+        memory_map: task.memory_map.clone(),
+        stub_pages: task.stub_pages.clone(),
+        trampoline_hooks: &SYSCALL_HOOKS,
+        ldpreload_address: task.ldpreload_address,
+        ldpreload_symbols: &PRELOAD_TOOL_SYMS,
+        injected_mmap_page: task.injected_mmap_page,
+        injected_shared_page: task.injected_shared_page,
+        signal_to_deliver: None,
+        unpatchable_syscalls: task.unpatchable_syscalls.clone(),
+        patched_syscalls: task.patched_syscalls.clone(),
+        breakpoints: task.breakpoints.clone(),
+        ldso: task.ldso,
+        ldso_symbols: task.ldso_symbols.clone(),
+        rpc_stack: None,
+        rpc_data: None,
+    }
+}
+
 // inject clone into tracee, returns `RunTask`
 fn remote_do_clone(
     mut task: TracedTask,
@@ -690,7 +733,7 @@ fn remote_do_clone(
     task.resume(None)?;
     let status = wait::waitpid(tid, None);
     assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 1)));
-    let new_task = task.cloned();
+    let new_task = task_clone(&task);
     wait_sigstop(&new_task)?;
     task.resume(None)?;
     wait_sigtrap_sigchld(&mut task)?;
@@ -746,34 +789,6 @@ fn should_restart_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -
     res
 }
 
-fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
-    let raw_event = match task.state {
-        TaskState::Event(ev) => ev as i64,
-        otherwise => panic!("unknown task.state = {:x?}", otherwise),
-    };
-    if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i64 {
-        let pair = do_ptrace_fork(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i64 {
-        let pair = do_ptrace_vfork(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i64 {
-        let pair = do_ptrace_clone(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i64 {
-        do_ptrace_exec(&mut task).map_err(from_nix_error)?;
-        Ok(RunTask::Runnable(task))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i64 {
-        do_ptrace_vfork_done(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i64 {
-        do_ptrace_event_exit(task)
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i64 {
-        do_ptrace_seccomp(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
-    } else {
-        panic!("unknown ptrace event: {:x}", raw_event);
-    }
-}
-
 // From ptrace man page:
 //
 // If the PTRACE_O_TRACEFORK, PTRACE_O_TRACEVFORK, or PTRACE_O_TRACECLONE options are in effect,
@@ -797,8 +812,8 @@ fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
     Ok(task)
 }
 
-fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.cloned();
+fn do_ptrace_clone(task: TracedTask, child: Pid) -> Result<(TracedTask, TracedTask)> {
+    let mut new_task = task.cloned(child);
     wait_sigstop(&new_task)?;
 
     let state = reverie_global_state();
@@ -811,8 +826,8 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     Ok((task, new_task))
 }
 
-fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.forked();
+fn do_ptrace_fork(task: TracedTask, child: Pid) -> Result<(TracedTask, TracedTask)> {
+    let mut new_task = task.forked(child);
     wait_sigstop(&new_task)?;
 
     let state = reverie_global_state();
@@ -826,25 +841,8 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     Ok((task, new_task))
 }
 
-fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.forked();
-    new_task.in_vfork = true;
-    wait_sigstop(&new_task)?;
-
-    let state = reverie_global_state();
-    state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().stats.nr_syscalls_ptraced.fetch_add(1, Ordering::SeqCst);
-    state.lock().unwrap().stats.nr_forked.fetch_add(1, Ordering::SeqCst);
-
-    let regs = new_task.getregs()?;
-    let rptr = RemotePtr::new(regs.rip as *mut c_void);
-    //new_task.setbp(rptr, handle_fork_entry_bkpt)?;
-    Ok((task, new_task))
-}
-
-fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
+fn do_ptrace_event_exit(task: TracedTask, retval: i32) -> Result<RunTask<TracedTask>> {
     let _sig = task.signal_to_deliver;
-    let retval = task.getevent()?;
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_exited.fetch_add(1, Ordering::SeqCst);
     let _ = ptrace::detach(task.gettid());
@@ -863,28 +861,35 @@ struct SyscallInfo {
     args: [u64; 6],
 }
 
-fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
+fn do_ptrace_seccomp(mut task: TracedTask, syscall: SyscallNo) -> Result<TracedTask> {
     let mut regs = task.getregs()?;
-    let ev = task.getevent()?;
     let rip = regs.rip;
     let rip_before_syscall = regs.rip - consts::SYSCALL_INSN_SIZE as u64;
     let tid = task.gettid();
-    let syscall = SyscallNo::from(regs.orig_rax as i32);
-    if ev == 0x7fff {
-        panic!("unfiltered syscall: {:?}", syscall);
-    }
+    let args = SyscallArgs::from(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9);
 
     trace!("[pid {:?}] got syscall {:?}", tid, syscall);
 
     let mut glob = EchoGlobalState::new();
     let mut proc = EchoState::new(tid);
 
+    if syscall == SYS_execve || syscall == SYS_execveat {
+        let _ = hostecho::captured_syscall(&mut glob,
+                                             &mut proc,
+                                             regs.orig_rax as i32,
+                                             args);
+    }
+    if syscall == SYS_clone || syscall == SYS_fork || syscall == SYS_vfork {
+        let _ = hostecho::captured_syscall(&mut glob,
+                                             &mut proc,
+                                             regs.orig_rax as i32,
+                                             args);
+    }
     if syscall != SYS_execve && syscall != SYS_execveat &&
         syscall != SYS_exit && syscall != SYS_exit_group &&
         syscall != SYS_fork && syscall != SYS_vfork && syscall != SYS_clone
     {
         skip_seccomp_syscall(&mut task, regs)?;
-        let args = SyscallArgs::from(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9);
         let ret = hostecho::captured_syscall(&mut glob,
                                              &mut proc,
                                              regs.orig_rax as i32,

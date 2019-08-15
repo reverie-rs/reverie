@@ -8,7 +8,25 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
+use syscalls::SyscallNo;
+
 use crate::remote::Injector;
+
+pub type EventHandler = Box<dyn FnMut(&dyn Task) -> Result<()>>;
+
+pub trait TaskEventHandler {
+    fn new_event_handler(on_exec:  EventHandler,
+                         on_fork:  EventHandler,
+                         on_clone: EventHandler,
+                         on_exit:  EventHandler) -> Self;
+}
+
+pub struct TaskEventCB {
+    pub on_task_exec:  Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_fork:  Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_clone: Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_exit:  Box<dyn FnMut(&dyn Task) -> Result<()>>,
+}
 
 pub trait GlobalState {
     fn new() -> Self where Self: Sized;
@@ -24,8 +42,11 @@ pub enum TaskState {
     Running,
     Stopped(signal::Signal),
     Signaled(signal::Signal),
-    Event(u64),
-    Syscall,
+    Exec,
+    Clone(Pid),
+    Fork(Pid),
+    Seccomp(SyscallNo),
+    Syscall,  // XXX: internal only
     Exited(i32),
 }
 
@@ -44,13 +65,13 @@ pub enum RunTask<Task> {
 
 pub trait Task {
     fn new(pid: Pid) -> Self where Self: Sized;
-    fn cloned(&self) -> Self where Self: Sized;
-    fn forked(&self) -> Self where Self: Sized;
-    fn gettid(&self) -> Pid;
+    fn cloned(&self, child: Pid) -> Self where Self: Sized;
+    fn forked(&self, child: Pid) -> Self where Self: Sized;
     fn getpid(&self) -> Pid;
+    fn gettid(&self) -> Pid;
     fn getppid(&self) -> Pid;
     fn getpgid(&self) -> Pid;
-    fn exited(&self) -> Option<i32>;
+    fn exited(&self, code: i32) -> Option<i32>;
 }
 
 pub trait Runnable<G> where G: GlobalState {

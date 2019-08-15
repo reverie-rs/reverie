@@ -9,6 +9,7 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
+use syscalls::SyscallNo;
 use api::task::*;
 
 use procfs;
@@ -163,7 +164,33 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         .tasks
                         .remove(&tid)
                         .unwrap_or_else(||panic!("unknown pid {:}", tid));
-                    task.state = TaskState::Event(event as u64);
+                    if event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
+                        task.state = TaskState::Exec;
+                    } else if event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
+                        let new_pid = ptrace::getevent(tid).unwrap();
+                        task.state = TaskState::Clone(Pid::from_raw(new_pid as i32));
+                    } else if event == ptrace::Event::PTRACE_EVENT_FORK as i32 {
+                        let new_pid = ptrace::getevent(tid).unwrap();
+                        task.state = TaskState::Fork(Pid::from_raw(new_pid as i32));
+                    } else if event == ptrace::Event::PTRACE_EVENT_VFORK as i32 {
+                        let new_pid = ptrace::getevent(tid).unwrap();
+                        task.state = TaskState::Fork(Pid::from_raw(new_pid as i32));
+                    } else if event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
+                        continue;
+                    } else if event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
+                        let nr = ptrace::getevent(tid).unwrap() as i32;
+                        if nr == 0x7fff {
+                            panic!("unfiltered syscall: {:?}", nr);
+                        }
+                        let regs = ptrace::getregs(tid).unwrap();
+                        let nr = regs.orig_rax as i32;
+                        task.state = TaskState::Seccomp(SyscallNo::from(nr));
+                    } else if event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
+                        let exit_code = ptrace::getevent(tid).unwrap();
+                        task.state = TaskState::Exited(exit_code as i32);
+                    } else {
+                        panic!("unknown ptrace event {}", event)
+                    };
                     return Some(task);
                 }
                 Ok(WaitStatus::PtraceSyscall(pid)) => {

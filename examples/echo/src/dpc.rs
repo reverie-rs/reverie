@@ -16,7 +16,9 @@ const SOCK_STREAM: i32 = 1;
 pub extern "C" fn dpc_entry_disabled(_arg: i64) -> i32 {
     let _ = logger::init();
     debug!("starting dpc task..");
-    dpc_main();
+    unsafe {
+        dpc_main()
+    }
     0
 }
 
@@ -50,10 +52,16 @@ fn dpc_get_unp(pid: i32) -> [u8; 108] {
 static DPC_DSO_DTORS: extern fn() = {
     extern "C" fn dpc_dtor() {
         debug!("exiting dpc task..");
-        let pid = syscall!(SYS_getpid).unwrap() as i32;
-        let _ = syscall!(SYS_close, consts::REVERIE_DPC_SOCKFD);
+        let pid = unsafe {
+            syscall!(SYS_getpid) as i32
+        };
+        let _ = unsafe {
+            syscall!(SYS_close, consts::REVERIE_DPC_SOCKFD)
+        };
         let path = dpc_get_unp(pid);
-        let _ = syscall!(SYS_unlink, path.as_ptr());
+        let _ = unsafe {
+            syscall!(SYS_unlink, path.as_ptr())
+        };
     };
     dpc_dtor
 };
@@ -64,17 +72,17 @@ struct sockaddr {
     sa_data: [u8; 108],
 }
 
-fn dpc_main () {
-    let pid = syscall!(SYS_getpid).unwrap() as i32;
+unsafe fn dpc_main () {
+    let pid = syscall!(SYS_getpid) as i32;
     let path = dpc_get_unp(pid);
 
     let _ = syscall!(SYS_unlink, path.as_ptr());
 
-    let _tempfd = syscall!(SYS_socket, PF_UNIX, SOCK_STREAM, 0).unwrap();
+    let _tempfd = syscall!(SYS_socket, PF_UNIX, SOCK_STREAM, 0) as i32;
     let sockfd = consts::REVERIE_DPC_SOCKFD;
     let sockfd_len = core::mem::size_of::<sockaddr>();
-    let _ = syscall!(SYS_dup2, _tempfd, sockfd).unwrap();
-    let _ = syscall!(SYS_close, _tempfd).unwrap();
+    let _ = syscall!(SYS_dup2, _tempfd, sockfd);
+    let _ = syscall!(SYS_close, _tempfd);
 
     let _ = syscall!(SYS_unlink, path.as_ptr());
 
@@ -84,15 +92,15 @@ fn dpc_main () {
     };
 
     let sa_ref = &sa as *const sockaddr;
-    let _ = syscall!(SYS_bind, sockfd, sa_ref, sockfd_len).unwrap();
-    let _ = syscall!(SYS_listen, sockfd, 10).unwrap();
+    let _ = syscall!(SYS_bind, sockfd, sa_ref, sockfd_len);
+    let _ = syscall!(SYS_listen, sockfd, 10);
 
     loop {
         let mut client = unsafe {
             core::mem::zeroed()
         };
         let client_ref = &mut client as *mut sockaddr;
-        let fd = syscall!(SYS_accept, sockfd, client_ref, sockfd_len).unwrap();
+        let fd = syscall!(SYS_accept, sockfd, client_ref, sockfd_len);
 
         incoming_connection(fd as i32);
     }
@@ -103,6 +111,10 @@ fn incoming_connection(fd: i32) {
         core::mem::uninitialized()
     };
     let ptr = request.as_mut_ptr();
-    let n = syscall!(SYS_read, fd, ptr, core::mem::size_of_val(&request)).unwrap();
-    let _ = syscall!(SYS_write, fd, ptr, n).unwrap();
+    let n = unsafe {
+        syscall!(SYS_read, fd, ptr, core::mem::size_of_val(&request))
+    };
+    let _ = unsafe {
+        syscall!(SYS_write, fd, ptr, n)
+    };
 }

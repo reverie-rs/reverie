@@ -10,6 +10,10 @@ use nix::sys::signal;
 use nix::sys::ptrace;
 use nix::sys::uio;
 use nix::unistd::Pid;
+use nix::sys::wait;
+use nix::sys::wait::WaitStatus;
+
+use crate::task::*;
 
 /// a pointer belongs to tracee's address space
 #[derive(Debug, PartialEq, Eq)]
@@ -426,4 +430,72 @@ pub trait Injector {
     // fn wait_exit(&self);
 
     // inject_signal(...) -> ...;
+}
+
+/// inject syscall for given tracee
+///
+/// NB: limitations:
+/// - tracee must be in stopped state.
+/// - the tracee must have returned from PTRACE_EXEC_EVENT
+pub fn untraced_syscall(
+    task: &dyn Task,
+    nr: SyscallNo,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+) -> i64 {
+    let tid = task.gettid();
+    let mut regs = ptrace::getregs(tid).unwrap();
+    let oldregs = regs;
+
+    if nr == SYS_execve || nr == SYS_execveat {
+        return 0;
+    }
+
+    if nr == SYS_clone || nr == SYS_fork || nr == SYS_vfork {
+        return 0;
+    }
+
+    let no = nr as u64;
+    regs.orig_rax = no;
+    regs.rax = no;
+    regs.rdi = a0 as u64;
+    regs.rsi = a1 as u64;
+    regs.rdx = a2 as u64;
+    regs.r10 = a3 as u64;
+    regs.r8 = a4 as u64;
+    regs.r9 = a5 as u64;
+
+    // instruction at 0x7000_0008 must be
+    // callq 0x70000000 (5-bytes)
+    // .byte 0xcc
+    regs.rip = 0x7000_0008;
+
+    ptrace::setregs(task.gettid(), regs).unwrap();
+    ptrace::cont(tid, None).unwrap();
+
+    wait_sigtrap_sigchld(tid).unwrap();
+
+    let newregs = ptrace::getregs(tid).unwrap();
+    ptrace::setregs(tid, oldregs).unwrap();
+    newregs.rax as i64
+}
+
+// wait either SIGTRAP (breakpoint) or SIGCHLD.
+fn wait_sigtrap_sigchld(pid: Pid) -> Result<Option<signal::Signal>> {
+    let mut signal_to_deliver = None;
+    let status = wait::waitpid(pid, None).expect("waitpid");
+    match status {
+        WaitStatus::Stopped(_pid, signal::SIGTRAP) => (),
+        WaitStatus::Stopped(_pid, signal::SIGCHLD) => {
+            signal_to_deliver = Some(signal::SIGCHLD)
+        }
+        otherwise => {
+            panic!("task {} expecting SIGTRAP|SIGCHLD but got {:?}", pid, otherwise);
+        }
+    };
+    Ok(signal_to_deliver)
 }

@@ -57,8 +57,10 @@ impl SpinLock {
 }
 
 fn gettid() -> usize {
-    let tid = syscall!(SYS_gettid);
-    tid.unwrap() as usize
+    let tid = unsafe {
+        syscall!(SYS_gettid)
+    };
+    tid as usize
 }
 
 fn __spin_lock(lock: &AtomicUsize) {
