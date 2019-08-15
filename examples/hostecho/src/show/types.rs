@@ -9,6 +9,7 @@ use nix::unistd::Pid;
 pub struct InferiorSyscallArg {
     pub pid: Pid,
     pub arg: SyscallArg,
+    pub retval: Option<i64>,
 }
 
 impl InferiorSyscallArg {
@@ -16,6 +17,7 @@ impl InferiorSyscallArg {
         InferiorSyscallArg {
             pid,
             arg,
+            retval: None,
         }
     }
 }

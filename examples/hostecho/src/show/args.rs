@@ -307,9 +307,17 @@ impl SyscallInfo {
             SYS_exit => SyscallRet::NoReturn,
             _        => SyscallRet::RetInt(retval),
         };
-        let mut new_info = self;
-        new_info.retval = Some(ret);
-        new_info
+        SyscallInfo {
+            pid: self.pid,
+            no: self.no,
+            args: self.args.iter().cloned().map(|x| InferiorSyscallArg {
+                pid: x.pid,
+                arg: x.arg,
+                retval: Some(retval)
+            }).collect(),
+            nargs_before: self.nargs_before,
+            retval: Some(ret),
+        }
     }
 }
 
@@ -364,133 +372,120 @@ impl GuestMemoryAccess for InferiorSyscallArg {
 }
 
 impl InferiorSyscallArg {
-    pub fn from_cstr(&self, ptr: Remoteable<i8>) -> CString {
+    #[allow(unused)]
+    fn from_cstr(&self, ptr: Remoteable<i8>) -> CString {
         self.peek_cstring(ptr).unwrap_or_else(|_| CString::new("").unwrap())
     }
-    pub fn from_cstr_sized<'a>(&self, ptr: Remoteable<i8>, size: usize) -> CString {
+    #[allow(unused)]
+    fn from_cstr_sized<'a>(&self, ptr: Remoteable<i8>, size: usize) -> CString {
         let slice: Vec<u8> = self.peek_bytes(ptr.cast(), size).unwrap_or_else(|_|Vec::new());
         unsafe {
             CString::from_vec_unchecked(slice)
         }
     }
-    pub fn from_cstr_sized_atmost(&self, ptr: Remoteable<i8>, size: usize, max_size: usize) -> CString {
+    #[allow(unused)]
+    fn from_cstr_sized_atmost(&self, ptr: Remoteable<i8>, size: usize, max_size: usize) -> CString {
         let slice: Vec<u8> = self.peek_bytes(ptr.cast(), size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
         unsafe {
             CString::from_vec_unchecked(slice)
         }
     }
-    pub fn fmt_cstr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => write!(f, "\"{}\"", escape(self.from_cstr(ptr)))
+    #[allow(unused)]
+    fn fmt_cstr(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>) -> fmt::Result {
+        write!(f, "\"{}\"", escape(self.from_cstr(ptr)))
+    }
+    #[allow(unused)]
+    fn fmt_cstr_sized(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>, size: usize) -> fmt::Result {
+        write!(f, "\"{}\"", escape(self.from_cstr_sized(ptr, size)))
+    }
+    #[allow(unused)]
+    fn fmt_cstr_sized_atmost(&self, f: &mut fmt::Formatter, ptr: Remoteable<i8>, size: usize, max_size: usize) -> fmt::Result {
+        let suffix = if max_size < size {
+            "..."
+        } else {
+            ""
+        };
+        write!(f, "\"{}\"{}", escape(self.from_cstr_sized_atmost(ptr, size, max_size)), suffix)
+    }
+    #[allow(unused)]
+    fn fmt_u8vec_atmost(&self, f: &mut fmt::Formatter, ptr: Remoteable<u8>, size: usize, max_size: usize) ->  fmt::Result {
+        let slice :Vec<u8> = self.peek_bytes(ptr, size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
+        if size <= max_size {
+            write!(f, "{:x?}", slice)
+        } else {
+            write!(f, "{:x?}...", slice)
         }
     }
-    pub fn fmt_cstr_sized(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>, size: usize) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) =>  write!(f, "\"{}\"", escape(self.from_cstr_sized(ptr, size))),
-        }
+    fn fmt_uname_ptr(&self, f: &mut fmt::Formatter, ptr: Remoteable<u64>) -> fmt::Result {
+        let uts = self.peek_cstring(ptr.cast()).unwrap_or_else(|_| CString::new("").unwrap());
+        let node = unsafe {
+            self.peek_cstring(ptr.cast().offset(UTSNAME_LENGTH as isize))
+                .unwrap_or_else(|_| CString::new("").unwrap())
+        };
+        write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}", uts, node)
     }
-    pub fn fmt_cstr_sized_atmost(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<i8>>, size: usize, max_size: usize) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => {
-                let suffix = if max_size < size {
-                    "..."
-                } else {
-                    ""
-                };
-                write!(f, "\"{}\"{}",
-                       escape(self.from_cstr_sized_atmost(ptr, size, max_size)), suffix)
+    #[allow(unused)]
+    pub unsafe fn fmt_cstr_null_terminated(&self, f: &mut fmt::Formatter, pptr: Remoteable<u64>) -> fmt::Result {
+        let mut cnt = 0;
+        let mut res = Vec::new();
+        loop {
+            let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
+            if addr == 0 {
+                break;
             }
+            let z = match pptr {
+                Remoteable::Local(_)  => Remoteable::local(addr as *mut i8).unwrap(),
+                Remoteable::Remote(_) => Remoteable::remote(addr as *mut i8).unwrap(),
+            };
+            res.push("\"".to_owned() + &escape(self.from_cstr(z)) + "\"");
+            cnt = 1 + cnt;
         }
+        write!(f, "[{}]", res.join(", "))
     }
-    pub fn fmt_u8vec_atmost(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u8>>, size: usize, max_size: usize) ->  fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => {
-                let slice :Vec<u8> = self.peek_bytes(ptr, size).unwrap_or_else(|_|Vec::new()).iter().take(max_size).cloned().collect();
-                if size <= max_size {
-                    write!(f, "{:x?}", slice)
-                } else {
-                    write!(f, "{:x?}...", slice)
-                }
+    pub unsafe fn fmt_envp(&self, f: &mut fmt::Formatter, pptr: Remoteable<u64>) -> fmt::Result {
+        let mut cnt = 0;
+        loop {
+            let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
+            if addr == 0 {
+                break;
             }
+            cnt += 1;
         }
+        let unit = if cnt == 1 {
+            "var"
+        } else {
+            "vars"
+        };
+        write!(f, "{:#x?} /* {} {} */", pptr, cnt, unit)
     }
-    pub fn fmt_uname_ptr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u64>>) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => {
-                let uts = self.peek_cstring(ptr.cast()).unwrap_or_else(|_| CString::new("").unwrap());
-                let node = unsafe {
-                    self.peek_cstring(ptr.cast().offset(UTSNAME_LENGTH as isize))
-                        .unwrap_or_else(|_| CString::new("").unwrap())
-                };
-                write!(f, "{{sysname={:x?}, nodename={:x?}, ...}}", uts, node)
-            }
-        }
+    fn fmt_dirent_ptr(&self,
+                      f: &mut fmt::Formatter,
+                      ptr: Remoteable<linux_dirent_partial>)
+                      -> fmt::Result {
+	let mut count = 0;
+	let mut curr = ptr;
+        let mut left = self.retval.unwrap_or(0);
+
+	while left > 0 {
+            let ent = self.peek(curr).unwrap();
+	    if ent.d_reclen == 0 {
+	        break;
+	    }
+	    count += 1;
+            left -= ent.d_reclen as i64;
+            curr = Remoteable::remote(
+                (curr.as_ptr() as u64 + ent.d_reclen as u64) as
+                    *mut linux_dirent_partial).unwrap();
+	}
+	write!(f, "/* {} entries */", count)
     }
-    pub unsafe fn fmt_cstr_null_terminated(&self, f: &mut fmt::Formatter, pptr_: Option<Remoteable<u64>>) -> fmt::Result {
-        match pptr_ {
-            None => write!(f, "NULL"),
-            Some(pptr) => {
-                let mut cnt = 0;
-                let mut res = Vec::new();
-                loop {
-                    let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
-                    if addr == 0 {
-                        break;
-                    }
-                    let z = match pptr {
-                        Remoteable::Local(_)  => Remoteable::local(addr as *mut i8).unwrap(),
-                        Remoteable::Remote(_) => Remoteable::remote(addr as *mut i8).unwrap(),
-                    };
-                    res.push("\"".to_owned() + &escape(self.from_cstr(z)) + "\"");
-                    cnt = 1 + cnt;
-                }
-                write!(f, "[{}]", res.join(", "))
-            }
-        }
+    fn fmt_dirent64_ptr(&self,
+                        f: &mut fmt::Formatter,
+                        ptr: Remoteable<linux_dirent_partial>)
+                        -> fmt::Result {
+        self.fmt_dirent_ptr(f, ptr)
     }
-    pub unsafe fn fmt_envp(&self, f: &mut fmt::Formatter, pptr_: Option<Remoteable<u64>>) -> fmt::Result {
-        match pptr_ {
-            None => write!(f, "NULL"),
-            Some(pptr) => {
-                let mut cnt = 0;
-                loop {
-                    let addr = self.peek::<u64>(pptr.offset(cnt)).unwrap_or(0);
-                    if addr == 0 {
-                        break;
-                    }
-                    cnt += 1;
-                }
-                let unit = if cnt == 1 {
-                    "var"
-                } else {
-                    "vars"
-                };
-                write!(f, "{:#x?} /* {} {} */", pptr, cnt, unit)
-            }
-        }
-    }
-    // the size upper limit is in getdents return value, but our SyscallArg doesn't have it
-    // hence the best-effort try without using return values
-    // the downside is even when getdents returns zero, this function still reports positive
-    // entires (instead of zero).
-    pub unsafe fn fmt_dirent_ptr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u64>>) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => write!(f, "{:x?} /* ?? entries */", ptr)
-        }
-    }
-    pub unsafe fn fmt_dirent64_ptr(&self, f: &mut fmt::Formatter, ptr_: Option<Remoteable<u64>>) -> fmt::Result {
-        match ptr_ {
-            None => write!(f, "NULL"),
-            Some(ptr) => write!(f, "{:x?} /* ?? entries */", ptr)
-        }
-    }
-    pub fn fmt_rt_sigset_p(&self, f: &mut fmt::Formatter,
+    fn fmt_rt_sigset_p(&self, f: &mut fmt::Formatter,
                            ptr: Remoteable<u64>) -> fmt::Result {
         let set = self.peek(ptr).unwrap_or(0);
         if set == 0 {
@@ -535,15 +530,27 @@ impl Display for InferiorSyscallArg {
                     Some(p) => write!(f, "{:x?}", p),
                 }
             }
-            SyscallArg::CStr(ptr) => {
+            SyscallArg::CStr(None) |
+            SyscallArg::SizedCStr(_, None) |
+            SyscallArg::SizedU8Vec(_, None) |
+            SyscallArg::SizedU8VecOut(_, None) |
+            SyscallArg::UnamePtr(None) |
+            SyscallArg::SizedCStrOut(_, None) |
+            SyscallArg::Envp(None) |
+            SyscallArg::DirentPtr(None) |
+            SyscallArg::Dirent64Ptr(None) |
+            SyscallArg::CStrArrayNulTerminated(None) => {
+                write!(f, "NULL")
+            }
+            SyscallArg::CStr(Some(ptr)) => {
                 self.fmt_cstr(f, ptr)
             }
-            SyscallArg::SizedCStr(size, ptr)
-                | SyscallArg::SizedCStrOut(size, ptr) => {
+            SyscallArg::SizedCStr(size, Some(ptr))
+                | SyscallArg::SizedCStrOut(size, Some(ptr)) => {
                 self.fmt_cstr_sized_atmost(f, ptr, size, 32)
             }
-            SyscallArg::SizedU8Vec(size, ptr)
-                | SyscallArg::SizedU8VecOut(size, ptr) => {
+            SyscallArg::SizedU8Vec(size, Some(ptr))
+                | SyscallArg::SizedU8VecOut(size, Some(ptr)) => {
                 self.fmt_u8vec_atmost(f, ptr, size, 16)
             }
             SyscallArg::FdFlags(flags) => write!(f, "{}", show_fdflags(flags)),
@@ -633,15 +640,15 @@ impl Display for InferiorSyscallArg {
             SyscallArg::Ioctl(cmd, arg) => {
                 fmt_ioctl(self.pid, cmd, arg, f)
             }
-            SyscallArg::UnamePtr(ptr) => {
+            SyscallArg::UnamePtr(Some(ptr)) => {
                 self.fmt_uname_ptr(f, ptr)
             }
-            SyscallArg::CStrArrayNulTerminated(ptr) => {
+            SyscallArg::CStrArrayNulTerminated(Some(ptr)) => {
                 unsafe {
-                    self.fmt_cstr_null_terminated(f, ptr.map(|p|p.cast()))
+                    self.fmt_cstr_null_terminated(f, ptr.cast())
                 }
             }
-            SyscallArg::Envp(ptr) => {
+            SyscallArg::Envp(Some(ptr)) => {
                 unsafe {
                     self.fmt_envp(f, ptr)
                 }
@@ -649,15 +656,11 @@ impl Display for InferiorSyscallArg {
             SyscallArg::MAdvise(advise) => {
                 fmt_madvise(f, advise)
             }
-            SyscallArg::DirentPtr(ptr) => {
-                unsafe {
-                    self.fmt_dirent_ptr(f, ptr)
-                }
+            SyscallArg::DirentPtr(Some(ptr)) => {
+                self.fmt_dirent_ptr(f, ptr.cast())
             }
-            SyscallArg::Dirent64Ptr(ptr) => {
-                unsafe {
-                    self.fmt_dirent64_ptr(f, ptr)
-                }
+            SyscallArg::Dirent64Ptr(Some(ptr)) => {
+                self.fmt_dirent64_ptr(f, ptr.cast())
             }
         }
     }
@@ -1060,7 +1063,7 @@ fn fmt_madvise(f: &mut fmt::Formatter, advise: i32) -> fmt::Result {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct linux_dirent_partial {
     d_ino: u64,
     d_off: u64,
