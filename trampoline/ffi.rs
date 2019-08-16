@@ -10,7 +10,6 @@
 use core::ffi::c_void;
 use crate::consts;
 use crate::captured_syscall;
-use crate::local_state::*;
 
 use tools_helper::local_state::*;
 use syscalls::*;
