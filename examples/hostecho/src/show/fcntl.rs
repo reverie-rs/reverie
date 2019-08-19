@@ -110,7 +110,6 @@ pub fn fmt_fcntl(pid: Pid, cmd: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::R
                        InferiorSyscallArg::from(pid, SyscallArg::FdFlags(arg as i32)))?;
             }
             _ => {
-                ;
             }
         }
         Ok(())

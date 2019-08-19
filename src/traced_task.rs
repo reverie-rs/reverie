@@ -36,8 +36,6 @@ use std::ffi::c_void;
 use std::fs::File;
 use goblin::elf::Elf;
 
-use async_trait::async_trait;
-
 use futures::prelude::*;
 use core::pin::{Pin};
 use hostecho::*;
@@ -343,11 +341,10 @@ impl Task for TracedTask {
 
 }
 
-#[async_trait]
 impl <G> Runnable<G> for TracedTask where G: GlobalState {
     type Item = TracedTask;
     /// run a task, task ptrace event dispatcher
-    async fn run(self, glob: &mut G) -> RunTask<TracedTask> {
+    fn run(self, glob: &mut G) -> Pin<Box<dyn Future<Output = RunTask<Self::Item>>>> {
         let mut task = self;
         let tsk = match task.state {
             TaskState::Running | TaskState::Ready => RunTask::Runnable(task),
@@ -375,7 +372,7 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
                         Some(f) => {
                             let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
                             task.signal_to_deliver = None;
-                            return f(task, rptr.cast());
+                            return Pin::from(f(task, rptr.cast()));
                         }
                     }
                 }
@@ -387,25 +384,26 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
                 RunTask::Runnable(task)
             }
             TaskState::Fork(child) => {
-                let pair = do_ptrace_fork(task, child).await;
+                let pair = do_ptrace_fork(task, child);
                 RunTask::Forked(pair.0, pair.1)
             }
             TaskState::Clone(child) => {
-                let pair = do_ptrace_clone(task, child).await;
+                let pair = do_ptrace_clone(task, child);
                 RunTask::Forked(pair.0, pair.1)
             }
             TaskState::Seccomp(syscall) => {
-                do_ptrace_seccomp(task, syscall).await
+                let t = futures::executor::block_on(do_ptrace_seccomp(task, syscall));
+                t
             }
             TaskState::Syscall => {
                 debug!("got unexpected ptrace syscall");
                 RunTask::Runnable(task)
             }
             TaskState::Exited(exit_code) => {
-                do_ptrace_event_exit(task, exit_code).await
+                do_ptrace_event_exit(task, exit_code)
             }
         };
-        tsk
+        Pin::from(Box::new(tsk))
     }
 }
 
@@ -739,7 +737,7 @@ fn remote_do_clone(
     let status = wait::waitpid(tid, None);
     assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 1)));
     let new_task = task_clone(&task);
-    wait_sigstop(&new_task)?;
+    futures::executor::block_on(wait_sigstop(&new_task));
     task.resume(None)?;
     wait_sigtrap_sigchld(&mut task)?;
     task.setregs(oldregs)?;
@@ -817,13 +815,13 @@ async fn wait_sigstop(task: &TracedTask) -> std::result::Result<(), std::io::Err
 }
 
 
-async fn do_ptrace_vfork_done(task: TracedTask) -> TracedTask {
+fn do_ptrace_vfork_done(task: TracedTask) -> TracedTask {
     task
 }
 
-async fn do_ptrace_clone(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
+fn do_ptrace_clone(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
     let mut new_task = task.cloned(child);
-    wait_sigstop(&new_task).await;
+    futures::executor::block_on(wait_sigstop(&new_task));
 
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
@@ -835,9 +833,9 @@ async fn do_ptrace_clone(task: TracedTask, child: Pid) -> (TracedTask, TracedTas
     (task, new_task)
 }
 
-async fn do_ptrace_fork(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
+fn do_ptrace_fork(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
     let mut new_task = task.forked(child);
-    wait_sigstop(&new_task).await;
+    futures::executor::block_on(wait_sigstop(&new_task));    
 
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
@@ -850,7 +848,7 @@ async fn do_ptrace_fork(task: TracedTask, child: Pid) -> (TracedTask, TracedTask
     (task, new_task)
 }
 
-async fn do_ptrace_event_exit(task: TracedTask, retval: i32) -> RunTask<TracedTask> {
+fn do_ptrace_event_exit(task: TracedTask, retval: i32) -> RunTask<TracedTask> {
     let _sig = task.signal_to_deliver;
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_exited.fetch_add(1, Ordering::SeqCst);
@@ -1116,7 +1114,7 @@ fn dump_bpf_filter(task: &TracedTask) {
 
 //pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>+'static>>)>>>,
 //type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
-type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> RunTask<TracedTask>)>;
+type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc

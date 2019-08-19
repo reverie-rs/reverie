@@ -7,10 +7,8 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
-use async_trait::async_trait;
-
-use futures::prelude::Future;
 use core::pin::Pin;
+use futures::prelude::Future;
 
 use syscalls::SyscallNo;
 
@@ -19,25 +17,31 @@ use crate::remote::Injector;
 pub type EventHandler = Box<dyn FnMut(&dyn Task) -> Result<()>>;
 
 pub trait TaskEventHandler {
-    fn new_event_handler(on_exec:  EventHandler,
-                         on_fork:  EventHandler,
-                         on_clone: EventHandler,
-                         on_exit:  EventHandler) -> Self;
+    fn new_event_handler(
+        on_exec: EventHandler,
+        on_fork: EventHandler,
+        on_clone: EventHandler,
+        on_exit: EventHandler,
+    ) -> Self;
 }
 
 pub struct TaskEventCB {
-    pub on_task_exec:  Box<dyn FnMut(&dyn Task) -> Result<()>>,
-    pub on_task_fork:  Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_exec: Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_fork: Box<dyn FnMut(&dyn Task) -> Result<()>>,
     pub on_task_clone: Box<dyn FnMut(&dyn Task) -> Result<()>>,
-    pub on_task_exit:  Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_exit: Box<dyn FnMut(&dyn Task) -> Result<()>>,
 }
 
 pub trait GlobalState {
-    fn new() -> Self where Self: Sized;
+    fn new() -> Self
+    where
+        Self: Sized;
 }
 
 pub trait ProcessState: Task + Injector {
-    fn new(pid: Pid) -> Self where Self: Sized;
+    fn new(pid: Pid) -> Self
+    where
+        Self: Sized;
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -50,7 +54,7 @@ pub enum TaskState {
     Clone(Pid),
     Fork(Pid),
     Seccomp(SyscallNo),
-    Syscall,  // XXX: internal only
+    Syscall, // XXX: internal only
     Exited(i32),
 }
 
@@ -68,9 +72,15 @@ pub enum RunTask<Task> {
 }
 
 pub trait Task {
-    fn new(pid: Pid) -> Self where Self: Sized;
-    fn cloned(&self, child: Pid) -> Self where Self: Sized;
-    fn forked(&self, child: Pid) -> Self where Self: Sized;
+    fn new(pid: Pid) -> Self
+    where
+        Self: Sized;
+    fn cloned(&self, child: Pid) -> Self
+    where
+        Self: Sized;
+    fn forked(&self, child: Pid) -> Self
+    where
+        Self: Sized;
     fn getpid(&self) -> Pid;
     fn gettid(&self) -> Pid;
     fn getppid(&self) -> Pid;
@@ -78,10 +88,11 @@ pub trait Task {
     fn exited(&self, code: i32) -> Option<i32>;
 }
 
-#[async_trait]
-pub trait Runnable<G> where G: GlobalState {
+pub trait Runnable<G>
+where
+    G: GlobalState,
+{
     type Item;
     /// take ownership of `self`
-    // fn run(self, glob: &mut G) -> Result<RunTask<Self::Item>>;
-    async fn run(self, glob: &mut G) -> RunTask<Self::Item>;
+    fn run(self, glob: &mut G) -> Pin<Box<dyn Future<Output = RunTask<Self::Item>>>>;
 }
