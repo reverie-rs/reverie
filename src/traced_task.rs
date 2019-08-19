@@ -20,10 +20,12 @@ use libc;
 use procfs;
 use log::{trace, debug, warn, info};
 use nix::sys::socket;
-use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
 use nix::unistd::Pid;
 use nix::unistd;
+use nix::sys::wait::waitpid;
+use nix::sys::wait::{WaitStatus, WaitPidFlag};
+
 use std::io::{Read, Write, Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -37,6 +39,8 @@ use std::fs::File;
 use goblin::elf::Elf;
 
 use futures::prelude::*;
+use futures::task::Context;
+use futures::task::Poll;
 use core::pin::{Pin};
 use hostecho::*;
 use hostecho::state::*;
@@ -341,6 +345,21 @@ impl Task for TracedTask {
 
 }
 
+impl Future for &TracedTask {
+    type Output = WaitStatus;
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+        trace!("AsyncPtrace polling once for: {}", self.pid);
+        match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)).expect("Unable to waitpid from poll") {
+            WaitStatus::StillAlive => {
+                Poll::Pending
+            }
+            w => Poll::Ready(w),
+        }
+    }
+}
+
+/*
 impl <G> Runnable<G> for TracedTask where G: GlobalState {
     type Item = TracedTask;
     /// run a task, task ptrace event dispatcher
@@ -405,6 +424,70 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
         };
         Pin::from(Box::new(tsk))
     }
+}
+*/
+
+pub async fn run_task(mut task: TracedTask) -> RunTask<TracedTask> {
+    let tsk = match task.state {
+        TaskState::Running | TaskState::Ready => RunTask::Runnable(task),
+        TaskState::Signaled(signal) => {
+            let _ = ptrace::cont(task.gettid(), Some(signal));
+            RunTask::Exited(0x80 | signal as i32)
+        }
+        TaskState::Stopped(signal) => {
+            if signal == signal::SIGTRAP {
+                let mut regs = task.getregs().unwrap();
+                let rip_minus_1 = regs.rip - 1;
+                let mut maybe_f: Option<FnBreakpoint> = None;
+                match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
+                    None => {},      // not a breakpoint
+                    Some((saved_insn, op)) => {
+                        let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
+                        task.poke(Remoteable::Remote(rptr), &saved_insn).unwrap();
+                        regs.rip = rip_minus_1;
+                        task.setregs(regs).unwrap();
+                        maybe_f = Some(op);
+                    }
+                }
+                match maybe_f {
+                    None => {}
+                    Some(_) => {}
+                    /*
+                    Some(f) => {
+                        let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
+                        task.signal_to_deliver = None;
+                        return *f(task, rptr.cast());
+                    }
+                    */
+                }
+            }
+            task.signal_to_deliver = Some(signal);
+            RunTask::Runnable(task)
+        }
+        TaskState::Exec => {
+            do_ptrace_exec(&mut task).unwrap();
+            RunTask::Runnable(task)
+        }
+        TaskState::Fork(child) => {
+            let pair = do_ptrace_fork(task, child);
+            RunTask::Forked(pair.0, pair.1)
+        }
+        TaskState::Clone(child) => {
+            let pair = do_ptrace_clone(task, child);
+            RunTask::Forked(pair.0, pair.1)
+        }
+        TaskState::Seccomp(syscall) => {
+            do_ptrace_seccomp(task, syscall).await
+        }
+        TaskState::Syscall => {
+            debug!("got unexpected ptrace syscall");
+            RunTask::Runnable(task)
+        }
+        TaskState::Exited(exit_code) => {
+            do_ptrace_event_exit(task, exit_code)
+        }
+    };
+    tsk
 }
 
 impl TracedTask {
@@ -868,6 +951,17 @@ struct SyscallInfo {
     args: [u64; 6],
 }
 
+pub async fn posthook(task: &TracedTask) {
+    ptrace::syscall(task.gettid()).unwrap();
+    // Might want to switch this to return the error instead of failing.
+    match task.await {
+        WaitStatus::PtraceSyscall(_) =>  {
+            debug!("got posthook event");
+        }
+        e =>  panic!(format!("Unexpected {:?} event, expected posthook!", e)),
+    };
+}
+
 async fn do_ptrace_seccomp(mut task: TracedTask, syscall: SyscallNo) -> RunTask<TracedTask> {
     let mut regs = task.getregs().unwrap();
     let rip = regs.rip;
@@ -880,6 +974,7 @@ async fn do_ptrace_seccomp(mut task: TracedTask, syscall: SyscallNo) -> RunTask<
     let mut glob = EchoGlobalState::new();
     let mut proc = EchoState::new(tid);
 
+    posthook(&task).await;
     /*
     hostecho::captured_syscall(&mut glob,
                                        &mut proc,
@@ -1113,8 +1208,9 @@ fn dump_bpf_filter(task: &TracedTask) {
 }
 
 //pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>+'static>>)>>>,
-//type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
+//type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> dyn Future<Output=RunTask<TracedTask>>)>;
 type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
+//type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
 
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc

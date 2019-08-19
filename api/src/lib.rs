@@ -1,6 +1,6 @@
 //! api
 
-#![feature(async_await)]
+#![feature(async_await, pin_into_inner)]
 #![allow(unused_imports)]
 
 use nix::unistd::Pid;

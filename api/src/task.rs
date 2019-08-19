@@ -9,6 +9,8 @@ use std::ptr::NonNull;
 
 use core::pin::Pin;
 use futures::prelude::Future;
+use futures::task::{Poll, Context};
+use futures::task::Poll::*;
 
 use syscalls::SyscallNo;
 
@@ -70,6 +72,21 @@ pub enum RunTask<Task> {
     /// A task tuple `(prent, child)` returned from `fork`/`vfork`/`clone`
     Forked(Task, Task),
 }
+
+/*
+impl <Task> futures::Future for RunTask<Task>
+    where Task: std::marker::Unpin
+{
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        match Pin::into_inner(self) {
+            RunTask::Blocked(_) => Pending,
+            _                     => Ready(()),
+        }
+        
+    }
+}
+*/
 
 pub trait Task {
     fn new(pid: Pid) -> Self

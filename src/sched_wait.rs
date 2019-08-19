@@ -140,7 +140,9 @@ impl Stream for SchedWait {
         match sched.run_queue.pop_front() {
             None => Poll::Ready(None),
             Some(tid) => {
-                match wait::waitpid(tid, Some(WaitPidFlag::WNOHANG)) {
+                let waitStatus = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
+                println!("stream wait status: {:#x?}", waitStatus);
+                match waitStatus {
                     Ok(WaitStatus::StillAlive) => {
                         Poll::Pending
                     }
@@ -237,7 +239,7 @@ pub async fn sched_wait_event_loop<G>(sched: &mut SchedWait, mut glob: G) -> i32
     let mut exit_code = 0i32;
     while let Some(task) = sched.next().await {
         let tid = task.gettid();
-        let run_result = task.run(&mut glob).await;
+        let run_result = run_task(task).await;
         match run_result {
             RunTask::Exited(_code) => exit_code = _code,
             RunTask::Blocked(task1) => {
