@@ -2,11 +2,15 @@
 
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, uio, wait};
-use nix::unistd;
 use nix::unistd::Pid;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
+
+use async_trait::async_trait;
+
+use futures::prelude::Future;
+use core::pin::Pin;
 
 use syscalls::SyscallNo;
 
@@ -74,8 +78,10 @@ pub trait Task {
     fn exited(&self, code: i32) -> Option<i32>;
 }
 
+#[async_trait]
 pub trait Runnable<G> where G: GlobalState {
     type Item;
     /// take ownership of `self`
-    fn run(self, glob: &mut G) -> Result<RunTask<Self::Item>>;
+    // fn run(self, glob: &mut G) -> Result<RunTask<Self::Item>>;
+    async fn run(self, glob: &mut G) -> RunTask<Self::Item>;
 }

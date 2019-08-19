@@ -1,5 +1,7 @@
-#![feature(format_args_nl, slice_internals)]
+#![feature(format_args_nl, slice_internals, async_await)]
 #![allow(unused_attributes)]
+#![allow(unused_imports)]
+#![allow(unused_variables)]
 
 #[macro_use]
 pub mod macros;

@@ -499,3 +499,35 @@ fn wait_sigtrap_sigchld(pid: Pid) -> Result<Option<signal::Signal>> {
     };
     Ok(signal_to_deliver)
 }
+
+/// inject syscall for given tracee
+///
+/// NB: limitations:
+/// - tracee must be in stopped state.
+/// - the tracee must have returned from PTRACE_EXEC_EVENT
+pub async fn ptraced_syscall(
+    task: &dyn Task,
+    nr: SyscallNo,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+) {
+    let tid = task.gettid();
+    let mut regs = ptrace::getregs(tid).unwrap();
+
+    let no = nr as u64;
+    regs.orig_rax = no;
+    regs.rax = no;
+    regs.rdi = a0 as u64;
+    regs.rsi = a1 as u64;
+    regs.rdx = a2 as u64;
+    regs.r10 = a3 as u64;
+    regs.r8 = a4 as u64;
+    regs.r9 = a5 as u64;
+
+    ptrace::setregs(task.gettid(), regs).unwrap();
+    ptrace::syscall(tid).unwrap();
+}

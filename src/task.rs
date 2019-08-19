@@ -58,5 +58,5 @@ pub trait Task {
 pub trait Runnable<G> where G: GlobalState {
     type Item;
     /// take ownership of `self`
-    fn run(self, glob: &mut G) -> Result<RunTask<Self::Item>> where Self::Item: Sized;
+    fn run(self, glob: &mut G) -> Pin<Box<dyn Future<Output=RunTask<TracedTask>>>>;
 }
