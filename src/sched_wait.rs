@@ -11,7 +11,9 @@ use std::sync::atomic::{Ordering, AtomicUsize};
 
 use procfs;
 
-use crate::consts;
+use common::consts;
+use common::state::ReverieState;
+
 use crate::nr::*;
 use crate::remote;
 use crate::remote::*;
@@ -19,7 +21,6 @@ use crate::sched::*;
 use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
-use crate::state::ReverieState;
 use crate::debug;
 
 /// the scheduler

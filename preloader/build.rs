@@ -11,6 +11,5 @@ fn main() -> Result<()> {
         .file("src/bpf-helper.c")
         .file("src/dl_ns.c")
         .compile("my-asm-lib");
-    std::fs::copy("../src/consts.rs", "src/consts.rs")?;
     Ok(())
 }

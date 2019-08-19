@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 syscalls = { path = "../syscalls" }
+common = { path = "../common" }
 procfs = "0.5"
 nix = "0.14"
 libc = "0.2"

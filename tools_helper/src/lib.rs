@@ -6,12 +6,12 @@
 #[macro_use]
 pub mod logger;
 pub mod spinlock;
-pub mod consts;
 pub mod counter;
-pub mod local_state;
-pub mod profiling;
+pub mod ffi;
 
 pub use counter::note_syscall;
 pub use counter::NoteInfo;
-pub use local_state::ProcessState;
+
+pub use common;
+pub use common::local_state::ProcessState;
 

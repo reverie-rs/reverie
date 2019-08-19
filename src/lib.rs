@@ -10,7 +10,10 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub mod consts;
+pub use syscalls;
+pub use tools_helper;
+pub use common;
+
 pub mod hooks;
 pub mod nr;
 pub mod ns;
@@ -22,12 +25,9 @@ pub mod stubs;
 pub mod vdso;
 pub mod task;
 pub mod traced_task;
-pub mod state;
-pub mod local_state;
 pub mod block_events;
 pub mod rpc_ptrace;
 pub mod auxv;
 pub mod aux;
 pub mod config;
 pub mod debug;
-pub mod profiling;

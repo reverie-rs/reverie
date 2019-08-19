@@ -36,8 +36,11 @@ use std::ffi::c_void;
 use std::fs::File;
 use goblin::elf::Elf;
 
-use crate::consts;
-use crate::consts::*;
+use common::state::*;
+use common::local_state::*;
+use common::consts;
+use common::consts::*;
+
 use crate::hooks;
 use crate::nr::*;
 use crate::remote;
@@ -48,8 +51,6 @@ use crate::stubs;
 use crate::task::*;
 use crate::remote_rwlock::*;
 use crate::vdso;
-use crate::state::*;
-use crate::local_state::*;
 use crate::rpc_ptrace::*;
 use crate::auxv;
 use crate::aux;
@@ -784,7 +785,7 @@ impl RemoteSyscall for TracedTask {
 }
 
 /// inject syscall for given tracee
-///    
+///
 /// NB: limitations:
 /// - tracee must be in stopped state.
 /// - the tracee must have returned from PTRACE_EXEC_EVENT

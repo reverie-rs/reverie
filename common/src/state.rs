@@ -1,6 +1,7 @@
 //! reverie global state
 
 use std::sync::Mutex;
+use lazy_static;
 
 use crate::profiling::*;
 

@@ -21,11 +21,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 use std::env;
 
-use reverie::{ns, consts, task, hooks};
+use reverie::{ns, task, hooks};
 use reverie::sched::Scheduler;
 use reverie::sched_wait::SchedWait;
 use reverie::task::{RunTask, Task};
-use reverie::state::*;
+use reverie::common::{state::*, consts};
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {

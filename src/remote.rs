@@ -11,8 +11,9 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
-use crate::consts;
-use crate::consts::*;
+use common::consts;
+use common::consts::*;
+
 use crate::hooks;
 use crate::nr;
 use crate::nr::SyscallNo;

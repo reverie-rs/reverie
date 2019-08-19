@@ -6,10 +6,11 @@
 //! NB: the tracee must be in a ptrace stop
 //!
 
+use common::consts;
+
 use crate::remote::*;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
-use crate::consts;
 use nix::sys::wait;
 use nix::sys::signal;
 use nix::sys::ptrace;

@@ -2,7 +2,7 @@
 
 use std::sync::atomic::Ordering;
 
-use crate::local_state::*;
+use common::local_state::*;
 
 /// syscall events
 pub enum NoteInfo {

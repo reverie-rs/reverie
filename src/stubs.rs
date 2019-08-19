@@ -5,7 +5,8 @@ use std::fs::File;
 use std::io::{Error, ErrorKind, Result, Write};
 use std::path::PathBuf;
 
-use crate::consts;
+use common::consts;
+
 use crate::hooks;
 
 // jmp *0x0(pc)

@@ -2,11 +2,11 @@
 
 use std::io::Result;
 
-pub mod consts;
 pub mod relink;
 pub mod seccomp_bpf;
 
 use syscalls::*;
+use common::consts;
 
 #[link_section = ".init_array"]
 #[used]

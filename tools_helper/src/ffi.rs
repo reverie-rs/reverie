@@ -8,11 +8,9 @@
 /// cdylib is built correctly.
 
 use core::ffi::c_void;
-use crate::consts;
-use crate::captured_syscall;
-use crate::local_state::*;
+use common::consts;
+use common::local_state::*;
 
-use tools_helper::local_state::*;
 use syscalls::*;
 
 static SYSCALL_UNTRACED: u64 = 0x7000_0000;
@@ -43,69 +41,78 @@ extern "C" {
     fn _syscall_hook_trampoline_85_c0_0f_94_c2();
     fn _remote_syscall_helper();
     fn _remote_funccall_helper();
+    fn captured_syscall(
+        _p: &mut ProcessState,
+        no: i32,
+        a0: i64,
+        a1: i64,
+        a2: i64,
+        a3: i64,
+        a4: i64,
+        a5: i64) -> i64;
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline() {
+pub unsafe extern "C" fn syscall_hook_trampoline() {
     _syscall_hook_trampoline()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_48_3d_01_f0_ff_ff() {
+pub unsafe extern "C" fn syscall_hook_trampoline_48_3d_01_f0_ff_ff() {
     _syscall_hook_trampoline_48_3d_01_f0_ff_ff()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_48_3d_00_f0_ff_ff() {
+pub unsafe extern "C" fn syscall_hook_trampoline_48_3d_00_f0_ff_ff() {
     _syscall_hook_trampoline_48_3d_00_f0_ff_ff()
 }
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_48_8b_3c_24() {
+pub unsafe extern "C" fn syscall_hook_trampoline_48_8b_3c_24() {
     _syscall_hook_trampoline_48_8b_3c_24()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_5a_5e_c3() {
+pub unsafe extern "C" fn syscall_hook_trampoline_5a_5e_c3() {
     _syscall_hook_trampoline_5a_5e_c3()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_89_c2_f7_da() {
+pub unsafe extern "C" fn syscall_hook_trampoline_89_c2_f7_da() {
     _syscall_hook_trampoline_89_c2_f7_da()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_90_90_90() {
+pub unsafe extern "C" fn syscall_hook_trampoline_90_90_90() {
     _syscall_hook_trampoline_90_90_90()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_ba_01_00_00_00() {
+pub unsafe extern "C" fn syscall_hook_trampoline_ba_01_00_00_00() {
     _syscall_hook_trampoline_ba_01_00_00_00()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_89_c1_31_d2() {
+pub unsafe extern "C" fn syscall_hook_trampoline_89_c1_31_d2() {
     _syscall_hook_trampoline_89_c1_31_d2()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_89_d0_87_07() {
+pub unsafe extern "C" fn syscall_hook_trampoline_89_d0_87_07() {
     _syscall_hook_trampoline_89_d0_87_07()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_c3_nop() {
+pub unsafe extern "C" fn syscall_hook_trampoline_c3_nop() {
     _syscall_hook_trampoline_c3_nop()
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook_trampoline_85_c0_0f_94_c2() {
+pub unsafe extern "C" fn syscall_hook_trampoline_85_c0_0f_94_c2() {
     _syscall_hook_trampoline_85_c0_0f_94_c2()
 }
 
 #[no_mangle]
-unsafe extern "C" fn traced_syscall(
+pub unsafe extern "C" fn traced_syscall(
     syscallno: i32,
     arg0: i64,
     arg1: i64,
@@ -118,7 +125,7 @@ unsafe extern "C" fn traced_syscall(
 }
 
 #[no_mangle]
-unsafe extern "C" fn untraced_syscall(
+pub unsafe extern "C" fn untraced_syscall(
     syscallno: i32,
     arg0: i64,
     arg1: i64,
@@ -131,18 +138,18 @@ unsafe extern "C" fn untraced_syscall(
 }
 
 #[no_mangle]
-unsafe extern "C" fn remote_syscall_helper_do_not_call_me() {
+pub unsafe extern "C" fn remote_syscall_helper_do_not_call_me() {
     _remote_syscall_helper();
 }
 
 #[repr(C)]
-struct syscall_info {
+pub struct syscall_info {
     no: u64,
     args: [u64; 6],
 }
 
 #[no_mangle]
-unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
+pub unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
     if let Some(cell) = &PSTATE {
         let mut pstate = cell.get().as_mut().unwrap();
         let sc = info.as_ref().unwrap();
@@ -159,7 +166,7 @@ unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
 
 #[link_section = ".init_array"]
 #[used]
-static EARLY_TRAMPOLINE_INIT: extern fn() = {
+pub static EARLY_TRAMPOLINE_INIT: extern fn() = {
     extern "C" fn trampoline_ctor() {
         let syscall_hook_ptr = consts::REVERIE_LOCAL_SYSCALL_HOOK_ADDR as *mut u64;
         unsafe {
