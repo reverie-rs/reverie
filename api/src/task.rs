@@ -6,6 +6,7 @@ use nix::unistd::Pid;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
+use std::boxed::Box;
 
 use core::pin::Pin;
 use futures::prelude::Future;
@@ -46,47 +47,33 @@ pub trait ProcessState: Task + Injector {
         Self: Sized;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskState {
+    /// XXX: iternal only
     Ready,
+    /// busy
     Running,
+    // stopped by breakpoint at @pc
+    //Breakpoint(u64),
+    /// stopped by signal
     Stopped(signal::Signal),
+    /// signaled
     Signaled(signal::Signal),
+    /// exec event
     Exec,
+    /// clone event
     Clone(Pid),
+    /// fork/vfork event
     Fork(Pid),
+    /// seccomp event
     Seccomp(SyscallNo),
-    Syscall, // XXX: internal only
-    Exited(i32),
+    /// XXX: internal only
+    Syscall(SyscallNo),
+    /// XXX: internal only
+    VforkDone,
+    /// exited
+    Exited(Pid, i32),
 }
-
-/// Task which can be scheduled by `Sched`
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RunTask<Task> {
-    /// `Task` Exited with an exit code
-    Exited(i32),
-    /// `Task` can be scheduled
-    Runnable(Task),
-    /// Blocked `Task`
-    Blocked(Task),
-    /// A task tuple `(prent, child)` returned from `fork`/`vfork`/`clone`
-    Forked(Task, Task),
-}
-
-/*
-impl <Task> futures::Future for RunTask<Task>
-    where Task: std::marker::Unpin
-{
-    type Output = ();
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        match Pin::into_inner(self) {
-            RunTask::Blocked(_) => Pending,
-            _                     => Ready(()),
-        }
-        
-    }
-}
-*/
 
 pub trait Task {
     fn new(pid: Pid) -> Self
@@ -105,6 +92,7 @@ pub trait Task {
     fn exited(&self, code: i32) -> Option<i32>;
 }
 
+/*
 pub trait Runnable<G>
 where
     G: GlobalState,
@@ -113,3 +101,4 @@ where
     /// take ownership of `self`
     fn run(self, glob: &mut G) -> Pin<Box<dyn Future<Output = RunTask<Self::Item>>>>;
 }
+*/

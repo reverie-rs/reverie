@@ -63,6 +63,17 @@ use crate::aux;
 use crate::debug;
 use crate::remote::*;
 
+/// Task which can be scheduled by `Sched`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunTask<Task> {
+    /// `Task` Exited with an exit code
+    Exited(i32),
+    /// `Task` which can be scheduled
+    Runnable,
+    /// A task tuple `(prent, child)` returned from `fork`/`vfork`/`clone`
+    Forked(Task),
+}
+
 lazy_static! {
 // get all symbols from tool dso
     static ref PRELOAD_TOOL_SYMS: HashMap<String, u64> = {
@@ -149,6 +160,7 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
 }
 
 /// ptraced task
+#[derive(Clone)]
 pub struct TracedTask {
     /// task id, same as `gettid()`
     /// please note we use `tid` for `ptrace` instead of `pid`
@@ -323,7 +335,7 @@ impl Task for TracedTask {
     /// get task exit code
     /// called when task exits
     fn exited(&self, code: i32) -> Option<i32> {
-        debug_assert!(self.state == TaskState::Exited(code));
+        debug_assert!(self.state == TaskState::Exited(self.gettid(), code));
         Some(code)
     }
 
@@ -347,20 +359,6 @@ impl Task for TracedTask {
         self.pgid
     }
 
-}
-
-impl Future for &TracedTask {
-    type Output = WaitStatus;
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
-        trace!("AsyncPtrace polling once for: {}", self.pid);
-        match waitpid(self.pid, Some(WaitPidFlag::WNOHANG)).expect("Unable to waitpid from poll") {
-            WaitStatus::StillAlive => {
-                Poll::Pending
-            }
-            w => Poll::Ready(w),
-        }
-    }
 }
 
 /*
@@ -431,16 +429,100 @@ impl <G> Runnable<G> for TracedTask where G: GlobalState {
 }
 */
 
-pub async fn run_task(mut task: TracedTask) -> RunTask<TracedTask> {
-    let tsk = match task.state {
-        TaskState::Running | TaskState::Ready => RunTask::Runnable(task),
+/*
+impl Future for TracedTask {
+    type Output = Result<RunTask<TracedTask>>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        let mut task = self.get_mut();
+        match task.state {
+            TaskState::Ready => {
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::VforkDone => {
+                do_ptrace_vfork_done(task);
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::Running => Poll::Pending,
+            TaskState::Signaled(signal) => {
+                //let _ = task.resume(Some(signal))?;
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::Stopped(signal) => {
+                if signal == signal::SIGTRAP {
+                    let mut regs = task.getregs().unwrap();
+                    let rip_minus_1 = regs.rip - 1;
+                    let mut maybe_f: Option<FnBreakpoint> = None;
+                    match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
+                        None => {},      // not a breakpoint
+                        Some((saved_insn, op)) => {
+                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
+                            task.poke(Remoteable::Remote(rptr), &saved_insn).unwrap();
+                            regs.rip = rip_minus_1;
+                            task.setregs(regs).unwrap();
+                            maybe_f = Some(op);
+                        }
+                    }
+                    match maybe_f {
+                        None => {}
+                        Some(_) => {}
+                        /*
+                        Some(f) => {
+                        let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
+                        task.signal_to_deliver = None;
+                        return *f(task, rptr.cast());
+                    }
+                         */
+                    }
+                }
+                task.signal_to_deliver = Some(signal);
+                //task.resume(Some(signal))?;
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::Exec => {
+                do_ptrace_exec(&mut task).unwrap();
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::Fork(child) => {
+                let new_task = do_ptrace_fork(task, child);
+                Poll::Ready(Ok(RunTask::Forked(new_task)))
+            }
+            TaskState::Clone(child) => {
+                let new_task = do_ptrace_clone(task, child);
+                Poll::Ready(Ok(RunTask::Forked(new_task)))
+            }
+            TaskState::Seccomp(syscall) => {
+                let _ = do_ptrace_seccomp(task, syscall);
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::Syscall(syscall) => {
+                trace!("got unexpected ptrace post syscall");
+                Poll::Ready(Ok(RunTask::Runnable))
+            }
+            TaskState::Exited(pid, exit_code) => {
+                do_ptrace_event_exit(pid, exit_code);
+                Poll::Ready(Ok(RunTask::Exited(exit_code)))
+            }
+        }
+    }
+}
+ */
+
+pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
+    match task.state {
+        TaskState::Ready => {
+            Ok(RunTask::Runnable)
+        }
+        TaskState::VforkDone => {
+            do_ptrace_vfork_done(&mut task);
+            Ok(RunTask::Runnable)
+        }
+        TaskState::Running => Ok(RunTask::Runnable),
         TaskState::Signaled(signal) => {
-            let _ = ptrace::cont(task.gettid(), Some(signal));
-            RunTask::Exited(0x80 | signal as i32)
+            Ok(RunTask::Runnable)
         }
         TaskState::Stopped(signal) => {
             if signal == signal::SIGTRAP {
-                let mut regs = task.getregs().unwrap();
+                let mut regs = task.getregs()?;
                 let rip_minus_1 = regs.rip - 1;
                 let mut maybe_f: Option<FnBreakpoint> = None;
                 match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
@@ -458,40 +540,42 @@ pub async fn run_task(mut task: TracedTask) -> RunTask<TracedTask> {
                     Some(_) => {}
                     /*
                     Some(f) => {
-                        let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
-                        task.signal_to_deliver = None;
-                        return *f(task, rptr.cast());
-                    }
-                    */
+                    let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
+                    task.signal_to_deliver = None;
+                    return *f(task, rptr.cast());
+                }
+                     */
                 }
             }
             task.signal_to_deliver = Some(signal);
-            RunTask::Runnable(task)
+            //task.resume(Some(signal))?;
+            Ok(RunTask::Runnable)
         }
         TaskState::Exec => {
             do_ptrace_exec(&mut task).unwrap();
-            RunTask::Runnable(task)
+            Ok(RunTask::Runnable)
         }
         TaskState::Fork(child) => {
-            let pair = do_ptrace_fork(task, child);
-            RunTask::Forked(pair.0, pair.1)
+            let new_task = do_ptrace_fork(&mut task, child);
+            Ok(RunTask::Forked(new_task))
         }
         TaskState::Clone(child) => {
-            let pair = do_ptrace_clone(task, child);
-            RunTask::Forked(pair.0, pair.1)
+            let new_task = do_ptrace_clone(&mut task, child);
+            Ok(RunTask::Forked(new_task))
         }
         TaskState::Seccomp(syscall) => {
-            do_ptrace_seccomp(task, syscall).await
+            let _ = do_ptrace_seccomp(&mut task, syscall);
+            Ok(RunTask::Runnable)
         }
-        TaskState::Syscall => {
-            debug!("got unexpected ptrace syscall");
-            RunTask::Runnable(task)
+        TaskState::Syscall(syscall) => {
+            trace!("got unexpected ptrace post syscall");
+            Ok(RunTask::Runnable)
         }
-        TaskState::Exited(exit_code) => {
-            do_ptrace_event_exit(task, exit_code)
+        TaskState::Exited(pid, exit_code) => {
+            do_ptrace_event_exit(pid, exit_code);
+            Ok(RunTask::Exited(exit_code))
         }
-    };
-    tsk
+    }
 }
 
 impl TracedTask {
@@ -558,10 +642,10 @@ fn task_exec_reset(task: &mut TracedTask) {
     task.ldpreload_address = None;
     task.injected_mmap_page = Some(0x7000_0000);
     task.signal_to_deliver = None;
-    task.state = TaskState::Exited(0);
+    task.state = TaskState::Ready;
     task.in_vfork = false;
     task.seccomp_hook_size = None;
-    check_ref_counters(task);
+    // check_ref_counters(task);
     *(task.patched_syscalls.borrow_mut()) = HashSet::new();
     *(task.unpatchable_syscalls.borrow_mut()) = HashSet::new();
     *(task.memory_map.borrow_mut()) = Vec::new();
@@ -792,14 +876,14 @@ fn task_clone(task: &TracedTask) -> TracedTask {
         rpc_data: None,
     }
 }
-
+ 
 // inject clone into tracee, returns `RunTask`
 fn remote_do_clone(
-    mut task: TracedTask,
+    task: &mut TracedTask,
     entry: u64,
     child_stack: u64,
     flags: u64,
-    args: u64) -> Result<RunTask<TracedTask>> {
+    args: u64) -> Result<TracedTask> {
     let tid = task.gettid();
     let mut regs = task.getregs()?;
     let oldregs = regs;
@@ -824,9 +908,9 @@ fn remote_do_clone(
     let status = wait::waitpid(tid, None);
     assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 1)));
     let new_task = task_clone(&task);
-    futures::executor::block_on(wait_sigstop(&new_task));
+    wait_sigstop(&new_task);
     task.resume(None)?;
-    wait_sigtrap_sigchld(&mut task)?;
+    wait_sigtrap_sigchld(task)?;
     task.setregs(oldregs)?;
 
     // the new task is stopped by breakpoint instruction
@@ -840,7 +924,7 @@ fn remote_do_clone(
     new_regs.rdi = args;
     new_regs.rsp -= std::mem::size_of::<u64>() as u64;
     new_task.setregs(new_regs)?;
-    Ok(RunTask::Forked(task, new_task))
+    Ok(new_task)
 }
 
 fn ptrace_get_stopsig(tid: Pid) -> libc::siginfo_t {
@@ -888,7 +972,7 @@ fn should_restart_syscall(task: &mut TracedTask, regs: libc::user_regs_struct) -
 // delivered to the children, causing them to enter signal-delivery-stop after they exit the
 // system call which created them.
 //
-async fn wait_sigstop(task: &TracedTask) -> std::result::Result<(), std::io::Error> {
+fn wait_sigstop(task: &TracedTask) -> Result<()> {
     let tid = task.gettid();
     match wait::waitpid(Some(tid), None) {
         Ok(WaitStatus::Stopped(new_pid, signal))
@@ -902,13 +986,13 @@ async fn wait_sigstop(task: &TracedTask) -> std::result::Result<(), std::io::Err
 }
 
 
-fn do_ptrace_vfork_done(task: TracedTask) -> TracedTask {
-    task
+fn do_ptrace_vfork_done(task: &mut TracedTask) -> Result<()> {
+    Ok(())
 }
 
-fn do_ptrace_clone(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
+fn do_ptrace_clone(task: &mut TracedTask, child: Pid) -> TracedTask {
     let mut new_task = task.cloned(child);
-    futures::executor::block_on(wait_sigstop(&new_task));
+    wait_sigstop(&new_task).unwrap();
 
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
@@ -917,12 +1001,12 @@ fn do_ptrace_clone(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
 
     init_rpc_stack_data(&mut new_task);
 
-    (task, new_task)
+    new_task
 }
 
-fn do_ptrace_fork(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
+fn do_ptrace_fork(task: &mut TracedTask, child: Pid) -> TracedTask {
     let mut new_task = task.forked(child);
-    futures::executor::block_on(wait_sigstop(&new_task));    
+    wait_sigstop(&new_task).unwrap();
 
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_syscalls.fetch_add(1, Ordering::SeqCst);
@@ -932,15 +1016,13 @@ fn do_ptrace_fork(task: TracedTask, child: Pid) -> (TracedTask, TracedTask) {
     let regs = new_task.getregs().unwrap();
     let rptr = RemotePtr::new(regs.rip as *mut c_void);
     // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
-    (task, new_task)
+    new_task
 }
 
-fn do_ptrace_event_exit(task: TracedTask, retval: i32) -> RunTask<TracedTask> {
-    let _sig = task.signal_to_deliver;
+fn do_ptrace_event_exit(pid: Pid, retval: i32) {
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_exited.fetch_add(1, Ordering::SeqCst);
-    let _ = ptrace::detach(task.gettid());
-    RunTask::Exited(retval as i32)
+    let _ = ptrace::detach(pid);
 }
 
 enum PatchStatus{
@@ -968,7 +1050,7 @@ pub async fn posthook(task: &TracedTask) {
     */
 }
 
-async fn do_ptrace_seccomp(mut task: TracedTask, syscall: SyscallNo) -> RunTask<TracedTask> {
+fn do_ptrace_seccomp(task: &mut TracedTask, syscall: SyscallNo) -> Result<()> {
     let mut regs = task.getregs().unwrap();
     let rip = regs.rip;
     let rip_before_syscall = regs.rip - consts::SYSCALL_INSN_SIZE as u64;
@@ -980,14 +1062,15 @@ async fn do_ptrace_seccomp(mut task: TracedTask, syscall: SyscallNo) -> RunTask<
     let mut glob = EchoGlobalState::new();
     let mut proc = EchoState::new(tid);
 
-    posthook(&task).await;
+    posthook(task);
+    Ok(())
+    // task.resume(task.signal_to_deliver)
     /*
     hostecho::captured_syscall(&mut glob,
-                                       &mut proc,
-                                       regs.orig_rax as i32,
-                                       args);
+                               &mut proc,
+                               regs.orig_rax as i32,
+                               args)
     */
-    RunTask::Runnable(task)
     /*
     if syscall == SYS_execve || syscall == SYS_execveat {
         let _ = hostecho::captured_syscall(&mut glob,
@@ -1215,9 +1298,10 @@ fn dump_bpf_filter(task: &TracedTask) {
 
 //pub breakpoints: Rc<RefCell<HashMap<u64, (u64, Box<dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>+'static>>)>>>,
 //type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> dyn Future<Output=RunTask<TracedTask>>)>;
-type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
+type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=TracedTask>>)>;
 //type FnBreakpoint = Box<(dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Box<dyn Future<Output=RunTask<TracedTask>>>)>;
 
+/*
 // breakpoint at program's entry, likley `libc_start_main`for
 // for programs linked against glibc
 fn handle_program_entry_bkpt(mut task: TracedTask, _at: RemotePtr<c_void>) -> Result<RunTask<TracedTask>> {
@@ -1244,7 +1328,8 @@ fn handle_fork_entry_bkpt(task: TracedTask, _at: RemotePtr<c_void>) -> Result<Ru
 
     may_start_dpc_task(task)
 }
-
+*/
+/*
 fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     if let Some(dpc_entry) = task.get_preloaded_symbol_address("dpc_entry") {
         let tid = task.gettid();
@@ -1274,7 +1359,7 @@ fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
         Ok(RunTask::Runnable(task))
     }
 }
-
+*/
 // so here we are, at ptrace seccomp stop, if we simply resume, the kernel would
 // do the syscall, without our patch. we change to syscall number to -1, so that
 // kernel would simply skip the syscall, so that we can jump to our patched syscall
@@ -1297,6 +1382,6 @@ fn is_syscall_insn(tid: Pid, rip: u64) -> Result<bool> {
     Ok(insn & SYSCALL_INSN_MASK as u64 == SYSCALL_INSN)
 }
 
-fn handle_breakpoint_event(task: TracedTask, _at: u64) -> Result<RunTask<TracedTask>> {
-    Ok(RunTask::Runnable(task))
+fn handle_breakpoint_event(task: &mut TracedTask, _at: u64) -> Result<()> {
+    Ok(())
 }

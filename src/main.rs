@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![feature(async_await)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -27,9 +28,14 @@ use seccomp::*;
 
 use api::task::*;
 
+use futures::prelude::*;
+use futures::executor::block_on;
+use futures::task::{Poll, Waker, Context};
+use core::pin::Pin;
+
 use reverie::{ns, consts, hooks};
 use reverie::sched_wait::*;
-use reverie::traced_task::TracedTask;
+use reverie::traced_task::{TracedTask};
 use reverie::state::*;
 
 #[test]
@@ -64,7 +70,7 @@ impl GlobalState for DummyState {
 
 fn run_tracer_main(sched: &mut SchedWait) -> i32 {
     let glob = DummyState::new();
-    sched.event_loop(glob)
+    block_on(run_all(sched, glob))
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {

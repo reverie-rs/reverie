@@ -6,6 +6,8 @@ use futures::task::{Poll, Waker, Context};
 use core::pin::Pin;
 
 use log::Level::Trace;
+use log::{debug, trace};
+
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd::Pid;
@@ -20,7 +22,7 @@ use api::task::*;
 use procfs;
 
 use crate::consts;
-use crate::traced_task::TracedTask;
+use crate::traced_task::{RunTask, TracedTask, run_task};
 use crate::traced_task::*;
 use crate::state::ReverieState;
 use crate::debug;
@@ -89,20 +91,14 @@ impl SchedWait {
         self.task_tree.remove(&Task::getpid(task));
         self.tasks.remove(&Task::getpid(task));
     }
-/*    
-    /// pick up next ready `Task` from `Scheduler`
-    ///
-    /// NB: `SchedWait` find out next ready task based on `waitpid`
-    pub fn next(&mut self) -> Option<TracedTask> {
-        ptracer_get_next(self)
-    }
-*/
+
     /// return number of tasks in `Scheduler`
     pub fn size(&self) -> usize {
         self.tasks.len()
     }
 }
 
+/*
 pub trait SchedulerEventLoop<G> where G: GlobalState {
     fn event_loop(&mut self, glob: G) -> i32;
 }
@@ -117,6 +113,7 @@ impl <G> SchedulerEventLoop<G> for SchedWait where G: GlobalState {
         block_on(sched_wait_event_loop(self, glob))
     }
 }
+*/
 
 // tracee received group stop
 // NB: must be call after waitpid returned STOPPED status.
@@ -137,15 +134,25 @@ impl Stream for SchedWait {
     type Item = TracedTask;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let sched: &mut SchedWait = self.get_mut();
-        match sched.run_queue.pop_front() {
-            None => Poll::Ready(None),
+        match sched
+            .run_queue
+            .pop_front()
+            .or_else(|| sched.blocked_queue.pop_front()) {
+            None => return Poll::Ready(None),
             Some(tid) => {
-                println!("schedule task pid = {}", tid);
-                let waitStatus = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
-                println!("stream wait status: {:#x?}", waitStatus);
-                match waitStatus {
+                // let wait_status = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
+                let wait_status = wait::waitpid(tid, None);
+                trace!("[sched] {:?} sched task status: {:#x?}", tid, wait_status);
+                match wait_status {
                     Ok(WaitStatus::StillAlive) => {
-                        Poll::Pending
+                        let mut task = sched
+                            .tasks
+                            .remove(&tid)
+                            .unwrap_or_else(||panic!("uknown pid {}", tid));
+                        task.state = TaskState::Running;
+                        sched.add_blocked(task);
+                        trace!("[scehd] Pending");
+                        return Poll::Pending;
                     }
                     Ok(WaitStatus::Signaled(_, sig, _core)) => {
                         let mut task = sched
@@ -153,16 +160,17 @@ impl Stream for SchedWait {
                             .remove(&tid)
                             .unwrap_or_else(||panic!("unknown pid {}", tid));
                         task.state = TaskState::Signaled(sig);
-                        Poll::Ready(Some(task))
+                        return Poll::Ready(Some(task));
                     }
                     Ok(WaitStatus::Continued(_)) => {
-                        let task = sched
+                        let mut task = sched
                             .tasks
                             .remove(&tid)
                             .unwrap_or_else(||panic!("unknown pid {:}", tid));
-                        Poll::Ready(Some(task))                        
+                        task.state = TaskState::Ready;
+                        return Poll::Ready(Some(task));
                     }
-                    Ok(WaitStatus::PtraceEvent(_, sig, event)) if sig == signal::SIGTRAP => {
+                    Ok(WaitStatus::PtraceEvent(_, signal::SIGTRAP, event)) => {
                         let mut task = sched
                             .tasks
                             .remove(&tid)
@@ -179,6 +187,7 @@ impl Stream for SchedWait {
                             let new_pid = ptrace::getevent(tid).unwrap();
                             task.state = TaskState::Fork(Pid::from_raw(new_pid as i32));
                         } else if event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
+                            task.state == TaskState::VforkDone;
                         } else if event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
                             let nr = ptrace::getevent(tid).unwrap() as i32;
                             if nr == 0x7fff {
@@ -189,19 +198,18 @@ impl Stream for SchedWait {
                             task.state = TaskState::Seccomp(SyscallNo::from(nr));
                         } else if event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
                             let exit_code = ptrace::getevent(tid).unwrap();
-                            task.state = TaskState::Exited(exit_code as i32);
+                            task.state = TaskState::Exited(tid, exit_code as i32);
                         } else {
                             panic!("unknown ptrace event {}", event)
                         };
-                        Poll::Ready(Some(task))
+                        return Poll::Ready(Some(task));
                     }
                     Ok(WaitStatus::PtraceSyscall(pid)) => {
                         assert!(pid == tid);
                         let mut task = sched.tasks.remove(&tid).unwrap();
                         println!("[pid = {}] got ptrace syscall posthook", pid);
-                        task.state = TaskState::Running;
-                        sched.add_and_schedule(task);
-                        Poll::Pending
+                        task.state = TaskState::Ready;
+                        return Poll::Ready(Some(task));
                     }
                     Ok(WaitStatus::Stopped(pid, sig)) => {
                         // ignore group-stop
@@ -210,24 +218,27 @@ impl Stream for SchedWait {
                             let mut task = sched
                                 .tasks
                                 .remove(&tid)
-                                .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                                .unwrap_or_else(||panic!("unknown pid {:?}", tid));
                             if task.state != TaskState::Ready {
                                 task.state = TaskState::Stopped(sig);
                             }
                             task.signal_to_deliver = Some(sig);
-                            Poll::Ready(Some(task))
-                        } else {
-                            Poll::Pending
+                            return Poll::Ready(Some(task));
                         }
+                        return Poll::Pending;
                     }
                     Ok(WaitStatus::Exited(pid, retval)) => {
-                        sched.tasks.remove(&pid);
-                        Poll::Pending
+                        let mut task = sched
+                            .tasks
+                            .remove(&pid)
+                            .unwrap_or_else(|| panic!("unknown pid {:?}", tid));
+                        task.state = TaskState::Exited(pid, retval);
+                        return Poll::Ready(Some(task));
                     }
                     Err(nix::Error::Sys(nix::errno::Errno::ECHILD)) => {
                         // a non-awaited child
                         log::debug!("[sched] waitpid {} => ECHILD", tid);
-                        Poll::Pending
+                        return Poll::Pending;
                     }
                     otherwise => panic!("unknown status: {:?}", otherwise),
                 }
@@ -236,26 +247,23 @@ impl Stream for SchedWait {
     }
 }
 
-pub async fn sched_wait_event_loop<G>(sched: &mut SchedWait, mut _glob: G) -> i32
+pub async fn run_all<G>(sched: &mut SchedWait, mut _glob: G) -> i32
     where G: GlobalState
 {
     let mut exit_code = 0i32;
     while let Some(task) = sched.next().await {
         let tid = task.gettid();
-        let run_result = run_task(task).await;
-        match run_result {
-            RunTask::Exited(_code) => exit_code = _code,
-            RunTask::Blocked(task1) => {
-                sched.add_blocked(task1);
+        trace!("run_all, sched pid {:?}", tid);
+        let task1 = task.clone();
+        match run_task(task).await {
+            Ok(RunTask::Exited(_code)) => exit_code = _code,
+            Ok(RunTask::Runnable) => {
+                sched.add_and_schedule(task1)
             }
-            RunTask::Runnable(task1) => {
+            Ok(RunTask::Forked(child)) => {
+                sched.add_and_schedule(child);
                 sched.add_and_schedule(task1);
             }
-            RunTask::Forked(parent, child) => {
-                sched.add_and_schedule(child);
-                sched.add_and_schedule(parent);
-            }
-            /*
             // task.run could fail when ptrace failed, this *can* happen
             // when we received a PtraceEvent (such as seccomp), then
             // immediately some other thread called `exit_group`; then
@@ -306,7 +314,6 @@ pub async fn sched_wait_event_loop<G>(sched: &mut SchedWait, mut _glob: G) -> i3
                 //
                 let _ = ptrace::detach(tid);
             }
-            */
         }
     }
     exit_code

@@ -10,4 +10,6 @@ use std::ptr::NonNull;
 pub mod task;
 pub mod remote;
 pub mod ptrace;
+mod consts;
 
+pub use crate::consts::*;
