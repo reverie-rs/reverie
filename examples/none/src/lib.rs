@@ -4,8 +4,6 @@
 use syscalls::*;
 use tools_helper::*;
 
-pub mod ffi;
-
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     _p: &mut ProcessState,

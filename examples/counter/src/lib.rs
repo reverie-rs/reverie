@@ -9,8 +9,6 @@ use std::ffi::CStr;
 use tools_helper::*;
 use syscalls::*;
 
-pub mod ffi;
-
 #[cfg_attr(target_os = "linux", link_section = ".ctors")]
 #[used]
 static ECHO_DSO_CTORS: extern fn() = {

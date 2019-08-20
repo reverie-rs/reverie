@@ -4,8 +4,8 @@ use syscalls::*;
 use tools_helper::*;
 
 use crate::show::*;
-use crate::counter::{note_syscall, NoteInfo};
-use crate::local_state::{ProcessState, ThreadState};
+use tools_helper::counter::{note_syscall, NoteInfo};
+use tools_helper::common::local_state::{ProcessState, ThreadState};
 
 #[macro_export(smsg)]
 macro_rules! smsg {

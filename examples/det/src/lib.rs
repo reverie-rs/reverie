@@ -15,8 +15,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libc;
 
-pub mod ffi;
-
 #[link_section = ".init_array"]
 #[used]
 static ECHO_DSO_CTORS: extern fn() = {

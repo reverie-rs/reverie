@@ -4,8 +4,8 @@
 use syscalls::syscall;
 use log::debug;
 
-use crate::consts;
-use crate::logger;
+use tools_helper::common::consts;
+use tools_helper::logger;
 
 const DPC_PREFIX: &'static str = "/tmp/dpc-task.";
 
