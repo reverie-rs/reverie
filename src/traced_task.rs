@@ -67,14 +67,15 @@ lazy_static! {
 // get all symbols from tool dso
     static ref PRELOAD_TOOL_SYMS: HashMap<String, u64> = {
         let mut res = HashMap::new();
-        let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut file = File::open(so).unwrap();
-        file.read_to_end(&mut bytes).unwrap();
-        let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e)).unwrap();
-        let strtab = elf.strtab;
-        for sym in elf.syms.iter() {
-            res.insert(strtab[sym.st_name].to_string(), sym.st_value);
+        if let Ok(so) = std::env::var(consts::REVERIE_TRACEE_PRELOAD) {
+            let mut bytes: Vec<u8> = Vec::new();
+            let mut file = File::open(so).unwrap();
+            file.read_to_end(&mut bytes).unwrap();
+            let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e)).unwrap();
+            let strtab = elf.strtab;
+            for sym in elf.syms.iter() {
+                res.insert(strtab[sym.st_name].to_string(), sym.st_value);
+            }
         }
         res
     };
@@ -112,11 +113,14 @@ fn libtrampoline_load_address(pid: Pid) -> Option<(u64, u64)> {
 
 lazy_static! {
     static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
-        hooks::resolve_syscall_hooks_from(
-            PathBuf::from(so.clone())
-        )
-        .unwrap_or_else(|_|panic!("unable to load {}", so))
+        if let Ok(so) = std::env::var(consts::REVERIE_TRACEE_PRELOAD) {
+            hooks::resolve_syscall_hooks_from(
+                PathBuf::from(so.clone())
+            ).unwrap_or_else(|_|panic!("unable to load {}", so))
+        } else {
+            Vec::new()
+        }
+
     };
 }
 
@@ -954,12 +958,14 @@ struct SyscallInfo {
 pub async fn posthook(task: &TracedTask) {
     ptrace::syscall(task.gettid()).unwrap();
     // Might want to switch this to return the error instead of failing.
+    /*
     match task.await {
         WaitStatus::PtraceSyscall(_) =>  {
             debug!("got posthook event");
         }
         e =>  panic!(format!("Unexpected {:?} event, expected posthook!", e)),
     };
+    */
 }
 
 async fn do_ptrace_seccomp(mut task: TracedTask, syscall: SyscallNo) -> RunTask<TracedTask> {

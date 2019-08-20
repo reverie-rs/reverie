@@ -22,7 +22,6 @@ pub enum TaskState {
     Running,
     Stopped(signal::Signal),
     Signaled(signal::Signal),
-    Event(u64),
     Syscall,
     Exited(i32),
 }

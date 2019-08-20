@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
+#![allow(dead_code, unused_variables, unused_mut, unused_must_use, non_snake_case)]
 #![feature(async_await)]
 
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::unreadable_literal))]

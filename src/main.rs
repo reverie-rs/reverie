@@ -42,8 +42,8 @@ fn can_resolve_syscall_hooks() -> Result<()> {
 
 struct Arguments<'a> {
     debug_level: i32,
-    preloader: PathBuf,
-    tool_path: PathBuf,
+    preloader: Option<PathBuf>,
+    tool_path: Option<PathBuf>,
     host_envs: bool,
     envs: HashMap<String, String>,
     namespaces: bool,
@@ -63,7 +63,7 @@ impl GlobalState for DummyState {
 }
 
 fn run_tracer_main(sched: &mut SchedWait) -> i32 {
-    let mut glob = DummyState::new();
+    let glob = DummyState::new();
     sched.event_loop(glob)
 }
 
@@ -98,14 +98,6 @@ fn tracee_init_signals() {
 }
 
 fn run_tracee(argv: &Arguments) -> Result<i32> {
-    let libs: Vec<_> = vec![&argv.preloader];
-    let ldpreload = String::from("LD_PRELOAD=")
-        + &libs
-            .iter()
-            .map(|p| p.to_str().unwrap())
-            .collect::<Vec<_>>()
-            .join(":");
-
     unsafe {
         assert!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
         assert!(libc::personality(PER_LINUX | ADDR_NO_RANDOMIZE) != -1);
@@ -135,7 +127,16 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         }
     });
 
-    // envs.push(ldpreload);
+    if argv.preloader.is_some() {
+        let libs: Vec<_> = [&argv.preloader].iter().cloned().filter_map(|x| x.clone()).collect();
+        let ldpreload = String::from("LD_PRELOAD=")
+            + &libs
+            .iter()
+            .map(|p| p.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(":");
+        envs.push(ldpreload);
+    }
     let program = CString::new(argv.program)?;
     let mut args: Vec<CString> = Vec::new();
     CString::new(argv.program).map(|s| args.push(s))?;
@@ -292,7 +293,7 @@ fn main() {
                 .value_name("PRELOADER")
                 .help("choose tool preloader")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             Arg::with_name("tool")
@@ -300,7 +301,7 @@ fn main() {
                 .value_name("TOOL")
                 .help("choose which tool (/path/to/lib<TOOL>.so) to run, default to none (libnone.so) if not specified. ")
                 .takes_value(true)
-                .required(true),
+                .required(false),
         )
         .arg(
             Arg::with_name("no-host-envs")
@@ -363,16 +364,14 @@ fn main() {
     setup_logger(log_level, log_output).expect("set log level");
 
     let tool = matches
-        .value_of("tool")
-        .expect("[main] tool not specified, default to none");
+        .value_of("tool");
 
     let preloader = matches.value_of("preloader")
-        .and_then(|pre| PathBuf::from(pre).canonicalize().ok())
-        .expect("[main] preloader not specified");
+        .and_then(|pre| PathBuf::from(pre).canonicalize().ok());
 
-    let tool_path = PathBuf::from(tool)
-        .canonicalize()
-        .unwrap_or_else(|_|panic!("[main] cannot locate {}", tool));
+    let tool_path = tool.and_then(|t| {
+        PathBuf::from(t).canonicalize().ok()
+    });
 
     let argv = Arguments {
         debug_level: log_level,
@@ -399,7 +398,9 @@ fn main() {
             .unwrap_or_else(Vec::new),
     };
 
-    std::env::set_var(consts::REVERIE_TRACEE_PRELOAD, tool_path.as_os_str());
+    if let Some(tracee_preload) = tool_path {
+        std::env::set_var(consts::REVERIE_TRACEE_PRELOAD, tracee_preload.as_os_str());
+    }
     match run_app(&argv) {
         Ok(exit_code) => std::process::exit(exit_code),
         err => panic!("run app failed with error: {:?}", err),

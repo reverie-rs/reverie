@@ -140,6 +140,7 @@ impl Stream for SchedWait {
         match sched.run_queue.pop_front() {
             None => Poll::Ready(None),
             Some(tid) => {
+                println!("schedule task pid = {}", tid);
                 let waitStatus = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
                 println!("stream wait status: {:#x?}", waitStatus);
                 match waitStatus {
@@ -197,8 +198,10 @@ impl Stream for SchedWait {
                     Ok(WaitStatus::PtraceSyscall(pid)) => {
                         assert!(pid == tid);
                         let mut task = sched.tasks.remove(&tid).unwrap();
-                        task.state = TaskState::Syscall;
-                        Poll::Ready(Some(task))                        
+                        println!("[pid = {}] got ptrace syscall posthook", pid);
+                        task.state = TaskState::Running;
+                        sched.add_and_schedule(task);
+                        Poll::Pending
                     }
                     Ok(WaitStatus::Stopped(pid, sig)) => {
                         // ignore group-stop
@@ -233,7 +236,7 @@ impl Stream for SchedWait {
     }
 }
 
-pub async fn sched_wait_event_loop<G>(sched: &mut SchedWait, mut glob: G) -> i32
+pub async fn sched_wait_event_loop<G>(sched: &mut SchedWait, mut _glob: G) -> i32
     where G: GlobalState
 {
     let mut exit_code = 0i32;
