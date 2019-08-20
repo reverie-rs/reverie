@@ -1,8 +1,9 @@
 //! simple (de)scheduler based on `waitpid`
 
 use futures::prelude::*;
-use futures::executor::block_on;
-use futures::task::{Poll, Waker, Context};
+use futures::executor::{LocalPool, LocalSpawner, block_on};
+use futures::task::{Poll, Waker, Context, SpawnExt};
+use futures_util::task::LocalSpawnExt;
 use core::pin::Pin;
 
 use log::Level::Trace;
@@ -34,6 +35,7 @@ pub struct SchedWait {
     run_queue: VecDeque<Pid>,
     blocked_queue: VecDeque<Pid>,
     task_tree: HashMap<Pid, Pid>,
+    pool: LocalPool,
 }
 
 impl SchedWait {
@@ -44,6 +46,7 @@ impl SchedWait {
             run_queue: VecDeque::new(),
             blocked_queue: VecDeque::new(),
             task_tree: HashMap::new(),
+            pool: LocalPool::new(),
         }
     }
     /// add a new task into `Scheduler` run (ready) queue
@@ -254,15 +257,14 @@ pub async fn run_all<G>(sched: &mut SchedWait, mut _glob: G) -> i32
     while let Some(task) = sched.next().await {
         let tid = task.gettid();
         trace!("run_all, sched pid {:?}", tid);
-        let task1 = task.clone();
         match run_task(task).await {
             Ok(RunTask::Exited(_code)) => exit_code = _code,
-            Ok(RunTask::Runnable) => {
+            Ok(RunTask::Runnable(task1)) => {
                 sched.add_and_schedule(task1)
             }
-            Ok(RunTask::Forked(child)) => {
+            Ok(RunTask::Forked(parent, child)) => {
                 sched.add_and_schedule(child);
-                sched.add_and_schedule(task1);
+                sched.add_and_schedule(parent);
             }
             // task.run could fail when ptrace failed, this *can* happen
             // when we received a PtraceEvent (such as seccomp), then

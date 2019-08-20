@@ -39,6 +39,7 @@ use std::fs::File;
 use goblin::elf::Elf;
 
 use futures::prelude::*;
+use futures::future::LocalBoxFuture;
 use futures::task::Context;
 use futures::task::Poll;
 use core::pin::{Pin};
@@ -69,9 +70,9 @@ pub enum RunTask<Task> {
     /// `Task` Exited with an exit code
     Exited(i32),
     /// `Task` which can be scheduled
-    Runnable,
+    Runnable(Task),
     /// A task tuple `(prent, child)` returned from `fork`/`vfork`/`clone`
-    Forked(Task),
+    Forked(Task, Task),
 }
 
 lazy_static! {
@@ -160,7 +161,6 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
 }
 
 /// ptraced task
-#[derive(Clone)]
 pub struct TracedTask {
     /// task id, same as `gettid()`
     /// please note we use `tid` for `ptrace` instead of `pid`
@@ -217,6 +217,8 @@ pub struct TracedTask {
     pub rpc_stack: Option<(RemotePtr<u64>, usize)>,
     /// per-thread data area used by rpc
     pub rpc_data: Option<(RemotePtr<c_void>, usize)>,
+
+    pub future: Option<LocalBoxFuture<'static, ()>>,
 }
 
 impl std::fmt::Debug for TracedTask {
@@ -256,6 +258,7 @@ impl Task for TracedTask {
             ldso_symbols: Rc::new(HashMap::new()),
             rpc_stack: None,
             rpc_data: None,
+            future: None,
         }
     }
 
@@ -286,6 +289,7 @@ impl Task for TracedTask {
             ldso_symbols: self.ldso_symbols.clone(),
             rpc_stack: None,
             rpc_data: None,
+            future: None,
         };
         new_task
     }
@@ -329,6 +333,7 @@ impl Task for TracedTask {
             ldso_symbols: self.ldso_symbols.clone(),
             rpc_stack: self.rpc_stack,
             rpc_data: self.rpc_data,
+            future: None,
         }
     }
 
@@ -361,164 +366,18 @@ impl Task for TracedTask {
 
 }
 
-/*
-impl <G> Runnable<G> for TracedTask where G: GlobalState {
-    type Item = TracedTask;
-    /// run a task, task ptrace event dispatcher
-    fn run(self, glob: &mut G) -> Pin<Box<dyn Future<Output = RunTask<Self::Item>>>> {
-        let mut task = self;
-        let tsk = match task.state {
-            TaskState::Running | TaskState::Ready => RunTask::Runnable(task),
-            TaskState::Signaled(signal) => {
-                let _ = ptrace::cont(task.gettid(), Some(signal));
-                RunTask::Exited(0x80 | signal as i32)
-            }
-            TaskState::Stopped(signal) => {
-                if signal == signal::SIGTRAP {
-                    let mut regs = task.getregs().unwrap();
-                    let rip_minus_1 = regs.rip - 1;
-                    let mut maybe_f: Option<FnBreakpoint> = None;
-                    match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
-                        None => {},      // not a breakpoint
-                        Some((saved_insn, op)) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
-                            task.poke(Remoteable::Remote(rptr), &saved_insn).unwrap();
-                            regs.rip = rip_minus_1;
-                            task.setregs(regs).unwrap();
-                            maybe_f = Some(op);
-                        }
-                    }
-                    match maybe_f {
-                        None => {}
-                        Some(f) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
-                            task.signal_to_deliver = None;
-                            return Pin::from(f(task, rptr.cast()));
-                        }
-                    }
-                }
-                task.signal_to_deliver = Some(signal);
-                RunTask::Runnable(task)
-            }
-            TaskState::Exec => {
-                do_ptrace_exec(&mut task).unwrap();
-                RunTask::Runnable(task)
-            }
-            TaskState::Fork(child) => {
-                let pair = do_ptrace_fork(task, child);
-                RunTask::Forked(pair.0, pair.1)
-            }
-            TaskState::Clone(child) => {
-                let pair = do_ptrace_clone(task, child);
-                RunTask::Forked(pair.0, pair.1)
-            }
-            TaskState::Seccomp(syscall) => {
-                let t = futures::executor::block_on(do_ptrace_seccomp(task, syscall));
-                t
-            }
-            TaskState::Syscall => {
-                debug!("got unexpected ptrace syscall");
-                RunTask::Runnable(task)
-            }
-            TaskState::Exited(exit_code) => {
-                do_ptrace_event_exit(task, exit_code)
-            }
-        };
-        Pin::from(Box::new(tsk))
-    }
-}
-*/
-
-/*
-impl Future for TracedTask {
-    type Output = Result<RunTask<TracedTask>>;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mut task = self.get_mut();
-        match task.state {
-            TaskState::Ready => {
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::VforkDone => {
-                do_ptrace_vfork_done(task);
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::Running => Poll::Pending,
-            TaskState::Signaled(signal) => {
-                //let _ = task.resume(Some(signal))?;
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::Stopped(signal) => {
-                if signal == signal::SIGTRAP {
-                    let mut regs = task.getregs().unwrap();
-                    let rip_minus_1 = regs.rip - 1;
-                    let mut maybe_f: Option<FnBreakpoint> = None;
-                    match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
-                        None => {},      // not a breakpoint
-                        Some((saved_insn, op)) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
-                            task.poke(Remoteable::Remote(rptr), &saved_insn).unwrap();
-                            regs.rip = rip_minus_1;
-                            task.setregs(regs).unwrap();
-                            maybe_f = Some(op);
-                        }
-                    }
-                    match maybe_f {
-                        None => {}
-                        Some(_) => {}
-                        /*
-                        Some(f) => {
-                        let rptr = RemotePtr::new(rip_minus_1 as *mut u64).unwrap();
-                        task.signal_to_deliver = None;
-                        return *f(task, rptr.cast());
-                    }
-                         */
-                    }
-                }
-                task.signal_to_deliver = Some(signal);
-                //task.resume(Some(signal))?;
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::Exec => {
-                do_ptrace_exec(&mut task).unwrap();
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::Fork(child) => {
-                let new_task = do_ptrace_fork(task, child);
-                Poll::Ready(Ok(RunTask::Forked(new_task)))
-            }
-            TaskState::Clone(child) => {
-                let new_task = do_ptrace_clone(task, child);
-                Poll::Ready(Ok(RunTask::Forked(new_task)))
-            }
-            TaskState::Seccomp(syscall) => {
-                let _ = do_ptrace_seccomp(task, syscall);
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::Syscall(syscall) => {
-                trace!("got unexpected ptrace post syscall");
-                Poll::Ready(Ok(RunTask::Runnable))
-            }
-            TaskState::Exited(pid, exit_code) => {
-                do_ptrace_event_exit(pid, exit_code);
-                Poll::Ready(Ok(RunTask::Exited(exit_code)))
-            }
-        }
-    }
-}
- */
-
 pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     match task.state {
         TaskState::Ready => {
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
         TaskState::VforkDone => {
             do_ptrace_vfork_done(&mut task);
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
-        TaskState::Running => Ok(RunTask::Runnable),
+        TaskState::Running => Ok(RunTask::Runnable(task)),
         TaskState::Signaled(signal) => {
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
         TaskState::Stopped(signal) => {
             if signal == signal::SIGTRAP {
@@ -548,28 +407,27 @@ pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
                 }
             }
             task.signal_to_deliver = Some(signal);
-            //task.resume(Some(signal))?;
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
         TaskState::Exec => {
             do_ptrace_exec(&mut task).unwrap();
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
         TaskState::Fork(child) => {
             let new_task = do_ptrace_fork(&mut task, child);
-            Ok(RunTask::Forked(new_task))
+            Ok(RunTask::Forked(task, new_task))
         }
         TaskState::Clone(child) => {
             let new_task = do_ptrace_clone(&mut task, child);
-            Ok(RunTask::Forked(new_task))
+            Ok(RunTask::Forked(task, new_task))
         }
         TaskState::Seccomp(syscall) => {
             let _ = do_ptrace_seccomp(&mut task, syscall);
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
         TaskState::Syscall(syscall) => {
             trace!("got unexpected ptrace post syscall");
-            Ok(RunTask::Runnable)
+            Ok(RunTask::Runnable(task))
         }
         TaskState::Exited(pid, exit_code) => {
             do_ptrace_event_exit(pid, exit_code);
@@ -874,6 +732,7 @@ fn task_clone(task: &TracedTask) -> TracedTask {
         ldso_symbols: task.ldso_symbols.clone(),
         rpc_stack: None,
         rpc_data: None,
+        future: None,
     }
 }
  
