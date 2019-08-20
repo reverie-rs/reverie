@@ -1,5 +1,4 @@
-use std::fs::File;
-use std::io::{Result, Write};
+use std::io::Result;
 
 fn main() -> Result<()> {
      cc::Build::new()

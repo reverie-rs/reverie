@@ -1,6 +1,4 @@
-use std::fs::File;
-use std::io::{Result, Write};
-use std::path::PathBuf;
+use std::io::{Result};
 
 use cc;
 

@@ -153,8 +153,8 @@ pub unsafe extern "C" fn syscall_hook(info: *const syscall_info) -> i64 {
     if let Some(cell) = &PSTATE {
         let mut pstate = cell.get().as_mut().unwrap();
         let sc = info.as_ref().unwrap();
-        let no = SyscallNo::from(sc.no as i32);
-        let tid = syscall!(SYS_gettid).unwrap() as i32;
+        let _no = SyscallNo::from(sc.no as i32);
+        let _tid = syscall!(SYS_gettid).unwrap() as i32;
         let res = captured_syscall(&mut pstate, sc.no as i32,
                                    sc.args[0] as i64, sc.args[1] as i64,
                                    sc.args[2] as i64, sc.args[3] as i64,

@@ -21,7 +21,6 @@ use std::collections::{HashMap, HashSet};
 
 use nix::unistd::Pid;
 
-use crate::consts;
 use crate::profiling::*;
 
 /// resources belongs to threads
