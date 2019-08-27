@@ -21,7 +21,7 @@ all:
 	$(MAKE) -C tests all
 	@cargo build $(WAY) --all
 	@cargo build --manifest-path examples/echo/Cargo.toml --target-dir=target
-	@cp -v target/$(TARGETDIR)/libpreloader.so lib/
+	@cp -v target/$(TARGETDIR)/libreverie_preloader.so lib/
 	@cp -v target/$(TARGETDIR)/libecho.so lib/
 	@cp -v target/$(TARGETDIR)/libnone.so lib/
 	@cp -v target/$(TARGETDIR)/libcounter.so lib/

@@ -2,8 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_attributes)]
 
-use tools_helper::*;
-use syscalls::*;
+use reverie_helper::{syscalls::*, counter::*, common::local_state::ProcessState, logger};
 use log::*;
 
 #[allow(unused_imports)]
@@ -14,8 +13,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libc;
-
-pub mod ffi;
 
 #[link_section = ".init_array"]
 #[used]
@@ -40,10 +37,10 @@ pub extern "C" fn captured_syscall(
     a5: i64,
 ) -> i64 {
     note_syscall(p, no, NoteInfo::SyscallEntry);
-    let sc = syscalls::SyscallNo::from(no);
+    let sc = SyscallNo::from(no);
     #[allow(unused_assignments)]
     let mut res = -38; // ENOSYS
-    
+
     match sc {
         SYS_gettimeofday => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;

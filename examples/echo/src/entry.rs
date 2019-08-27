@@ -1,11 +1,13 @@
 //! echo entrypoint who defines `captured_syscall`
 //!
-use syscalls::*;
-use tools_helper::*;
 
 use crate::show::*;
-use crate::counter::{note_syscall, NoteInfo};
-use crate::local_state::{ProcessState, ThreadState};
+use reverie_helper::syscalls::*;
+use reverie_helper::counter::{note_syscall, NoteInfo};
+use reverie_helper::common::local_state::{ProcessState, ThreadState};
+
+use reverie_helper::logger::*;
+use reverie_helper::*;
 
 #[macro_export(smsg)]
 macro_rules! smsg {
@@ -32,7 +34,7 @@ pub extern "C" fn captured_syscall(
     a4: i64,
     a5: i64,
 ) -> i64 {
-    let sc = syscalls::SyscallNo::from(no);
+    let sc = SyscallNo::from(no);
     note_syscall(p, no, NoteInfo::SyscallEntry);
 
     let tid = syscall!(SYS_gettid).unwrap();

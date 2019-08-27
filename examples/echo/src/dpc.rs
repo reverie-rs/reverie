@@ -1,11 +1,8 @@
 //! deferred precedure calls
 //!
 
-use syscalls::syscall;
+use reverie_helper::{ common::consts, syscalls::syscall, logger} ;
 use log::debug;
-
-use crate::consts;
-use crate::logger;
 
 const DPC_PREFIX: &'static str = "/tmp/dpc-task.";
 
