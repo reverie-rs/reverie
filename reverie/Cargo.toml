@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 libc = { version = "0.2", default-features = false }
-reverie-syscalls = { path = "../reverie-syscalls" }
+syscalls = { path = "../syscalls" }
 reverie-common = { path = "../reverie-common" }
 nix = "0.13"
 goblin = "0.0"
@@ -30,4 +30,4 @@ serde_json = "1.0"
 
 [build-dependencies]
 cc = "1.0"
-reverie-sysnum = { path = "../reverie-sysnum" }
+sysnum = { path = "../sysnum" }

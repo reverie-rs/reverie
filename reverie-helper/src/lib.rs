@@ -10,4 +10,4 @@ pub mod counter;
 pub mod ffi;
 
 pub use reverie_common as common;
-pub use reverie_syscalls as syscalls;
+pub use syscalls;

@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{Result, Write};
 use std::path::PathBuf;
-use reverie_sysnum::gen_syscalls;
+use sysnum::gen_syscalls;
 
 fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
     let mut f = File::create(dest)?;

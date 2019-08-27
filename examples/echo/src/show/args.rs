@@ -1,5 +1,5 @@
 //! pretty print syscalls
-use reverie_tools_helper::syscalls::*;
+use reverie_helper::syscalls::*;
 use core::fmt;
 use core::fmt::Display;
 use core::ptr::NonNull;

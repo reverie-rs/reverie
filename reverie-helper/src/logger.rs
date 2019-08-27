@@ -17,7 +17,7 @@
 use log::{Log, Level, Metadata, Record, SetLoggerError};
 use core::fmt::{Arguments, Error, Write};
 
-use reverie_syscalls::*;
+use syscalls::*;
 use crate::spinlock::SpinLock;
 
 const RING_BUFF_SIZE: usize = 16384;

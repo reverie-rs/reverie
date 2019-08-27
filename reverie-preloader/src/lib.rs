@@ -5,7 +5,7 @@ use std::io::Result;
 pub mod relink;
 pub mod seccomp_bpf;
 
-use reverie_syscalls::*;
+use syscalls::*;
 use reverie_common::consts;
 
 #[link_section = ".init_array"]

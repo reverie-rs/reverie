@@ -1,5 +1,5 @@
 
-use reverie_syscalls::*;
+use syscalls::*;
 
 /// How should the intrumentor do its job?
 pub enum InstrumentMode {

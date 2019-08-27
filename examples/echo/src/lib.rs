@@ -1,7 +1,7 @@
 #![feature(format_args_nl, slice_internals)]
 #![allow(unused_attributes)]
 
-use reverie_tools_helper::{counter, common, logger};
+use reverie_helper::{counter, common, logger};
 
 #[macro_use]
 pub mod macros;

@@ -6,7 +6,7 @@
 #[allow(unused_imports)]
 use std::ffi::CStr;
 
-use reverie_tools_helper::{ syscalls::*, counter::*, common::local_state::ProcessState, logger };
+use reverie_helper::{ syscalls::*, counter::*, common::local_state::ProcessState, logger };
 
 #[cfg_attr(target_os = "linux", link_section = ".ctors")]
 #[used]

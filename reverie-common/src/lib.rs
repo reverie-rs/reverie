@@ -1,4 +1,4 @@
-//! reverie tools helper
+//! reverie common
 //!
 
 #![feature(format_args_nl, slice_internals)]
@@ -10,4 +10,3 @@ pub mod consts;
 pub mod state;
 pub mod local_state;
 pub mod profiling;
-

@@ -2,7 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_attributes)]
 
-use reverie_tools_helper::{syscalls::*, counter::*, common::local_state::ProcessState, logger};
+use reverie_helper::{syscalls::*, counter::*, common::local_state::ProcessState, logger};
 use log::*;
 
 #[allow(unused_imports)]

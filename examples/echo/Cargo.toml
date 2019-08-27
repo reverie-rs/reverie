@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-reverie-tools-helper = { path = "../../reverie-tools-helper" }
+reverie-helper = { path = "../../reverie-helper" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
 libc = { version = "0.2", default-features = false, features = [] }

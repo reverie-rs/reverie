@@ -1,18 +1,18 @@
 [package]
-name = "reverie-tools-helper"
+name = "reverie-helper"
 version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [lib]
-name = "reverie_tools_helper"
+name = "reverie_helper"
 crate-type = ["lib"]
 
 [features]
 std = []
 
 [dependencies]
-reverie-syscalls = { path = "../reverie-syscalls" }
+syscalls = { path = "../syscalls" }
 reverie-common = { path = "../reverie-common" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }

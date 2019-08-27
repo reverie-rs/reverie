@@ -11,7 +11,7 @@ use core::ffi::c_void;
 use reverie_common::consts;
 use reverie_common::local_state::*;
 
-use reverie_syscalls::*;
+use syscalls::*;
 
 static SYSCALL_UNTRACED: u64 = 0x7000_0000;
 static SYSCALL_TRACED: u64 = 0x7000_0004;

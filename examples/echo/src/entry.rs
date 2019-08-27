@@ -2,12 +2,12 @@
 //!
 
 use crate::show::*;
-use reverie_tools_helper::syscalls::*;
-use reverie_tools_helper::counter::{note_syscall, NoteInfo};
-use reverie_tools_helper::common::local_state::{ProcessState, ThreadState};
+use reverie_helper::syscalls::*;
+use reverie_helper::counter::{note_syscall, NoteInfo};
+use reverie_helper::common::local_state::{ProcessState, ThreadState};
 
-use reverie_tools_helper::logger::*;
-use reverie_tools_helper::*;
+use reverie_helper::logger::*;
+use reverie_helper::*;
 
 #[macro_export(smsg)]
 macro_rules! smsg {

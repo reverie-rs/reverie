@@ -6,7 +6,7 @@
 //!
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use reverie_syscalls::syscall;
+use syscalls::syscall;
 
 /// spinlock struct
 #[derive(Default)]

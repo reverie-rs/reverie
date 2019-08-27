@@ -10,7 +10,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub use reverie_syscalls;
+pub use syscalls;
 pub use reverie_common;
 
 pub mod hooks;
