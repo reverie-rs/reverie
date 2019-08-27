@@ -10,8 +10,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-syscalls = { path = "../../syscalls" }
-tools_helper = { path = "../../tools_helper" }
+reverie-tools-helper = { path = "../../reverie-tools-helper" }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
 
 [build-dependencies]

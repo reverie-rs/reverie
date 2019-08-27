@@ -1,7 +1,7 @@
 
 use core::ptr::NonNull;
 use core::ffi::c_void as void;
-use syscalls::SyscallNo;
+use reverie_tools_helper::syscalls::SyscallNo;
 
 /// syscall return vaules for formatting purpose
 #[derive(Clone, Copy)]

@@ -1,5 +1,5 @@
 //! pretty print syscalls
-use syscalls::*;
+use reverie_tools_helper::syscalls::*;
 use core::fmt;
 use core::fmt::Display;
 use core::ptr::NonNull;
@@ -891,7 +891,7 @@ impl Display for kernel_sigaction {
                self.sa_mask,
                {
                    let flags = self.sa_flags as i32;
-                   let mut v: Vec<_> = 
+                   let mut v: Vec<_> =
                    [ libc_bit_field!(flags, SA_NOCLDSTOP),
                      libc_bit_field!(flags, SA_NOCLDWAIT),
                      libc_bit_field!(flags, SA_SIGINFO),

@@ -1,8 +1,7 @@
 #![allow(unused_imports)]
 #![allow(unused_attributes)]
 
-use syscalls::*;
-use tools_helper::*;
+use reverie_tools_helper::{ syscalls::*, common::local_state::ProcessState };
 
 #[no_mangle]
 pub extern "C" fn captured_syscall(

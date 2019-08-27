@@ -1,0 +1,15 @@
+[package]
+name = "reverie-common"
+version = "0.1.0"
+authors = ["Logan Wendholt <lwendholt@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "reverie_common"
+path = "src/lib.rs"
+
+[dependencies]
+nix = "0.13"
+lazy_static = "1.3"

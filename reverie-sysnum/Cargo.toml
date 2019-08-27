@@ -1,0 +1,12 @@
+[package]
+name = "reverie-sysnum"
+version = "0.1.0"
+authors = ["Baojun Wang <wangbj@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "reverie_sysnum"
+path = "src/lib.rs"
+
+[dependencies]
+tempfile = "3.0"

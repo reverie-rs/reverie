@@ -1,20 +1,22 @@
 [package]
-name = "echo"
+name = "reverie-tools-helper"
 version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [lib]
-name = "echo"
-crate-type = ["cdylib"]
-path = "src/lib.rs"
+name = "reverie_tools_helper"
+crate-type = ["lib"]
+
+[features]
+std = []
 
 [dependencies]
-reverie-tools-helper = { path = "../../reverie-tools-helper" }
+reverie-syscalls = { path = "../reverie-syscalls" }
+reverie-common = { path = "../reverie-common" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
-libc = { version = "0.2", default-features = false, features = [] }
-lazy_static = "1.3"
+nix = "0.13"
 
 [build-dependencies]
 cc = "1.0"
