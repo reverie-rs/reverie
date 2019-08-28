@@ -30,6 +30,7 @@ use crate::debug;
 
 
 /// the scheduler
+#[derive(Debug)]
 pub struct SchedWait {
     tasks: HashMap<Pid, TracedTask>,
     run_queue: VecDeque<Pid>,
@@ -133,6 +134,125 @@ fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
     }
 }
 
+fn ptrace_get_next(sched: &mut SchedWait) -> Option<TracedTask> {
+    let mut retry = true;
+    while retry {
+    match sched
+        .run_queue
+        .pop_front()
+        .or_else(|| sched.blocked_queue.pop_front()) {
+            None => {
+                return None;
+            }
+            Some(tid) => {
+                let wait_status = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
+                retry = wait_status == Ok(WaitStatus::StillAlive);
+                // trace!("[sched] {:?} sched task status: {:#x?}", tid, wait_status);
+                match wait_status {
+                    Ok(WaitStatus::StillAlive) => {
+                        let mut task = sched
+                            .tasks
+                            .remove(&tid)
+                            .unwrap_or_else(||panic!("uknown pid {}", tid));
+                        task.state = TaskState::Running;
+                        sched.add_blocked(task);
+                    }
+                    Ok(WaitStatus::Signaled(_, sig, _core)) => {
+                        let mut task = sched
+                            .tasks
+                            .remove(&tid)
+                            .unwrap_or_else(||panic!("unknown pid {}", tid));
+                        task.state = TaskState::Signaled(sig);
+                        return Some(task);
+                    }
+                    Ok(WaitStatus::Continued(_)) => {
+                        let mut task = sched
+                            .tasks
+                            .remove(&tid)
+                            .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                        task.state = TaskState::Ready;
+                        return Some(task);
+                    }
+                    Ok(WaitStatus::PtraceEvent(_, signal::SIGTRAP, event)) => {
+                        let mut task = sched
+                            .tasks
+                            .remove(&tid)
+                            .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                        if event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
+                            task.state = TaskState::Exec;
+                        } else if event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
+                            let new_pid = ptrace::getevent(tid).unwrap();
+                            task.state = TaskState::Clone(Pid::from_raw(new_pid as i32));
+                        } else if event == ptrace::Event::PTRACE_EVENT_FORK as i32 {
+                            let new_pid = ptrace::getevent(tid).unwrap();
+                            task.state = TaskState::Fork(Pid::from_raw(new_pid as i32));
+                        } else if event == ptrace::Event::PTRACE_EVENT_VFORK as i32 {
+                            let new_pid = ptrace::getevent(tid).unwrap();
+                            task.state = TaskState::Fork(Pid::from_raw(new_pid as i32));
+                        } else if event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32 {
+                            task.state == TaskState::VforkDone;
+                        } else if event == ptrace::Event::PTRACE_EVENT_SECCOMP as i32 {
+                            let nr = ptrace::getevent(tid).unwrap() as i32;
+                            if nr == 0x7fff {
+                                panic!("unfiltered syscall: {:?}", nr);
+                            }
+                            let regs = ptrace::getregs(tid).unwrap();
+                            let nr = regs.orig_rax as i32;
+                            task.state = TaskState::Seccomp(SyscallNo::from(nr));
+                        } else if event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
+                            let exit_code = ptrace::getevent(tid).unwrap();
+                            task.state = TaskState::Exited(tid, exit_code as i32);
+                        } else {
+                            panic!("unknown ptrace event {}", event)
+                        };
+                        return Some(task);
+                    }
+                    Ok(WaitStatus::PtraceSyscall(pid)) => {
+                        assert!(pid == tid);
+                        let mut task = sched.tasks.remove(&tid).unwrap();
+                        let nr = ptrace::getevent(tid).unwrap() as i32;
+                        // println!("[pid = {}] got ptrace syscall posthook", pid);
+                        task.state = TaskState::Syscall(SyscallNo::from(nr));
+                        return Some(task);
+                    }
+                    Ok(WaitStatus::Stopped(pid, sig)) => {
+                        // ignore group-stop
+                        if !is_ptrace_group_stop(pid, sig) {
+                            // NB: we use TaskState::Ready for the intial SIGSTOP
+                            let mut task = sched
+                                .tasks
+                                .remove(&tid)
+                                .unwrap_or_else(||panic!("unknown pid {:?}", tid));
+                            if task.state != TaskState::Ready {
+                                task.state = TaskState::Stopped(sig);
+                            }
+                            task.signal_to_deliver = Some(sig);
+                            return Some(task);
+                        }
+                        retry = true;
+                    }
+                    Ok(WaitStatus::Exited(pid, retval)) => {
+                        let mut task = sched
+                            .tasks
+                            .remove(&pid)
+                            .unwrap_or_else(|| panic!("unknown pid {:?}", tid));
+                        task.state = TaskState::Exited(pid, retval);
+                        return Some(task);
+                    }
+                    Err(nix::Error::Sys(nix::errno::Errno::ECHILD)) => {
+                        // a non-awaited child
+                        log::debug!("[sched] waitpid {} => ECHILD", tid);
+                        retry = true;
+                    }
+                    otherwise => panic!("unknown status: {:?}", otherwise),
+                }
+            }
+        }
+    }
+    None
+}
+
+/*
 impl Stream for SchedWait {
     type Item = TracedTask;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -143,8 +263,8 @@ impl Stream for SchedWait {
             .or_else(|| sched.blocked_queue.pop_front()) {
             None => return Poll::Ready(None),
             Some(tid) => {
-                // let wait_status = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
-                let wait_status = wait::waitpid(tid, None);
+                let wait_status = wait::waitpid(tid, Some(WaitPidFlag::WNOHANG));
+                // let wait_status = wait::waitpid(tid, None);
                 trace!("[sched] {:?} sched task status: {:#x?}", tid, wait_status);
                 match wait_status {
                     Ok(WaitStatus::StillAlive) => {
@@ -249,18 +369,24 @@ impl Stream for SchedWait {
         }
     }
 }
+*/
 
 pub async fn run_all<G>(sched: &mut SchedWait, mut _glob: G) -> i32
     where G: GlobalState
 {
     let mut exit_code = 0i32;
-    while let Some(task) = sched.next().await {
+//    while let Some(task) = sched.next().await {
+    while let Some(task) = ptrace_get_next(sched) {
         let tid = task.gettid();
-        trace!("run_all, sched pid {:?}", tid);
-        match run_task(task).await {
+        // trace!("run_all, sched pid {:?}, state: {:#?}", tid, task.state);
+        match run_task(task).await
+        {
             Ok(RunTask::Exited(_code)) => exit_code = _code,
             Ok(RunTask::Runnable(task1)) => {
-                sched.add_and_schedule(task1)
+                sched.add_and_schedule(task1);
+            }
+            Ok(RunTask::AwaitSyscall(task1)) => {
+                sched.add_and_schedule(task1);
             }
             Ok(RunTask::Forked(parent, child)) => {
                 sched.add_and_schedule(child);

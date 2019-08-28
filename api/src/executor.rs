@@ -27,3 +27,12 @@ unsafe fn si_pid(info: &libc::siginfo_t) -> Pid {
 /// wait on the tracee.
 #[derive(Clone)]
 pub struct WaitidExecutor {}
+
+pub struct WaitidWaker { }
+
+impl ArcWake for WaitidWaker {
+    fn wake_by_ref(_arc_self: &Arc<Self>) {
+        // We should not ever call the waker. It is all done through thread local state.
+        unreachable!();
+    }
+}

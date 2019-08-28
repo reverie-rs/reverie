@@ -11,9 +11,10 @@ use nix::sys::ptrace;
 use nix::sys::uio;
 use nix::unistd::Pid;
 use nix::sys::wait;
-use nix::sys::wait::WaitStatus;
+use nix::sys::wait::{WaitPidFlag, WaitStatus};
 
 use crate::task::*;
+use crate::ptrace::*;
 
 /// a pointer belongs to tracee's address space
 #[derive(Debug, PartialEq, Eq)]
@@ -505,8 +506,8 @@ fn wait_sigtrap_sigchld(pid: Pid) -> Result<Option<signal::Signal>> {
 /// NB: limitations:
 /// - tracee must be in stopped state.
 /// - the tracee must have returned from PTRACE_EXEC_EVENT
-pub async fn ptraced_syscall(
-    task: &dyn Task,
+pub fn ptraced_syscall(
+    pid: Pid,
     nr: SyscallNo,
     a0: u64,
     a1: u64,
@@ -515,8 +516,7 @@ pub async fn ptraced_syscall(
     a4: u64,
     a5: u64,
 ) {
-    let tid = task.gettid();
-    let mut regs = ptrace::getregs(tid).unwrap();
+    let mut regs = ptrace::getregs(pid).unwrap();
 
     let no = nr as u64;
     regs.orig_rax = no;
@@ -528,6 +528,6 @@ pub async fn ptraced_syscall(
     regs.r8 = a4 as u64;
     regs.r9 = a5 as u64;
 
-    ptrace::setregs(task.gettid(), regs).unwrap();
-    ptrace::syscall(tid).unwrap();
+    ptrace::setregs(pid, regs).unwrap();
+    ptrace::syscall(pid).unwrap();
 }

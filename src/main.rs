@@ -1,6 +1,5 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
-#![feature(async_await)]
 
 #[macro_use]
 extern crate lazy_static;

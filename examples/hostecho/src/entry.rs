@@ -4,28 +4,35 @@
 use api::task::*;
 use api::remote::*;
 
+use syscalls::SyscallNo;
 use std::io::Result;
+
+use nix::unistd::Pid;
+use nix::sys::ptrace;
+
+use futures::future::{Future, FutureExt};
 
 use crate::show::*;
 
-pub async fn captured_syscall(
+pub fn captured_syscall_prehook(
     g: &mut dyn GlobalState,
     p: &mut dyn ProcessState,
-    no: i32,
+    pid: Pid,
+    sc: SyscallNo,
     args: SyscallArgs
-) -> i64 {
-    let sc = syscalls::SyscallNo::from(no);
-
-    /*
-    let tid = p.gettid();
-
-    let info = SyscallInfo::from(tid, sc, &args);
+) {
+    let info = SyscallInfo::from(pid, sc, &args);
     eprint!("{}", info);
-    let retval_fut = traced_syscall(p, sc, args.arg0, args.arg1, args.arg2, args.arg3, args.arg4, args.arg5);
-    let retval = retval_fut.await;
-    let info = info.set_retval(retval);
+}
+
+pub fn captured_syscall_posthook(
+    g: &mut dyn GlobalState,
+    p: &mut dyn ProcessState,
+    pid: Pid,
+    sc: SyscallNo,
+    retval: i64,
+    args: SyscallArgs
+) {
+    let info = SyscallInfo::from(pid, sc, &args).set_retval(retval);
     eprintln!("{}", info);
-    retval
-     */
-    -38
 }

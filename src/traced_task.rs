@@ -34,19 +34,21 @@ use std::cell::{RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::ffi::c_void;
 use std::fs::File;
 use goblin::elf::Elf;
 
 use futures::prelude::*;
 use futures::future::LocalBoxFuture;
-use futures::task::Context;
-use futures::task::Poll;
+use futures::task::{Poll, Context, ArcWake};
 use core::pin::{Pin};
 use hostecho::*;
 use hostecho::state::*;
 use api::task::*;
 use api::remote::*;
+use api::executor::*;
+
 use syscalls::*;
 
 use crate::consts;
@@ -73,6 +75,8 @@ pub enum RunTask<Task> {
     Runnable(Task),
     /// A task tuple `(prent, child)` returned from `fork`/`vfork`/`clone`
     Forked(Task, Task),
+    /// task await syscall
+    AwaitSyscall(Task),
 }
 
 lazy_static! {
@@ -422,11 +426,21 @@ pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
             Ok(RunTask::Forked(task, new_task))
         }
         TaskState::Seccomp(syscall) => {
-            let _ = do_ptrace_seccomp(&mut task, syscall);
-            Ok(RunTask::Runnable(task))
+            let _ = do_ptrace_seccomp(&mut task, syscall).await;
+            Ok(RunTask::AwaitSyscall(task))
         }
         TaskState::Syscall(syscall) => {
-            trace!("got unexpected ptrace post syscall");
+            let tid = task.gettid();
+            let mut glob = EchoGlobalState::new();
+            let mut proc = EchoState::new(tid);
+            let regs = task.getregs().unwrap();
+            let args = SyscallArgs::from(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9);
+            hostecho::captured_syscall_posthook(&mut glob,
+                                               &mut proc,
+                                               tid,
+                                               syscall,
+                                               regs.rax as i64,
+                                               args);
             Ok(RunTask::Runnable(task))
         }
         TaskState::Exited(pid, exit_code) => {
@@ -909,64 +923,22 @@ pub async fn posthook(task: &TracedTask) {
     */
 }
 
-fn do_ptrace_seccomp(task: &mut TracedTask, syscall: SyscallNo) -> Result<()> {
+async fn do_ptrace_seccomp(task: &mut TracedTask, syscall: SyscallNo) -> Result<()> {
     let mut regs = task.getregs().unwrap();
     let rip = regs.rip;
     let rip_before_syscall = regs.rip - consts::SYSCALL_INSN_SIZE as u64;
     let tid = task.gettid();
     let args = SyscallArgs::from(regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9);
 
-    trace!("[pid {:?}] got syscall {:?}", tid, syscall);
-
     let mut glob = EchoGlobalState::new();
     let mut proc = EchoState::new(tid);
 
-    posthook(task);
-    Ok(())
-    // task.resume(task.signal_to_deliver)
-    /*
-    hostecho::captured_syscall(&mut glob,
-                               &mut proc,
-                               regs.orig_rax as i32,
-                               args)
-    */
-    /*
-    if syscall == SYS_execve || syscall == SYS_execveat {
-        let _ = hostecho::captured_syscall(&mut glob,
-                                             &mut proc,
-                                             regs.orig_rax as i32,
-                                             args);
-    }
-    if syscall == SYS_clone || syscall == SYS_fork || syscall == SYS_vfork {
-        let _ = hostecho::captured_syscall(&mut glob,
-                                             &mut proc,
-                                             regs.orig_rax as i32,
-                                             args);
-    }
-    if syscall != SYS_execve && syscall != SYS_execveat &&
-        syscall != SYS_exit && syscall != SYS_exit_group &&
-        syscall != SYS_fork && syscall != SYS_vfork && syscall != SYS_clone
-    {
-        skip_seccomp_syscall(&mut task, regs)?;
-        let ret = hostecho::captured_syscall(&mut glob,
-                                             &mut proc,
-                                             regs.orig_rax as i32,
-                                             args);
-    }
-
-    /*
-    if syscall != SYS_execve && syscall != SYS_execveat &&
-        syscall != SYS_exit && syscall != SYS_exit_group &&
-        syscall != SYS_fork && syscall != SYS_vfork && syscall != SYS_clone
-    {
-        ptrace::syscall(tid).unwrap();
-        let _ = wait::waitpid(tid, None).unwrap();
-        task.state = TaskState::Running;
-    }
-    */
-
-    Ok(task)
-     */
+    hostecho::captured_syscall_prehook(&mut glob,
+                                       &mut proc,
+                                       tid,
+                                       syscall,
+                                       args);
+    return Ok(());
 }
 
 fn from_nix_error(err: nix::Error) -> Error {

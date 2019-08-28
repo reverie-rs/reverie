@@ -1,4 +1,4 @@
-#![feature(format_args_nl, slice_internals, async_await)]
+#![feature(format_args_nl, slice_internals)]
 #![allow(unused_attributes)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
@@ -21,4 +21,4 @@ static ECHO_DSO_CTORS: extern fn() = {
     echo_ctor
 };
 
-pub use crate::entry::captured_syscall;
+pub use crate::entry::{captured_syscall_prehook, captured_syscall_posthook};
