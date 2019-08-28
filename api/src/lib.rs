@@ -11,6 +11,3 @@ pub mod task;
 pub mod remote;
 pub mod ptrace;
 pub mod executor;
-mod consts;
-
-pub use crate::consts::*;
