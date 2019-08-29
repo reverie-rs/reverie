@@ -80,7 +80,7 @@ pub enum InstrumentMode {
 /// These are the "upcalls" into the tool, from the guest(s).
 ///
 #[derive(PartialEq, Debug, Eq, Hash, Clone)]
-pub enum Event {
+pub enum Event<PState,TState> {
     /// An attempt to execute a syscall inside the guest.  Note, the interceptor
     /// may configured to only intercept a *subset* of syscalls, which will prune the events
     /// that appear in this form.
@@ -99,9 +99,15 @@ pub enum Event {
     /// Exit of a thread.  This is not defined as requiring that the OS has freed 
     /// resources.  Rather, the definition is that no further events or observable 
     /// side effects will be seen from this TID.
-    ExitThread(TID),
-    /// Same but for processes.
-    ExitProc(Pid),
+    ///
+    /// When we process an exit-thread event, we get a copy of the
+    /// final thread-local state.  Typically, this is so we can send
+    /// appropriate updates to the global state before the thread
+    /// local state is lost.
+    ExitThread(TID, TState),
+    
+    /// The same as ExitThread but for processes.
+    ExitProc(Pid,PState),
 
     /// Future/TODO: 
     /// Timer/heartbeat events: for future use with a deterministic (DLC) implementation.
@@ -111,8 +117,8 @@ pub enum Event {
 }
 
 /// An Event together with information on where it came from.
-pub struct FullEvent {
-    e : Event,
+pub struct FullEvent<Ps,Ts> {
+    e : Event<Ps,Ts>,
     tid : TID,
     pid : Pid,
     // Other context....?
@@ -282,7 +288,9 @@ where
     /// In either case, it is registering a continuation to respond to the completion of an RPC
     /// in the host (coordinator) or guest respectively.
     fn handle_event<I: Instrumentor>(g: &mut Remoteable<Self::Glob>, p: &mut Self::Proc, t: 
-                                    &mut Self::Thrd, i : &mut I, e : Event) -> ();
+                                     &mut Self::Thrd, 
+                                     i : &mut I, 
+                                     e : Event<Self::Proc, Self::Thrd>) -> ();
         //  TODO: in the future each event handled may return a result to the instrumentor 
         // which changes its configuration: for example, subscribing or unsubscribing to 
         // categories of events.
@@ -385,7 +393,11 @@ impl SystraceTool for CounterTool {
         ()
     }
 
-    fn handle_event<I:Instrumentor>(g: &mut Remoteable<Self::Glob>, _p: &mut Self::Proc, _t: &mut Self::Thrd, i : &mut I, e : Event) {
+    fn handle_event<I:Instrumentor>(g: &mut Remoteable<Self::Glob>, 
+                                    _p: &mut Self::Proc, 
+                                    _t: &mut Self::Thrd, 
+                                    i : &mut I, 
+                                    e : Event<Self::Proc, Self::Thrd>) {
         println!(" - Counter tool recv event: {:?}", e);
         match e {            
             Event::Syscall(_,_) => Self::incr(g, i, 1),
