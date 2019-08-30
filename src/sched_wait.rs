@@ -6,6 +6,9 @@ use futures::task::{Poll, Waker, Context, SpawnExt};
 use futures_util::task::LocalSpawnExt;
 use core::pin::Pin;
 
+use std::rc::Rc;
+use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 use log::Level::Trace;
 use log::{debug, trace};
 
@@ -28,26 +31,28 @@ use crate::traced_task::*;
 use crate::state::ReverieState;
 use crate::debug;
 
-
 /// the scheduler
-#[derive(Debug)]
-pub struct SchedWait {
+pub struct SchedWait<G> {
     tasks: HashMap<Pid, TracedTask>,
     run_queue: VecDeque<Pid>,
     blocked_queue: VecDeque<Pid>,
     task_tree: HashMap<Pid, Pid>,
     pool: LocalPool,
+    event_cbs: Rc<RefCell<TaskEventCB>>,
+    global_state: Arc<Mutex<G>>,
 }
 
-impl SchedWait {
+impl<G> SchedWait<G> {
     /// create a new `Sheduler`
-    pub fn new() -> Self {
+    pub fn new(cb: TaskEventCB, gs: G) -> Self {
         SchedWait {
             tasks: HashMap::new(),
             run_queue: VecDeque::new(),
             blocked_queue: VecDeque::new(),
             task_tree: HashMap::new(),
             pool: LocalPool::new(),
+            event_cbs: Rc::new(RefCell::new(cb)),
+            global_state: Arc::new(Mutex::new(gs)),
         }
     }
     /// add a new task into `Scheduler` run (ready) queue
@@ -134,7 +139,7 @@ fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
     }
 }
 
-fn ptrace_get_next(sched: &mut SchedWait) -> Option<TracedTask> {
+fn ptrace_get_next<G>(sched: &mut SchedWait<G>) -> Option<TracedTask> {
     let mut retry = true;
     while retry {
     match sched
@@ -179,6 +184,7 @@ fn ptrace_get_next(sched: &mut SchedWait) -> Option<TracedTask> {
                             .remove(&tid)
                             .unwrap_or_else(||panic!("unknown pid {:}", tid));
                         if event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
+                            task.event_cbs = Some(sched.event_cbs.clone());
                             task.state = TaskState::Exec;
                         } else if event == ptrace::Event::PTRACE_EVENT_CLONE as i32 {
                             let new_pid = ptrace::getevent(tid).unwrap();
@@ -371,15 +377,14 @@ impl Stream for SchedWait {
 }
 */
 
-pub async fn run_all<G>(sched: &mut SchedWait, mut _glob: G) -> i32
-    where G: GlobalState
+pub async fn run_all<G>(sched: &mut SchedWait<G>) -> i32
 {
     let mut exit_code = 0i32;
 //    while let Some(task) = sched.next().await {
     while let Some(task) = ptrace_get_next(sched) {
         let tid = task.gettid();
         // trace!("run_all, sched pid {:?}, state: {:#?}", tid, task.state);
-        match run_task(task).await
+        match run_task(Arc::clone(&sched.global_state), task).await
         {
             Ok(RunTask::Exited(_code)) => exit_code = _code,
             Ok(RunTask::Runnable(task1)) => {

@@ -67,9 +67,8 @@ impl GlobalState for DummyState {
     }
 }
 
-fn run_tracer_main(sched: &mut SchedWait) -> i32 {
-    let glob = DummyState::new();
-    block_on(run_all(sched, glob))
+fn run_tracer_main<G>(sched: &mut SchedWait<G>) -> i32 {
+    block_on(run_all(sched))
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -183,6 +182,22 @@ fn show_perf_stats(state: &ReverieState) {
                / syscalls as f64);
 }
 
+fn task_exec_cb(task: &mut dyn Task) -> Result<()> {
+    log::trace!("[pid {}] exec cb", task.gettid());
+    Ok(())
+}
+fn task_fork_cb(task: &mut dyn Task) -> Result<()> {
+    log::trace!("[pid {}] fork cb", task.gettid());
+    Ok(())
+}
+fn task_clone_cb(task: &mut dyn Task) -> Result<()> {
+    log::trace!("[pid {}] clone cb", task.gettid());
+    Ok(())
+}
+fn task_exit_cb(_exit_code: i32) -> Result<()> {
+    Ok(())
+}
+
 fn run_tracer(
     starting_pid: unistd::Pid,
     starting_uid: unistd::Uid,
@@ -217,7 +232,13 @@ fn run_tracer(
             ).map_err(|e| Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None).map_err(|e| Error::new(ErrorKind::Other, e))?;
             let tracee = TracedTask::new(child);
-            let mut sched: SchedWait = SchedWait::new();
+            let cbs = TaskEventCB::new(
+                Box::new(task_exec_cb),
+                Box::new(task_fork_cb),
+                Box::new(task_clone_cb),
+                Box::new(task_exit_cb)                   
+                );
+            let mut sched: SchedWait<i32> = SchedWait::new(cbs, 0);
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {

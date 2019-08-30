@@ -29,10 +29,24 @@ pub trait TaskEventHandler {
 }
 
 pub struct TaskEventCB {
-    pub on_task_exec: Box<dyn FnMut(&dyn Task) -> Result<()>>,
-    pub on_task_fork: Box<dyn FnMut(&dyn Task) -> Result<()>>,
-    pub on_task_clone: Box<dyn FnMut(&dyn Task) -> Result<()>>,
-    pub on_task_exit: Box<dyn FnMut(&dyn Task) -> Result<()>>,
+    pub on_task_exec: Box<dyn FnMut(&mut dyn Task) -> Result<()>>,
+    pub on_task_fork: Box<dyn FnMut(&mut dyn Task) -> Result<()>>,
+    pub on_task_clone: Box<dyn FnMut(&mut dyn Task) -> Result<()>>,
+    pub on_task_exit: Box<dyn FnOnce(i32) -> Result<()>>,
+}
+
+impl TaskEventCB {
+    pub fn new(execfn: Box<dyn FnMut(&mut dyn Task) -> Result<()>>,
+               forkfn: Box<dyn FnMut(&mut dyn Task) -> Result<()>>,
+               clonefn: Box<dyn FnMut(&mut dyn Task) -> Result<()>>,
+               exitfn: Box<dyn FnOnce(i32) -> Result<()>>) -> Self {
+        TaskEventCB {
+            on_task_exec: execfn,
+            on_task_fork: forkfn,
+            on_task_clone: clonefn,
+            on_task_exit: exitfn,
+        }
+    }
 }
 
 pub trait GlobalState {

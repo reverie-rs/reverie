@@ -34,7 +34,7 @@ use std::cell::{RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::ffi::c_void;
 use std::fs::File;
 use goblin::elf::Elf;
@@ -223,6 +223,8 @@ pub struct TracedTask {
     pub rpc_data: Option<(RemotePtr<c_void>, usize)>,
 
     pub future: Option<LocalBoxFuture<'static, ()>>,
+
+    pub event_cbs: Option<Rc<RefCell<TaskEventCB>>>,
 }
 
 impl std::fmt::Debug for TracedTask {
@@ -263,6 +265,7 @@ impl Task for TracedTask {
             rpc_stack: None,
             rpc_data: None,
             future: None,
+            event_cbs: None,
         }
     }
 
@@ -294,6 +297,7 @@ impl Task for TracedTask {
             rpc_stack: None,
             rpc_data: None,
             future: None,
+            event_cbs: self.event_cbs.clone(),
         };
         new_task
     }
@@ -338,6 +342,7 @@ impl Task for TracedTask {
             rpc_stack: self.rpc_stack,
             rpc_data: self.rpc_data,
             future: None,
+            event_cbs: self.event_cbs.clone(),
         }
     }
 
@@ -370,7 +375,7 @@ impl Task for TracedTask {
 
 }
 
-pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
+pub async fn run_task<G>(gs: Arc<Mutex<G>>, mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     match task.state {
         TaskState::Ready => {
             Ok(RunTask::Runnable(task))
@@ -414,19 +419,19 @@ pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
             Ok(RunTask::Runnable(task))
         }
         TaskState::Exec => {
-            do_ptrace_exec(&mut task).unwrap();
+            do_ptrace_exec(gs, &mut task).unwrap();
             Ok(RunTask::Runnable(task))
         }
         TaskState::Fork(child) => {
-            let new_task = do_ptrace_fork(&mut task, child);
+            let new_task = do_ptrace_fork(gs, &mut task, child);
             Ok(RunTask::Forked(task, new_task))
         }
         TaskState::Clone(child) => {
-            let new_task = do_ptrace_clone(&mut task, child);
+            let new_task = do_ptrace_clone(gs, &mut task, child);
             Ok(RunTask::Forked(task, new_task))
         }
         TaskState::Seccomp(syscall) => {
-            let _ = do_ptrace_seccomp(&mut task, syscall).await;
+            let _ = do_ptrace_seccomp(gs, &mut task, syscall).await;
             Ok(RunTask::AwaitSyscall(task))
         }
         TaskState::Syscall(syscall) => {
@@ -444,7 +449,7 @@ pub async fn run_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
             Ok(RunTask::Runnable(task))
         }
         TaskState::Exited(pid, exit_code) => {
-            do_ptrace_event_exit(pid, exit_code);
+            do_ptrace_event_exit(gs, pid, exit_code);
             Ok(RunTask::Exited(exit_code))
         }
     }
@@ -747,6 +752,7 @@ fn task_clone(task: &TracedTask) -> TracedTask {
         rpc_stack: None,
         rpc_data: None,
         future: None,
+        event_cbs: task.event_cbs.clone(),
     }
 }
  
@@ -863,7 +869,7 @@ fn do_ptrace_vfork_done(task: &mut TracedTask) -> Result<()> {
     Ok(())
 }
 
-fn do_ptrace_clone(task: &mut TracedTask, child: Pid) -> TracedTask {
+fn do_ptrace_clone<G>(gs: Arc<Mutex<G>>, task: &mut TracedTask, child: Pid) -> TracedTask {
     let mut new_task = task.cloned(child);
     wait_sigstop(&new_task).unwrap();
 
@@ -874,10 +880,15 @@ fn do_ptrace_clone(task: &mut TracedTask, child: Pid) -> TracedTask {
 
     init_rpc_stack_data(&mut new_task);
 
+    if let Some(cbs) = &task.event_cbs.clone() {
+        let mut clonefn = &mut cbs.borrow_mut().on_task_clone;
+        let _ = clonefn(task);
+    }
+
     new_task
 }
 
-fn do_ptrace_fork(task: &mut TracedTask, child: Pid) -> TracedTask {
+fn do_ptrace_fork<G>(gs: Arc<Mutex<G>>, task: &mut TracedTask, child: Pid) -> TracedTask {
     let mut new_task = task.forked(child);
     wait_sigstop(&new_task).unwrap();
 
@@ -889,12 +900,19 @@ fn do_ptrace_fork(task: &mut TracedTask, child: Pid) -> TracedTask {
     let regs = new_task.getregs().unwrap();
     let rptr = RemotePtr::new(regs.rip as *mut c_void);
     // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
+
+    if let Some(cbs) = &task.event_cbs.clone() {
+        let mut forkfn = &mut cbs.borrow_mut().on_task_fork;
+        let _ = forkfn(task);
+    }
+
     new_task
 }
 
-fn do_ptrace_event_exit(pid: Pid, retval: i32) {
+fn do_ptrace_event_exit<G>(gs: Arc<Mutex<G>>, pid: Pid, retval: i32) {
     let state = reverie_global_state();
     state.lock().unwrap().stats.nr_exited.fetch_add(1, Ordering::SeqCst);
+
     let _ = ptrace::detach(pid);
 }
 
@@ -923,7 +941,9 @@ pub async fn posthook(task: &TracedTask) {
     */
 }
 
-async fn do_ptrace_seccomp(task: &mut TracedTask, syscall: SyscallNo) -> Result<()> {
+async fn do_ptrace_seccomp<G>(gs: Arc<Mutex<G>>,
+                              task: &mut TracedTask,
+                              syscall: SyscallNo) -> Result<()> {
     let mut regs = task.getregs().unwrap();
     let rip = regs.rip;
     let rip_before_syscall = regs.rip - consts::SYSCALL_INSN_SIZE as u64;
@@ -1032,7 +1052,7 @@ fn get_proc_maps(pid: Pid) -> Option<Vec<procfs::MemoryMap>> {
     procfs::Process::new(pid.as_raw()).and_then(|p|p.maps()).ok()
 }
 
-fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
+fn do_ptrace_exec<G>(gs: Arc<Mutex<G>>, mut task: &mut TracedTask) -> nix::Result<()> {
     let auxv = unsafe {
         aux::getauxval(task).unwrap()
     };
@@ -1100,6 +1120,11 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
             }
     }
 
+    if let Some(cbs) = &task.event_cbs.clone() {
+        let mut execfn = &mut cbs.borrow_mut().on_task_exec;
+        let _ = execfn(task);
+    }
+    
     Ok(())
 }
 
