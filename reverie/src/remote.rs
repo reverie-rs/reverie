@@ -15,12 +15,11 @@ use reverie_common::consts;
 use reverie_common::consts::*;
 
 use crate::hooks;
-use crate::nr;
-use crate::nr::SyscallNo;
-use crate::nr::SyscallNo::*;
 use crate::stubs;
 use crate::task::{RunTask, Task};
 use crate::traced_task::TracedTask;
+use syscalls::SyscallNo;
+use syscalls::SyscallNo::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyscallStubPage {
@@ -74,7 +73,7 @@ pub trait RemoteSyscall {
     /// by seccomp.
     fn untraced_syscall(
         &mut self,
-        nr: nr::SyscallNo,
+        nr: SyscallNo,
         a0: i64,
         a1: i64,
         a2: i64,

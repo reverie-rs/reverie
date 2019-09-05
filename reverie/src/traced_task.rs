@@ -41,11 +41,12 @@ use reverie_common::consts::*;
 use reverie_common::local_state::*;
 use reverie_common::state::*;
 
+use syscalls::nr::*;
+
 use crate::aux;
 use crate::auxv;
 use crate::debug;
 use crate::hooks;
-use crate::nr::*;
 use crate::remote;
 use crate::remote::*;
 use crate::remote_rwlock::*;

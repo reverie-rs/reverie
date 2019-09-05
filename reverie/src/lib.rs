@@ -21,7 +21,6 @@ pub mod block_events;
 pub mod config;
 pub mod debug;
 pub mod hooks;
-pub mod nr;
 pub mod ns;
 pub mod remote;
 pub mod remote_rwlock;

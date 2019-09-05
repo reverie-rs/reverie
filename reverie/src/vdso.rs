@@ -11,7 +11,8 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::vec::Vec;
 
-use crate::nr::*;
+use syscalls::nr::*;
+
 use crate::remote::*;
 use crate::task::Task;
 use crate::traced_task::TracedTask;

@@ -11,8 +11,9 @@ use std::ptr::NonNull;
 use reverie_common::consts;
 use reverie_common::consts::*;
 
+use syscalls::nr;
+
 use crate::hooks;
-use crate::nr;
 use crate::remote::*;
 use crate::sched::Scheduler;
 use crate::stubs;

@@ -14,8 +14,9 @@ use procfs;
 use reverie_common::consts;
 use reverie_common::state::ReverieState;
 
+use syscalls::nr::*;
+
 use crate::debug;
-use crate::nr::*;
 use crate::remote;
 use crate::remote::*;
 use crate::sched::*;
