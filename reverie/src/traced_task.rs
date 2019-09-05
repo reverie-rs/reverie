@@ -1045,7 +1045,7 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 }
 
 fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.forked();
+    let new_task = task.forked();
     wait_sigstop(&new_task)?;
 
     let state = reverie_global_state();
@@ -1054,7 +1054,7 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().stats.nr_forked.fetch_add(1, Ordering::SeqCst);
 
     let regs = new_task.getregs()?;
-    let rptr = RemotePtr::new(regs.rip as *mut c_void);
+    let _rptr = RemotePtr::new(regs.rip as *mut c_void);
     // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
     Ok((task, new_task))
 }
@@ -1070,7 +1070,7 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     state.lock().unwrap().stats.nr_forked.fetch_add(1, Ordering::SeqCst);
 
     let regs = new_task.getregs()?;
-    let rptr = RemotePtr::new(regs.rip as *mut c_void);
+    let _rptr = RemotePtr::new(regs.rip as *mut c_void);
     //new_task.setbp(rptr, handle_fork_entry_bkpt)?;
     Ok((task, new_task))
 }

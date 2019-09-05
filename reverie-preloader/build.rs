@@ -1,8 +1,8 @@
-use std::io::{Result};
+use std::io;
 
 use cc;
 
-fn main() -> Result<()> {
+fn main() -> io::Result<()> {
     cc::Build::new()
         .flag("-D_GNU_SOURCE=1")
         .file("src/bpf_ll.c")
