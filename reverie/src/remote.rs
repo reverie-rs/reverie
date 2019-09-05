@@ -99,10 +99,9 @@ pub trait Remote {
         let size = std::mem::size_of::<T>();
         let bytes: Vec<u8> = self.peek_bytes(new_ptr, size)?;
         // to be initialized by copy_nonoverlapping.
-        let mut res: T = unsafe { std::mem::uninitialized() };
-        let ret_ptr: *mut T = &mut res;
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ret_ptr as *mut u8, size) };
-        Ok(res)
+        let mut res = std::mem::MaybeUninit::<T>::uninit();
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), res.as_mut_ptr() as *mut u8, size) };
+        Ok(unsafe { res.assume_init() })
     }
     /// poke a `Sized` remote pointer from inferior
     fn poke<T>(&self, addr: RemotePtr<T>, value: &T) -> Result<()>
