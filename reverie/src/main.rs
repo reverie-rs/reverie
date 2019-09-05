@@ -7,25 +7,25 @@ extern crate lazy_static;
 use clap::{App, Arg};
 use fern;
 use libc;
+use nix::fcntl::OFlag;
+use nix::sys::mman;
+use nix::sys::stat::Mode;
 use nix::sys::wait::WaitStatus;
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd;
 use nix::unistd::ForkResult;
-use nix::sys::mman;
-use nix::sys::stat::Mode;
-use nix::fcntl::{OFlag};
 use std::collections::HashMap;
+use std::env;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
-use std::sync::atomic::{Ordering, AtomicUsize};
-use std::env;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use reverie::{ns, task, hooks};
+use reverie::reverie_common::{consts, state::*};
 use reverie::sched::Scheduler;
 use reverie::sched_wait::SchedWait;
 use reverie::task::{RunTask, Task};
-use reverie::reverie_common::{state::*, consts};
+use reverie::{hooks, ns, task};
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
@@ -55,7 +55,9 @@ fn run_tracer_main(sched: &mut SchedWait) -> i32 {
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
     match wait::waitpid(Some(pid), None).expect("waitpid failed") {
-        WaitStatus::Stopped(new_pid, signal) if signal == signal::SIGSTOP && new_pid == pid => {
+        WaitStatus::Stopped(new_pid, signal)
+            if signal == signal::SIGSTOP && new_pid == pid =>
+        {
             Ok(())
         }
         _ => Err(Error::new(ErrorKind::Other, "expect SIGSTOP")),
@@ -72,14 +74,22 @@ const ADDR_NO_RANDOMIZE: u64 = 0x0004_0000;
 
 fn tracee_init_signals() {
     unsafe {
-        let _ = signal::sigaction(signal::SIGTTIN, &signal::SigAction::new(
-            signal::SigHandler::SigIgn,
-            signal::SaFlags::SA_RESTART,
-            signal::SigSet::empty()));
-        let _ = signal::sigaction(signal::SIGTTOU, &signal::SigAction::new(
-            signal::SigHandler::SigIgn,
-            signal::SaFlags::SA_RESTART,
-            signal::SigSet::empty()));
+        let _ = signal::sigaction(
+            signal::SIGTTIN,
+            &signal::SigAction::new(
+                signal::SigHandler::SigIgn,
+                signal::SaFlags::SA_RESTART,
+                signal::SigSet::empty(),
+            ),
+        );
+        let _ = signal::sigaction(
+            signal::SIGTTOU,
+            &signal::SigAction::new(
+                signal::SigHandler::SigIgn,
+                signal::SaFlags::SA_RESTART,
+                signal::SigSet::empty(),
+            ),
+        );
     };
 }
 
@@ -133,33 +143,44 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         .map(|s| CString::new(s.as_bytes()).unwrap())
         .collect();
 
-    log::info!("[main] launching: {} {:?}", &argv.program, &argv.program_args);
-    unistd::execvpe(&program, args.as_slice(), envp.as_slice()).map_err(from_nix_error)?;
+    log::info!(
+        "[main] launching: {} {:?}",
+        &argv.program,
+        &argv.program_args
+    );
+    unistd::execvpe(&program, args.as_slice(), envp.as_slice())
+        .map_err(from_nix_error)?;
     panic!("exec failed: {} {:?}", &argv.program, &argv.program_args);
 }
 
 fn show_perf_stats(state: &ReverieState) {
     log::info!("Reverie global statistics (tracer + tracees):");
-    let lines: Vec<String> = format!("{:#?}", state)
-        .lines()
-        .map(String::from)
-        .collect();
-    for s in lines.iter().take(lines.len()-1).skip(1) {
+    let lines: Vec<String> =
+        format!("{:#?}", state).lines().map(String::from).collect();
+    for s in lines.iter().take(lines.len() - 1).skip(1) {
         log::info!("{}", s);
     }
 
     let syscalls = state.stats.nr_syscalls.load(Ordering::SeqCst);
-    let syscalls_ptraced = state.stats.nr_syscalls_ptraced.load(Ordering::SeqCst);
-    let syscalls_captured = state.stats.nr_syscalls_captured.load(Ordering::SeqCst);
-    let syscalls_patched = state.stats.nr_syscalls_patched.load(Ordering::SeqCst);
+    let syscalls_ptraced =
+        state.stats.nr_syscalls_ptraced.load(Ordering::SeqCst);
+    let syscalls_captured =
+        state.stats.nr_syscalls_captured.load(Ordering::SeqCst);
+    let syscalls_patched =
+        state.stats.nr_syscalls_patched.load(Ordering::SeqCst);
 
-    log::info!("syscalls ptraced (slow): {:.2}%",
-               100.0 * syscalls_ptraced as f64 / syscalls as f64);
-    log::info!("syscalls captured(w/ patching): {:.2}%",
-               100.0 * syscalls_captured as f64 / syscalls as f64);
-    log::info!("syscalls captured(wo/ patching): {:.2}%",
-               100.0 * (syscalls_captured - syscalls_patched) as f64
-               / syscalls as f64);
+    log::info!(
+        "syscalls ptraced (slow): {:.2}%",
+        100.0 * syscalls_ptraced as f64 / syscalls as f64
+    );
+    log::info!(
+        "syscalls captured(w/ patching): {:.2}%",
+        100.0 * syscalls_captured as f64 / syscalls as f64
+    );
+    log::info!(
+        "syscalls captured(wo/ patching): {:.2}%",
+        100.0 * (syscalls_captured - syscalls_patched) as f64 / syscalls as f64
+    );
 }
 
 fn run_tracer(
@@ -175,9 +196,7 @@ fn run_tracer(
     }
 
     match unistd::fork().expect("fork failed") {
-        ForkResult::Child => {
-            run_tracee(argv)
-        }
+        ForkResult::Child => run_tracee(argv),
         ForkResult::Parent { child } => {
             // wait for sigstop
             wait_sigstop(child)?;
@@ -192,18 +211,19 @@ fn run_tracer(
                     | ptrace::Options::PTRACE_O_TRACEEXIT
                     | ptrace::Options::PTRACE_O_TRACESECCOMP
                     | ptrace::Options::PTRACE_O_TRACESYSGOOD,
-            ).map_err(|e| Error::new(ErrorKind::Other, e))?;
-            ptrace::cont(child, None).map_err(|e| Error::new(ErrorKind::Other, e))?;
+            )
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+            ptrace::cont(child, None)
+                .map_err(|e| Error::new(ErrorKind::Other, e))?;
             let tracee = task::Task::new(child);
             let mut sched: SchedWait = Scheduler::new();
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {
-                let _ = reverie_global_state()
-                    .lock().as_ref().and_then(|st| {
-                        show_perf_stats(st);
-                        Ok(())
-                    });
+                let _ = reverie_global_state().lock().as_ref().and_then(|st| {
+                    show_perf_stats(st);
+                    Ok(())
+                });
             }
             Ok(res)
         }
@@ -227,12 +247,21 @@ fn run_app(argv: &Arguments) -> Result<i32> {
         };
 
         match unistd::fork().expect("fork failed") {
-            ForkResult::Child => run_tracer(starting_pid, starting_uid, starting_gid, argv),
-            ForkResult::Parent { child } => match wait::waitpid(Some(child), None) {
-                Ok(wait::WaitStatus::Exited(_, exit_code)) => Ok(exit_code),
-                Ok(wait::WaitStatus::Signaled(_, sig, _)) => Ok(0x80 | sig as i32),
-                otherwise => panic!("unexpected status from waitpid: {:?}", otherwise),
-            },
+            ForkResult::Child => {
+                run_tracer(starting_pid, starting_uid, starting_gid, argv)
+            }
+            ForkResult::Parent { child } => {
+                match wait::waitpid(Some(child), None) {
+                    Ok(wait::WaitStatus::Exited(_, exit_code)) => Ok(exit_code),
+                    Ok(wait::WaitStatus::Signaled(_, sig, _)) => {
+                        Ok(0x80 | sig as i32)
+                    }
+                    otherwise => panic!(
+                        "unexpected status from waitpid: {:?}",
+                        otherwise
+                    ),
+                }
+            }
         }
     } else {
         run_tracer(starting_pid, starting_uid, starting_gid, argv)
@@ -247,17 +276,17 @@ fn populate_rpath(hint: Option<&str>, so: &str) -> Result<PathBuf> {
         Some(path) => PathBuf::from(path).canonicalize().ok(),
         None => search_path
             .iter()
-            .find(|p| {
-                match p.join(so).canonicalize() {
-                    Ok(fp) => fp.exists(),
-                    Err(_) => false,
-                }
+            .find(|p| match p.join(so).canonicalize() {
+                Ok(fp) => fp.exists(),
+                Err(_) => false,
             })
             .cloned(),
     };
     log::trace!("[main] library search path: {:?}", search_path);
     log::info!("[main] library-path chosen: {:?}", rpath);
-    rpath.ok_or_else(||Error::new(ErrorKind::NotFound, "cannot find a valid library path"))
+    rpath.ok_or_else(|| {
+        Error::new(ErrorKind::NotFound, "cannot find a valid library path")
+    })
 }
 
 fn main() {
@@ -350,13 +379,14 @@ fn main() {
         .value_of("tool")
         .expect("[main] tool not specified, default to none");
 
-    let preloader = matches.value_of("preloader")
+    let preloader = matches
+        .value_of("preloader")
         .and_then(|pre| PathBuf::from(pre).canonicalize().ok())
         .expect("[main] preloader not specified");
 
     let tool_path = PathBuf::from(tool)
         .canonicalize()
-        .unwrap_or_else(|_|panic!("[main] cannot locate {}", tool));
+        .unwrap_or_else(|_| panic!("[main] cannot locate {}", tool));
 
     let argv = Arguments {
         debug_level: log_level,
@@ -392,27 +422,19 @@ fn main() {
 
 fn fern_with_output(output: Option<&str>) -> Result<fern::Dispatch> {
     match output {
-        None => {
-                Ok(fern::Dispatch::new()
-                    .chain(std::io::stdout()))
-        }
+        None => Ok(fern::Dispatch::new().chain(std::io::stdout())),
         Some(s) => match s {
-            "stdout" => {
-                Ok(fern::Dispatch::new()
-                    .chain(std::io::stdout()))
-            }
-            "stderr" => {
-                Ok(fern::Dispatch::new()
-                    .chain(std::io::stderr()))
-
-            }
-            output   => {
+            "stdout" => Ok(fern::Dispatch::new().chain(std::io::stdout())),
+            "stderr" => Ok(fern::Dispatch::new().chain(std::io::stderr())),
+            output => {
                 let f = std::fs::OpenOptions::new()
-                    .write(true).truncate(true).create(true).open(output)?;
-                Ok(fern::Dispatch::new()
-                   .chain(f))
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(output)?;
+                Ok(fern::Dispatch::new().chain(f))
             }
-        }
+        },
     }
 }
 

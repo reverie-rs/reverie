@@ -1,10 +1,10 @@
 #![allow(dead_code, unused_imports)]
 
 use std::collections::BTreeMap;
-use std::process::{Command, Stdio};
 use std::fs::File;
-use std::io::{Result, Read, Write, Error, ErrorKind};
-use tempfile::{NamedTempFile};
+use std::io::{Error, ErrorKind, Read, Result, Write};
+use std::process::{Command, Stdio};
+use tempfile::NamedTempFile;
 
 static CPP: &str = "cpp";
 
@@ -31,18 +31,23 @@ fn get_asm_unistd_h() -> Result<String> {
         .spawn()?;
     let output = subp.wait_with_output()?;
     let cpp_out: String = unsafe { String::from_utf8_unchecked(output.stdout) };
-     let asm_unistd: Option<&str> = cpp_out.lines()
-        .filter(|x|x.contains(UNISTD_H))
+    let asm_unistd: Option<&str> = cpp_out
+        .lines()
+        .filter(|x| x.contains(UNISTD_H))
         .next()
-        .map(|line| line
-             .split_whitespace()
-             .filter(|x| x.contains(UNISTD_H))
-             .next())
+        .map(|line| {
+            line.split_whitespace()
+                .filter(|x| x.contains(UNISTD_H))
+                .next()
+        })
         .unwrap_or(None);
     if let Some(unistd) = asm_unistd {
-        Ok(unistd.chars().filter(|x|*x != '"').collect())
+        Ok(unistd.chars().filter(|x| *x != '"').collect())
     } else {
-        Err(Error::new(ErrorKind::Other, "cpp returned expected result."))
+        Err(Error::new(
+            ErrorKind::Other,
+            "cpp returned expected result.",
+        ))
     }
 }
 
@@ -51,25 +56,28 @@ fn gen_syscalls_from(unistd: String) -> Result<Vec<(String, i32)>> {
     let mut buff = String::new();
     let mut ret: Vec<(String, i32)> = Vec::new();
     file.read_to_string(&mut buff)?;
-    for candidate in buff.lines()
-        .filter(|x| x.starts_with("#define") &&
-                x.contains("__NR_")) {
-            let words = candidate.split_whitespace();
-            let mut it = words.skip_while(|x|!x.starts_with("__NR_"));
-            let name_ = it.next();
-            let nr_   = it.filter(|x|x.parse::<i32>().is_ok()).next();
-            if let Some((name, nr)) = name_.and_then(|x| {
-                nr_.and_then(|y| y.parse::<i32>().ok().
-                             and_then(|z| Some((x.to_string(), z))))}){
-                ret.push((name, nr));
-            }
+    for candidate in buff
+        .lines()
+        .filter(|x| x.starts_with("#define") && x.contains("__NR_"))
+    {
+        let words = candidate.split_whitespace();
+        let mut it = words.skip_while(|x| !x.starts_with("__NR_"));
+        let name_ = it.next();
+        let nr_ = it.filter(|x| x.parse::<i32>().is_ok()).next();
+        if let Some((name, nr)) = name_.and_then(|x| {
+            nr_.and_then(|y| {
+                y.parse::<i32>().ok().and_then(|z| Some((x.to_string(), z)))
+            })
+        }) {
+            ret.push((name, nr));
         }
+    }
 
     Ok(ret)
 }
 
 pub fn gen_syscalls() -> Result<Vec<(String, i32)>> {
-    get_asm_unistd_h().and_then(|x|gen_syscalls_from(x))
+    get_asm_unistd_h().and_then(|x| gen_syscalls_from(x))
 }
 
 #[test]

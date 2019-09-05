@@ -1,6 +1,5 @@
-
-use core::ptr::NonNull;
 use core::ffi::c_void as void;
+use core::ptr::NonNull;
 use reverie_helper::syscalls::SyscallNo;
 
 /// syscall return vaules for formatting purpose

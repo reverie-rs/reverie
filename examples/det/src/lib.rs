@@ -2,23 +2,25 @@
 #![allow(unused_imports)]
 #![allow(unused_attributes)]
 
-use reverie_helper::{syscalls::*, counter::*, common::local_state::ProcessState, logger};
 use log::*;
+use reverie_helper::{
+    common::local_state::ProcessState, counter::*, logger, syscalls::*,
+};
 
 #[allow(unused_imports)]
 use std::ffi::CStr;
 
 use std::cell::RefCell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use libc;
 
 #[link_section = ".init_array"]
 #[used]
-static ECHO_DSO_CTORS: extern fn() = {
+static ECHO_DSO_CTORS: extern "C" fn() = {
     extern "C" fn echo_ctor() {
-	let _ = logger::init();
+        let _ = logger::init();
     };
     echo_ctor
 };
@@ -44,9 +46,8 @@ pub extern "C" fn captured_syscall(
     match sc {
         SYS_gettimeofday => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;
-            if let Some(mut tp) = unsafe {
-                (a0 as *mut libc::timeval).as_mut()
-            } {
+            if let Some(mut tp) = unsafe { (a0 as *mut libc::timeval).as_mut() }
+            {
                 tp.tv_sec = tick;
                 tp.tv_usec = 0;
             }
@@ -54,9 +55,9 @@ pub extern "C" fn captured_syscall(
         }
         SYS_clock_gettime => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;
-            if let Some(mut tp) = unsafe {
-                (a1 as *mut libc::timespec).as_mut()
-            } {
+            if let Some(mut tp) =
+                unsafe { (a1 as *mut libc::timespec).as_mut() }
+            {
                 tp.tv_sec = tick;
                 tp.tv_nsec = 0;
             }
@@ -64,9 +65,7 @@ pub extern "C" fn captured_syscall(
         }
         SYS_time => {
             let tick = LOGICAL_TIME.fetch_add(1, Ordering::SeqCst) as i64;
-            if let Some(tp) = unsafe {
-                (a0 as *mut libc::time_t).as_mut()
-            } {
+            if let Some(tp) = unsafe { (a0 as *mut libc::time_t).as_mut() } {
                 *tp = tick;
             }
             res = tick;
@@ -75,18 +74,14 @@ pub extern "C" fn captured_syscall(
             // don't write arg0 as it is a const pointer
             // use our own instead.
             let t = libc::timespec {
-                tv_sec : 0,
-                tv_nsec : 0,
+                tv_sec: 0,
+                tv_nsec: 0,
             };
             let tp = &t as *const libc::timespec;
-            res = unsafe {
-                untraced_syscall(no, tp as i64, a1, 0, 0, 0, 0)
-            }
+            res = unsafe { untraced_syscall(no, tp as i64, a1, 0, 0, 0, 0) }
         }
         _ => {
-            res = unsafe {
-                untraced_syscall(no, a0, a1, a2, a3, a4, a5)
-            };
+            res = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
         }
     }
     res

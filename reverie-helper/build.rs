@@ -1,7 +1,7 @@
 use std::io::Result;
 
 fn main() -> Result<()> {
-     cc::Build::new()
+    cc::Build::new()
         .define("_POSIX_C_SOURCE", "20180920")
         .define("_GNU_SOURCE", "1")
         .define("USE_SAVE", "1")

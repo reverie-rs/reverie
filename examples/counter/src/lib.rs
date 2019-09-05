@@ -1,18 +1,19 @@
 #![feature(format_args_nl)]
-
 #![allow(dead_code)]
 #![allow(unused_attributes)]
 
 #[allow(unused_imports)]
 use std::ffi::CStr;
 
-use reverie_helper::{ syscalls::*, counter::*, common::local_state::ProcessState, logger };
+use reverie_helper::{
+    common::local_state::ProcessState, counter::*, logger, syscalls::*,
+};
 
 #[cfg_attr(target_os = "linux", link_section = ".ctors")]
 #[used]
-static ECHO_DSO_CTORS: extern fn() = {
+static ECHO_DSO_CTORS: extern "C" fn() = {
     extern "C" fn echo_ctor() {
-	let _ = logger::init();
+        let _ = logger::init();
     };
     echo_ctor
 };

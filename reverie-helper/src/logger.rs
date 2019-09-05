@@ -14,11 +14,11 @@
 //! spin lock multiple times.
 //!
 
-use log::{Log, Level, Metadata, Record, SetLoggerError};
 use core::fmt::{Arguments, Error, Write};
+use log::{Level, Log, Metadata, Record, SetLoggerError};
 
-use syscalls::*;
 use crate::spinlock::SpinLock;
+use syscalls::*;
 
 const RING_BUFF_SIZE: usize = 16384;
 
@@ -51,16 +51,23 @@ fn leave_critical_section() {
     LOGGER_LOCK.unlock();
 }
 
-fn update_buffer(rb: &mut RingBuffer, buffer: *const u8, n: isize, update_begin: bool) {
+fn update_buffer(
+    rb: &mut RingBuffer,
+    buffer: *const u8,
+    n: isize,
+    update_begin: bool,
+) {
     let ptr_begin = unsafe { rb.bytes.as_ptr().offset(rb.begin) };
-    let ptr_end   = unsafe { rb.bytes.as_ptr().offset(rb.end)   };
-    let ptr_min   = rb.bytes.as_ptr();
-    let ptr_max   = unsafe { rb.bytes.as_ptr().offset(rb.size)};
+    let ptr_end = unsafe { rb.bytes.as_ptr().offset(rb.end) };
+    let ptr_min = rb.bytes.as_ptr();
+    let ptr_max = unsafe { rb.bytes.as_ptr().offset(rb.size) };
     debug_assert!(ptr_begin >= ptr_min);
-    debug_assert!(ptr_end   <  ptr_max);
+    debug_assert!(ptr_end < ptr_max);
     assert!(n <= rb.size);
 
-    if n == 0 { return; }
+    if n == 0 {
+        return;
+    }
 
     rb.is_empty = false;
 
@@ -69,7 +76,8 @@ fn update_buffer(rb: &mut RingBuffer, buffer: *const u8, n: isize, update_begin:
             core::ptr::copy_nonoverlapping(
                 buffer,
                 ptr_end as *mut u8,
-                n as usize);
+                n as usize,
+            );
         };
         if update_begin {
             rb.begin = rb.end;
@@ -82,11 +90,13 @@ fn update_buffer(rb: &mut RingBuffer, buffer: *const u8, n: isize, update_begin:
             core::ptr::copy_nonoverlapping(
                 buffer,
                 ptr_end as *mut u8,
-                i as usize);
+                i as usize,
+            );
             core::ptr::copy_nonoverlapping(
                 buffer.offset(i),
                 ptr_min as *mut u8,
-                j as usize);
+                j as usize,
+            );
         }
         if update_begin {
             rb.begin = rb.end;
@@ -136,13 +146,12 @@ pub fn __internal_do_rb_flush() {
 /// flush the logger
 #[macro_export(local_inner_macros)]
 macro_rules! flush {
-    () => ({
+    () => {{
         $crate::logger::__internal_do_rb_flush();
-    })
+    }};
 }
 
-fn ll_write(rawfd: i32, buffer: *const u8, size: usize)
-{
+fn ll_write(rawfd: i32, buffer: *const u8, size: usize) {
     let _ = syscall!(SYS_write, rawfd, buffer, size);
 }
 
@@ -152,7 +161,8 @@ fn log_enabled(level: Level) -> bool {
     log_level >= level as i64
 }
 
-static LOG_LEVEL_STR: &[&str] = &[ "", "ERROR", "WARN", "INFO", "DEBUG", "TRACE" ];
+static LOG_LEVEL_STR: &[&str] =
+    &["", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
 fn log_level_str(level: Level) -> &'static str {
     let i = level as usize;
     LOG_LEVEL_STR[i % 6]
@@ -165,18 +175,13 @@ impl Log for RingBufferLogger {
     fn log(&self, record: &Record) {
         enter_critical_section();
         if self.enabled(record.metadata()) {
-            msg!(
-                "[{:<5}] {}",
-                log_level_str(record.level()),
-                record.args());
+            msg!("[{:<5}] {}", log_level_str(record.level()), record.args());
         }
         leave_critical_section();
     }
     fn flush(&self) {
         enter_critical_section();
-        unsafe {
-            flush_buffer(&mut RING_BUFFER, &ll_write)
-        };
+        unsafe { flush_buffer(&mut RING_BUFFER, &ll_write) };
         leave_critical_section();
     }
 }
@@ -203,10 +208,16 @@ fn flush_buffer<F>(rb: &mut RingBuffer, flush: F)
 where
     F: Fn(i32, *const u8, usize),
 {
-    if rb.is_empty { return; }
+    if rb.is_empty {
+        return;
+    }
     unsafe {
         if rb.end > rb.begin {
-            flush(rb.rawfd, rb.bytes.as_ptr().offset(rb.begin), (rb.end - rb.begin) as usize);
+            flush(
+                rb.rawfd,
+                rb.bytes.as_ptr().offset(rb.begin),
+                (rb.end - rb.begin) as usize,
+            );
         } else {
             let i = rb.size - rb.end;
             let j = rb.size - (rb.begin - rb.end) - i;
@@ -246,13 +257,10 @@ impl Write for RingBuffer {
 
 #[doc(hidden)]
 pub fn __internal_ring_buffer_eprint(args: Arguments) {
-    unsafe {
-        rb_print_to(args, &mut RING_BUFFER)
-    };
+    unsafe { rb_print_to(args, &mut RING_BUFFER) };
 }
 
-fn rb_print_to(args: Arguments, file: &mut RingBuffer)
-{
+fn rb_print_to(args: Arguments, file: &mut RingBuffer) {
     core::fmt::write(file, args).expect("write failed");
 }
 

@@ -22,7 +22,8 @@ pub const REVERIE_LOCAL_SYSCALL_HOOK_SIZE: u64 = REVERIE_LOCAL_BASE;
 pub const REVERIE_LOCAL_SYSCALL_HOOK_ADDR: u64 =
     REVERIE_LOCAL_SYSCALL_HOOK_SIZE + core::mem::size_of::<u64>() as u64;
 
-pub const REVERIE_LOCAL_STUB_SCRATCH: u64 = REVERIE_LOCAL_SYSCALL_HOOK_ADDR + core::mem::size_of::<u64>() as u64;
+pub const REVERIE_LOCAL_STUB_SCRATCH: u64 =
+    REVERIE_LOCAL_SYSCALL_HOOK_ADDR + core::mem::size_of::<u64>() as u64;
 pub const REVERIE_LOCAL_STACK_NESTING_LEVEL: u64 =
     REVERIE_LOCAL_STUB_SCRATCH + core::mem::size_of::<u64>() as u64;
 

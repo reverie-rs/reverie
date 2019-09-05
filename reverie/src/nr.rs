@@ -2,7 +2,6 @@
 
 pub use self::SyscallNo::*;
 #[allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SyscallNo {
     SYS_read = 0,

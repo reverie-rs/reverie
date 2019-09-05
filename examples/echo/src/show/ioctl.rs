@@ -1,8 +1,8 @@
 //! ioctl show helpers
 
-use std::convert::TryFrom;
 use core::fmt;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 /// ioctl requests: only a subset is defined
 #[derive(Clone, Copy, Debug)]
@@ -59,14 +59,13 @@ enum IoctlRequest {
     TIOCSERGETLSR = 0x5459,
     TIOCSERGETMULTI = 0x545a,
     TIOCSERSETMULTI = 0x545b,
-
     // more to follow
 }
 
 macro_rules! ioctl_make_tuple {
     ($t: ident) => {
         (IoctlRequest::$t as i32, IoctlRequest::$t)
-    }
+    };
 }
 
 const _IOCTL_LIST: &[(i32, IoctlRequest)] = &[
@@ -123,9 +122,8 @@ const _IOCTL_LIST: &[(i32, IoctlRequest)] = &[
 ];
 
 lazy_static! {
-    static ref IOCTL_LIST: HashMap<i32, IoctlRequest> = {
-        _IOCTL_LIST.iter().cloned().collect()
-    };
+    static ref IOCTL_LIST: HashMap<i32, IoctlRequest> =
+        { _IOCTL_LIST.iter().cloned().collect() };
 }
 
 impl TryFrom<i32> for IoctlRequest {
@@ -140,9 +138,13 @@ impl TryFrom<i32> for IoctlRequest {
 }
 
 /// ioctl request/arg formatter
-pub fn fmt_ioctl(request: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::Result {
+pub fn fmt_ioctl(
+    request: i32,
+    arg: u64,
+    f: &mut fmt::Formatter,
+) -> fmt::Result {
     match IoctlRequest::try_from(request) {
-        Err(_)  => write!(f, "unknown ioctl {:#x}, {:#X}", request, arg),
+        Err(_) => write!(f, "unknown ioctl {:#x}, {:#X}", request, arg),
         Ok(req) => write!(f, "{:?}, {:#x}", req, arg),
     }
 }

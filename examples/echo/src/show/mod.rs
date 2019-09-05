@@ -1,14 +1,14 @@
 //! linux syscall Arguments formatter
 
-mod types;
+mod args;
 mod fcntl;
 mod ioctl;
-mod args;
+mod types;
 
 /// `SyscallArg` type
 pub use types::SyscallArg;
-/// `SyscallRet` type
-pub use types::SyscallRet;
 /// `SyscallInfo` type include arguments and syscall number.
 pub use types::SyscallInfo;
+/// `SyscallRet` type
+pub use types::SyscallRet;
 pub use types::SyscallRetInfo;

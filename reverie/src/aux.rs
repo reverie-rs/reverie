@@ -7,22 +7,23 @@
 //! ptrace exec event. or if you're the dynamic linker :-)
 //!
 
-use std::io::Result;
 use std::collections::HashMap;
+use std::io::Result;
 
+use crate::remote::*;
 use crate::task::Task;
 use crate::traced_task::TracedTask;
-use crate::remote::*;
 
 const AUXV_MAX: usize = 256;
 
 pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
-    let mut res: HashMap<usize, u64>  = HashMap::new();
+    let mut res: HashMap<usize, u64> = HashMap::new();
     let regs = task.getregs()?;
 
     let sp = RemotePtr::new(regs.rsp as *mut u64);
 
-    let vec = task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
+    let vec =
+        task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
     let auxv: Vec<u64> = std::mem::transmute(vec);
     let argc = auxv[0];
     let mut k = 2 + argc as usize;
@@ -40,7 +41,7 @@ pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
         if key == 0 {
             break;
         }
-        let val = auxv[1+k];
+        let val = auxv[1 + k];
         res.insert(key as usize, val);
         k += 2;
     }

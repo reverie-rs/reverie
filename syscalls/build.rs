@@ -37,7 +37,10 @@ fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
     writeln!(f, "];")?;
 
     writeln!(f, "impl fmt::Debug for SyscallNo {{")?;
-    writeln!(f, "    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {{")?;
+    writeln!(
+        f,
+        "    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {{"
+    )?;
     writeln!(
         f,
         "        write!(f, \"{{}}\", SYSCALL_NAMES[self.clone() as usize])"

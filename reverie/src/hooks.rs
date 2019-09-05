@@ -19,12 +19,15 @@ pub struct SyscallHook {
 /// syscall hooks
 ///
 /// returns a `Vec` of predefined syscall hooks.
-pub fn resolve_syscall_hooks_from(preload: PathBuf) -> Result<Vec<SyscallHook>> {
+pub fn resolve_syscall_hooks_from(
+    preload: PathBuf,
+) -> Result<Vec<SyscallHook>> {
     let mut bytes: Vec<u8> = Vec::new();
     let mut file = File::open(preload)?;
     let mut res: Vec<SyscallHook> = Vec::new();
     file.read_to_end(&mut bytes)?;
-    let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let elf = Elf::parse(bytes.as_slice())
+        .map_err(|e| Error::new(ErrorKind::Other, e))?;
     let strtab = elf.strtab;
     for sym in elf.syms.iter() {
         for hook in SYSCALL_HOOKS {

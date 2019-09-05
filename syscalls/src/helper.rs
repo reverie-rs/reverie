@@ -1,6 +1,6 @@
-use crate::*;
-use crate::raw::*;
 use crate::nr::*;
+use crate::raw::*;
+use crate::*;
 
 fn syscall_ret(ret: i64) -> Result<i64, i64> {
     if ret as u64 >= -4096i64 as u64 {
@@ -35,19 +35,40 @@ pub fn syscall3(no: SyscallNo, a0: i64, a1: i64, a2: i64) -> Result<i64, i64> {
 }
 
 #[inline]
-pub fn syscall4(no: SyscallNo, a0: i64, a1: i64, a2: i64, a3: i64) -> Result<i64, i64> {
+pub fn syscall4(
+    no: SyscallNo,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+) -> Result<i64, i64> {
     let r = unsafe { untraced_syscall(no as i32, a0, a1, a2, a3, 0, 0) };
     syscall_ret(r)
 }
 
 #[inline]
-pub fn syscall5(no: SyscallNo, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64) -> Result<i64, i64> {
+pub fn syscall5(
+    no: SyscallNo,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+) -> Result<i64, i64> {
     let r = unsafe { untraced_syscall(no as i32, a0, a1, a2, a3, a4, 0) };
     syscall_ret(r)
 }
 
 #[inline]
-pub fn syscall6(no: SyscallNo, a0: i64, a1: i64, a2: i64, a3: i64, a4: i64, a5: i64) -> Result<i64, i64> {
+pub fn syscall6(
+    no: SyscallNo,
+    a0: i64,
+    a1: i64,
+    a2: i64,
+    a3: i64,
+    a4: i64,
+    a5: i64,
+) -> Result<i64, i64> {
     let r = unsafe { untraced_syscall(no as i32, a0, a1, a2, a3, a4, a5) };
     syscall_ret(r)
 }
@@ -93,16 +114,9 @@ pub fn __mremap(
 }
 
 pub fn __mprotect(addr: *mut (), len: usize, prot: i32) -> Result<(), i64> {
-    syscall!(
-        SYS_mprotect,
-        addr as i64,
-        len as i64,
-        i64::from(prot)
-    )
-    .map(|_| ())
+    syscall!(SYS_mprotect, addr as i64, len as i64, i64::from(prot)).map(|_| ())
 }
 
 pub fn __madvise(addr: *mut (), len: usize, advise: i32) -> Result<(), i64> {
-    syscall!(SYS_madvise, addr, len, i64::from(advise))
-        .map(|_| ())
+    syscall!(SYS_madvise, addr, len, i64::from(advise)).map(|_| ())
 }
