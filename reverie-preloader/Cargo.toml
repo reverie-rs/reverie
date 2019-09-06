@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-syscalls = { path = "../syscalls" }
+syscalls = "0.1"
 reverie-common = { path = "../reverie-common" }
 procfs = "0.5"
 nix = "0.14"
