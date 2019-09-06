@@ -1,16 +1,16 @@
 #![feature(format_args_nl, slice_internals)]
 #![allow(unused_attributes)]
 
-use reverie_helper::{counter, common, logger};
+use reverie_helper::{common, counter, logger};
 
 #[macro_use]
 pub mod macros;
-pub mod entry;
 pub mod dpc;
+pub mod entry;
 pub mod show;
 
-pub use counter::{NoteInfo, note_syscall};
 pub use common::local_state::{ProcessState, ThreadState};
+pub use counter::{note_syscall, NoteInfo};
 
 use entry::captured_syscall;
 
@@ -19,9 +19,9 @@ extern crate lazy_static;
 
 #[link_section = ".init_array"]
 #[used]
-static ECHO_DSO_CTORS: extern fn() = {
+static ECHO_DSO_CTORS: extern "C" fn() = {
     extern "C" fn echo_ctor() {
-	let _ = logger::init();
+        let _ = logger::init();
     };
     echo_ctor
 };

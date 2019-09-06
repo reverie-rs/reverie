@@ -2,9 +2,9 @@
 //!
 
 use crate::show::*;
-use reverie_helper::syscalls::*;
-use reverie_helper::counter::{note_syscall, NoteInfo};
 use reverie_helper::common::local_state::{ProcessState, ThreadState};
+use reverie_helper::counter::{note_syscall, NoteInfo};
+use reverie_helper::syscalls::*;
 
 use reverie_helper::logger::*;
 use reverie_helper::*;
@@ -43,6 +43,15 @@ pub extern "C" fn captured_syscall(
     smsg!("{}", info);
     flush!();
     let ret = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };
-    smsgln!("{}", SyscallRetInfo::from(tid as i32, sc, info.args_after_syscall(), ret, info.nargs_before == 0));
+    smsgln!(
+        "{}",
+        SyscallRetInfo::from(
+            tid as i32,
+            sc,
+            info.args_after_syscall(),
+            ret,
+            info.nargs_before == 0
+        )
+    );
     ret
 }

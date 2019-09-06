@@ -9,7 +9,11 @@ jobs:
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         source ~/.cargo/env
         rustup toolchain add nightly
+        rustup component add rustfmt --toolchain nightly
       displayName: Install nightly Rust
+    - script: |
+        cargo fmt -- --check
+      displayName: cargo fmt
 - job: Linux
   pool:
     vmImage: ubuntu-16.04

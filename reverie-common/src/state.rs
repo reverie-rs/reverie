@@ -1,7 +1,7 @@
 //! reverie global state
 
-use std::sync::Mutex;
 use lazy_static;
+use std::sync::Mutex;
 
 use crate::profiling::*;
 
@@ -21,7 +21,8 @@ impl ReverieState {
 }
 
 lazy_static! {
-    static ref REVERIE_GLOBAL_STATE: Mutex<ReverieState> = Mutex::new(ReverieState::new());
+    static ref REVERIE_GLOBAL_STATE: Mutex<ReverieState> =
+        Mutex::new(ReverieState::new());
 }
 
 /// get reverie global state, protected by mutex

@@ -1,8 +1,8 @@
 //! fcntl show helpers
 
-use std::convert::TryFrom;
-use core::fmt;
 use crate::show::types::*;
+use core::fmt;
+use std::convert::TryFrom;
 
 macro_rules! fcntl_cmd_match_value {
     ($flag:ident, $value:ident) => {
@@ -100,15 +100,15 @@ pub fn fmt_fcntl(cmd: i32, arg: u64, f: &mut fmt::Formatter) -> fmt::Result {
     if let Ok(res) = FcntlCmd::try_from(cmd) {
         write!(f, "{:?}", res)?;
         match res {
-            FcntlCmd::F_DUPFD | FcntlCmd::F_DUPFD_CLOEXEC | FcntlCmd::F_SETFD => {
+            FcntlCmd::F_DUPFD
+            | FcntlCmd::F_DUPFD_CLOEXEC
+            | FcntlCmd::F_SETFD => {
                 write!(f, ", {}", SyscallArg::Fd(arg as i32))?;
             }
             FcntlCmd::F_SETFL => {
                 write!(f, ", {}", SyscallArg::FdFlags(arg as i32))?;
             }
-            _ => {
-                ;
-            }
+            _ => {}
         }
         Ok(())
     } else {

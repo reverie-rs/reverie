@@ -54,7 +54,10 @@ pub fn extended_jump_pages() -> usize {
 
 /// generate indirect jump stubs at given target `addr`, for predefine
 /// `hooks`.
-pub fn gen_extended_jump_stubs(hooks: &[hooks::SyscallHook], addr: u64) -> Vec<u8> {
+pub fn gen_extended_jump_stubs(
+    hooks: &[hooks::SyscallHook],
+    addr: u64,
+) -> Vec<u8> {
     let mut res: Vec<u8> = Vec::new();
     hooks.iter().for_each(|hook| {
         assert!(hook.instructions.len() <= extended_jump_size());

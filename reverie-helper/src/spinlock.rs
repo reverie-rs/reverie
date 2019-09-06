@@ -44,7 +44,9 @@ fn dec_level(x: usize) -> usize {
 impl SpinLock {
     /// create a new (unlocked) spinlock
     pub const fn new() -> Self {
-        SpinLock { __lock: AtomicUsize::new(0) }
+        SpinLock {
+            __lock: AtomicUsize::new(0),
+        }
     }
     /// obtain a spinlock
     pub fn lock(&self) {
@@ -65,17 +67,18 @@ fn __spin_lock(lock: &AtomicUsize) {
     let tid = gettid();
 
     loop {
-        match lock
-            .compare_exchange(0,
-                              level_tid(1, tid),
-                              Ordering::Acquire,
-                              Ordering::Relaxed) {
-                Ok(_) => break,
-                Err(old) if thread_id(old) == tid => {
-                    lock.store(inc_level(old), Ordering::SeqCst);
-                    break;
-                }
-                _ => continue,
+        match lock.compare_exchange(
+            0,
+            level_tid(1, tid),
+            Ordering::Acquire,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(old) if thread_id(old) == tid => {
+                lock.store(inc_level(old), Ordering::SeqCst);
+                break;
+            }
+            _ => continue,
         }
     }
 }
@@ -87,7 +90,8 @@ fn __spin_unlock(lock: &AtomicUsize) {
         expected,
         0,
         Ordering::Release,
-        Ordering::Relaxed) {
+        Ordering::Relaxed,
+    ) {
         Ok(_) => (),
         Err(old) if thread_id(old) == tid => {
             lock.store(dec_level(old), Ordering::SeqCst);

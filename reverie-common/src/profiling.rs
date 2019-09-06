@@ -1,6 +1,6 @@
 //! tracee profiling data
 
-use std::sync::atomic::{AtomicUsize};
+use std::sync::atomic::AtomicUsize;
 
 /// syscall statistic information
 #[derive(Debug, Default)]
@@ -49,20 +49,20 @@ pub struct SyscallStats {
 
 impl SyscallStats {
     pub fn new() -> Self {
-        let z: SyscallStats = unsafe {
-            std::mem::zeroed()
-        };
+        let z: SyscallStats = unsafe { std::mem::zeroed() };
         z
     }
 }
 
 impl Clone for SyscallStats {
     fn clone(&self) -> Self {
-        let mut z: SyscallStats = unsafe {
-            std::mem::zeroed()
-        };
+        let mut z: SyscallStats = unsafe { std::mem::zeroed() };
         unsafe {
-            std::ptr::copy_nonoverlapping(self, &mut z, std::mem::size_of::<SyscallStats>())
+            std::ptr::copy_nonoverlapping(
+                self,
+                &mut z,
+                std::mem::size_of::<SyscallStats>(),
+            )
         }
         z
     }

@@ -7,21 +7,22 @@ use nix::unistd::Pid;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
-use std::sync::atomic::{Ordering, AtomicUsize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use procfs;
 
 use reverie_common::consts;
 use reverie_common::state::ReverieState;
 
-use crate::nr::*;
+use syscalls::nr::*;
+
+use crate::debug;
 use crate::remote;
 use crate::remote::*;
 use crate::sched::*;
 use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
-use crate::debug;
 
 /// the scheduler
 pub struct SchedWait {
@@ -143,7 +144,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
-                        .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                        .unwrap_or_else(|| panic!("unknown pid {:}", tid));
                     task.state = TaskState::Signaled(signal);
                     return Some(task);
                 }
@@ -151,14 +152,16 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                     let task = tasks
                         .tasks
                         .remove(&tid)
-                        .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                        .unwrap_or_else(|| panic!("unknown pid {:}", tid));
                     return Some(task);
                 }
-                Ok(WaitStatus::PtraceEvent(_, sig, event)) if sig == signal::SIGTRAP => {
+                Ok(WaitStatus::PtraceEvent(_, sig, event))
+                    if sig == signal::SIGTRAP =>
+                {
                     let mut task = tasks
                         .tasks
                         .remove(&tid)
-                        .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                        .unwrap_or_else(|| panic!("unknown pid {:}", tid));
                     task.state = TaskState::Event(event as u64);
                     return Some(task);
                 }
@@ -175,7 +178,7 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         let mut task = tasks
                             .tasks
                             .remove(&tid)
-                            .unwrap_or_else(||panic!("unknown pid {:}", tid));
+                            .unwrap_or_else(|| panic!("unknown pid {:}", tid));
                         if task.state != TaskState::Ready {
                             task.state = TaskState::Stopped(sig);
                         }
@@ -244,10 +247,16 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
                 // task not to be re-queued, assuming exited/killed.
                 log::debug!("[sched] {} failed to run, assuming killed", tid);
                 if log::log_enabled!(log::Level::Trace) {
-                    if let Ok(status) = procfs::Process::new(tid.as_raw()).and_then(|p| p.status()) {
+                    if let Ok(status) = procfs::Process::new(tid.as_raw())
+                        .and_then(|p| p.status())
+                    {
                         log::trace!("[sched] task {} refused to be traced while alive, {:?}", tid, status);
                         let regs = ptrace::getregs(tid);
-                        log::trace!("rsp = {:x?},  rip = {:x?}", regs.map(|r| r.rsp), regs.map(|r| r.rip));
+                        log::trace!(
+                            "rsp = {:x?},  rip = {:x?}",
+                            regs.map(|r| r.rsp),
+                            regs.map(|r| r.rip)
+                        );
                     }
                 }
                 // see BUGS in man 2 ptrace
@@ -261,7 +270,10 @@ pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
                 //
                 let status = wait::waitpid(Some(tid), None);
                 log::trace!("[sched] {} {:?}", tid, status);
-                assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6)));
+                assert_eq!(
+                    status,
+                    Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 6))
+                );
                 //
                 // NB: we *MUST* let the task to run
                 // this is WHY this ptrace BUG matters, after all.

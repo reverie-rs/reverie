@@ -2,12 +2,12 @@
 //! the tool library and its dependencies thus will be isolated
 //! into a different linker namespace.
 
-use std::collections::HashMap;
-use std::ptr::NonNull;
-use procfs::MemoryMap;
-use std::path::PathBuf;
-use procfs;
 use nix::unistd;
+use procfs;
+use procfs::MemoryMap;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::ptr::NonNull;
 
 /// `link_map` from link.h re-exported by glibc
 /// note this is not the full-blown version
@@ -41,15 +41,19 @@ struct ll_link_map {
     l_prev: u64,
 }
 
-fn into_ranges(maps: &Vec<MemoryMap>, base: u64, name: &PathBuf) -> Vec<MemoryMap> {
-    maps.iter().skip_while(|e| e.address.0 != base).take_while(|e| {
-        match &e.pathname {
-            procfs::MMapPath::Path(p) => {
-                p == name
-            }
+fn into_ranges(
+    maps: &Vec<MemoryMap>,
+    base: u64,
+    name: &PathBuf,
+) -> Vec<MemoryMap> {
+    maps.iter()
+        .skip_while(|e| e.address.0 != base)
+        .take_while(|e| match &e.pathname {
+            procfs::MMapPath::Path(p) => p == name,
             _ => false,
-        }
-    }).cloned().collect()
+        })
+        .cloned()
+        .collect()
 }
 
 /// `dl_open_ns`: load dynamic shared library into a new linker namespace
@@ -67,21 +71,19 @@ pub fn dl_open_ns(dso: String) -> Vec<LinkMap> {
     let mut res: Vec<LinkMap> = Vec::new();
 
     let head = std::ptr::NonNull::new(handle as *mut ll_link_map);
-    let maps = procfs::Process::new(pid.as_raw()).and_then(|p| {
-        p.maps()
-    }).unwrap();
+    let maps = procfs::Process::new(pid.as_raw())
+        .and_then(|p| p.maps())
+        .unwrap();
 
     let mut _curr = head.clone();
-    
-    while let Some(curr) = _curr {
-        let ll = unsafe {
-            std::ptr::read(curr.as_ptr())
-        };
 
-        let name = unsafe {
-            std::ffi::CStr::from_ptr(ll.l_name).to_str().unwrap()
-        };
-        let p = std::fs::canonicalize(name).unwrap_or_else(|_|PathBuf::from(name));
+    while let Some(curr) = _curr {
+        let ll = unsafe { std::ptr::read(curr.as_ptr()) };
+
+        let name =
+            unsafe { std::ffi::CStr::from_ptr(ll.l_name).to_str().unwrap() };
+        let p =
+            std::fs::canonicalize(name).unwrap_or_else(|_| PathBuf::from(name));
         let entry = LinkMap {
             ranges: into_ranges(&maps, ll.l_addr, &p),
             name: p,

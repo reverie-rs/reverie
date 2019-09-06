@@ -11,7 +11,7 @@ fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
 
     writeln!(
         f,
-        "#[allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]\n"
+        "#[allow(non_snake_case, non_camel_case_types, non_upper_case_globals)]"
     )?;
     writeln!(f, "#[derive(PartialEq, Eq, Clone, Copy)]")?;
     writeln!(f, "pub enum SyscallNo {{")?;
@@ -37,7 +37,10 @@ fn gen_syscall_nrs(dest: PathBuf) -> Result<()> {
     writeln!(f, "];")?;
 
     writeln!(f, "impl fmt::Debug for SyscallNo {{")?;
-    writeln!(f, "    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {{")?;
+    writeln!(
+        f,
+        "    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {{"
+    )?;
     writeln!(
         f,
         "        write!(f, \"{{}}\", SYSCALL_NAMES[self.clone() as usize])"

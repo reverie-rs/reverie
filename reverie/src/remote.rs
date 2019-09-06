@@ -15,12 +15,11 @@ use reverie_common::consts;
 use reverie_common::consts::*;
 
 use crate::hooks;
-use crate::nr;
-use crate::nr::SyscallNo;
-use crate::nr::SyscallNo::*;
 use crate::stubs;
 use crate::task::{RunTask, Task};
 use crate::traced_task::TracedTask;
+use syscalls::SyscallNo;
+use syscalls::SyscallNo::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyscallStubPage {
@@ -74,7 +73,7 @@ pub trait RemoteSyscall {
     /// by seccomp.
     fn untraced_syscall(
         &mut self,
-        nr: nr::SyscallNo,
+        nr: SyscallNo,
         a0: i64,
         a1: i64,
         a2: i64,
@@ -100,7 +99,13 @@ pub trait Remote {
         let bytes: Vec<u8> = self.peek_bytes(new_ptr, size)?;
         // to be initialized by copy_nonoverlapping.
         let mut res = std::mem::MaybeUninit::<T>::uninit();
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), res.as_mut_ptr() as *mut u8, size) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                res.as_mut_ptr() as *mut u8,
+                size,
+            )
+        };
         Ok(unsafe { res.assume_init() })
     }
     /// poke a `Sized` remote pointer from inferior
@@ -111,9 +116,8 @@ pub trait Remote {
         let value_ptr: *const T = value;
         let size = std::mem::size_of::<T>();
         let new_ptr = addr.cast::<u8>();
-        let bytes: &[u8] = unsafe {
-            std::slice::from_raw_parts(value_ptr as *const u8, size)
-        };
+        let bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(value_ptr as *const u8, size) };
         self.poke_bytes(new_ptr, bytes)?;
         Ok(())
     }
@@ -133,7 +137,8 @@ pub trait Remote {
     /// set breakpoint at inferior `addr` with handler `op`.
     fn setbp<F>(&mut self, addr: RemotePtr<c_void>, op: F) -> Result<()>
     where
-        F: 'static + FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
+        F: 'static
+            + FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>;
 }
 
 /// tell the tracee to do context synchronization at given `rip`
@@ -168,13 +173,15 @@ pub fn remote_do_syscall(
     a5: i64,
 ) -> Result<()> {
     let mut regs = task.getregs()?;
-    let syscall_helper_addr_ptr = RemotePtr::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64);
+    let syscall_helper_addr_ptr =
+        RemotePtr::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64);
     let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
     let return_address = regs.rip;
     regs.rip = syscall_helper_addr;
     regs.rsp -= 9 * 8; // return_address + nr + a0-a5 + pad
     let remote_rsp = RemotePtr::new(regs.rsp as *mut i64);
-    let regs_to_save = vec![0, a5, a4, a3, a2, a1, a0, nr as i64, return_address as i64];
+    let regs_to_save =
+        vec![0, a5, a4, a3, a2, a1, a0, nr as i64, return_address as i64];
     regs_to_save.iter().enumerate().for_each(|(k, x)| {
         let current_rsp = unsafe { remote_rsp.offset(k as isize) };
         task.poke(current_rsp, x).unwrap();
@@ -211,7 +218,8 @@ pub fn patch_syscall_at(
     patch_bytes.push((rela.wrapping_shr(16) & 0xff) as u8);
     patch_bytes.push((rela.wrapping_shr(24) & 0xff) as u8);
 
-    let padding_size = SYSCALL_INSN_SIZE + hook.instructions.len() - jmp_insn_size as usize;
+    let padding_size =
+        SYSCALL_INSN_SIZE + hook.instructions.len() - jmp_insn_size as usize;
     assert!(padding_size <= 9);
 
     match padding_size {
@@ -293,15 +301,18 @@ pub fn patch_syscall_at(
         .cloned()
         .skip(SYSCALL_INSN_SIZE)
         .collect();
-    let original_bytes = task.peek_bytes(remote_rip, patch_bytes.len()).unwrap();
+    let original_bytes =
+        task.peek_bytes(remote_rip, patch_bytes.len()).unwrap();
     // split into chunks so that ptrace::write is called
     // explicitly avoid process_vm_writev because the later
     // requires memory map permission change
     // since bytes to write is small, we can save the permission
     // change and restore, which requires two mprotect
-    for (k, chunk) in patch_tail.chunks(std::mem::size_of::<u64>()).enumerate() {
+    for (k, chunk) in patch_tail.chunks(std::mem::size_of::<u64>()).enumerate()
+    {
         let rptr: RemotePtr<u8> = RemotePtr::new(
-            (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE) as *mut u8,
+            (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE)
+                as *mut u8,
         );
         task.poke_bytes(rptr, chunk).unwrap();
     }
@@ -356,8 +367,12 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
             let space = x2 - y1;
             let start_from = *y1;
             if space >= (pages as u64 * page_size) {
-                if (start_from <= addr_hint && start_from + almost_2gb >= addr_hint) ||
-                    (start_from >= addr_hint && start_from - addr_hint <= almost_2gb - (pages as u64 * page_size)) {
+                if (start_from <= addr_hint
+                    && start_from + almost_2gb >= addr_hint)
+                    || (start_from >= addr_hint
+                        && start_from - addr_hint
+                            <= almost_2gb - (pages as u64 * page_size))
+                {
                     Some(start_from)
                 } else {
                     None
@@ -419,7 +434,10 @@ fn can_find_stub_page() {
 /// the byte code can be confirmed by running objcopy
 /// x86_64-linux-gnu-objcopy -I binary /tmp/1.bin -O elf64-x86-64 -B i386:x86-64 /tmp/1.elf
 /// then objdump -d 1.elf must match the instructions listed below.
-pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> {
+pub fn gen_syscall_sequences_at(
+    pid: Pid,
+    page_address: u64,
+) -> nix::Result<()> {
     /* the syscall sequences used here:
      * 0:   0f 05                   syscall
      * 2:   c3                      retq                     // not filered by seccomp, untraced_syscall
@@ -471,7 +489,11 @@ pub fn gen_syscall_sequences_at(pid: Pid, page_address: u64) -> nix::Result<()> 
     // call process_vm_{readv, writev} would 100% fail.
     for (k, s) in syscall_stub.iter().enumerate() {
         let offset = k * std::mem::size_of::<u64>() + page_address as usize;
-        ptrace::write(pid, offset as ptrace::AddressType, *s as *mut libc::c_void)?;
+        ptrace::write(
+            pid,
+            offset as ptrace::AddressType,
+            *s as *mut libc::c_void,
+        )?;
     }
     Ok(())
 }

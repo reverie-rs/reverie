@@ -46,6 +46,7 @@ pub fn init_ns(
     let fstype: &str = "proc";
     let flags = mount::MsFlags::MS_MGC_VAL;
     let data: Option<&PathBuf> = None;
-    mount::mount(source, &target, Some(fstype), flags, data).expect("mount proc failed");
+    mount::mount(source, &target, Some(fstype), flags, data)
+        .expect("mount proc failed");
     Ok(())
 }

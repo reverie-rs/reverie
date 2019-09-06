@@ -1,4 +1,3 @@
-
 use syscalls::*;
 
 /// How should the intrumentor do its job?
@@ -15,7 +14,6 @@ pub enum InstrumentMode {
     /// implementation.  Global state methods run centrally in a tracer
     /// and they read and modify (inject) the guest processes using ptrace.
     InGuestDefault,
-
     // TODO: in the future we may offer a mode for executing global methods
     // in a decentralized fashion, assuming threadsafe implementations and all
     // global state managed in shared pages.  We're setting aside this option
@@ -54,7 +52,7 @@ pub enum Heartbeat {
 /// Dynamic configuration options that may change after each handler execution.
 pub struct DynConfig {
     /// Interrupt the guest, bounding how long the guest can run without an event.
-    pub heartbeat : Heartbeat,
+    pub heartbeat: Heartbeat,
 }
 
 impl DynConfig {
@@ -73,11 +71,11 @@ impl Default for DynConfig {
 
 /// Instrumentor configuration set at startup time.
 pub struct StaticConfig {
-    pub mode : InstrumentMode,
-    pub init_dynconfig : DynConfig,
+    pub mode: InstrumentMode,
+    pub init_dynconfig: DynConfig,
     /// Specifies which syscalls should be intercepted by the tool.
     /// Only syscalls that return `true` here will result in `handle_event` calls.
-    pub syscall_filter : fn (SyscallNo) -> bool
+    pub syscall_filter: fn(SyscallNo) -> bool,
 }
 
 fn syscall_filter_none(_nr: SyscallNo) -> bool {
@@ -98,7 +96,7 @@ impl StaticConfig {
         self
     }
 
-    pub fn filter(&mut self, pfn: fn (SyscallNo) -> bool) -> &mut Self {
+    pub fn filter(&mut self, pfn: fn(SyscallNo) -> bool) -> &mut Self {
         self.syscall_filter = pfn;
         self
     }

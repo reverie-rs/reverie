@@ -1,8 +1,8 @@
 //! deferred precedure calls
 //!
 
-use reverie_helper::{ common::consts, syscalls::syscall, logger} ;
 use log::debug;
+use reverie_helper::{common::consts, logger, syscalls::syscall};
 
 const DPC_PREFIX: &'static str = "/tmp/dpc-task.";
 
@@ -17,34 +17,34 @@ pub extern "C" fn dpc_entry_disabled(_arg: i64) -> i32 {
     0
 }
 
-const HEX_DIGITS: [u8; 16] = [ '0' as u8, '1' as u8, '2' as u8, '3' as u8,
-                               '4' as u8, '5' as u8, '6' as u8, '7' as u8,
-                               '8' as u8, '9' as u8, 'a' as u8, 'b' as u8,
-                               'c' as u8, 'd' as u8, 'e' as u8, 'f' as u8];
+const HEX_DIGITS: [u8; 16] = [
+    '0' as u8, '1' as u8, '2' as u8, '3' as u8, '4' as u8, '5' as u8,
+    '6' as u8, '7' as u8, '8' as u8, '9' as u8, 'a' as u8, 'b' as u8,
+    'c' as u8, 'd' as u8, 'e' as u8, 'f' as u8,
+];
 
 fn dpc_get_unp(pid: i32) -> [u8; 108] {
-    let mut unp: [u8; 108] = unsafe {
-        core::mem::zeroed()
-    };
+    let mut unp: [u8; 108] = unsafe { core::mem::zeroed() };
 
     let k = DPC_PREFIX.len();
     unsafe {
         core::ptr::copy_nonoverlapping(
             DPC_PREFIX.as_ptr() as *const u8,
             unp.as_mut_ptr() as *mut u8,
-            k)
+            k,
+        )
     };
-    unp[k]   = HEX_DIGITS[(pid as usize & 0xf000) >> 12];
-    unp[k+1] = HEX_DIGITS[(pid as usize & 0x0f00) >> 8];
-    unp[k+2] = HEX_DIGITS[(pid as usize & 0x00f0) >> 4];
-    unp[k+3] = HEX_DIGITS[(pid as usize & 0x000f) >> 0];
+    unp[k] = HEX_DIGITS[(pid as usize & 0xf000) >> 12];
+    unp[k + 1] = HEX_DIGITS[(pid as usize & 0x0f00) >> 8];
+    unp[k + 2] = HEX_DIGITS[(pid as usize & 0x00f0) >> 4];
+    unp[k + 3] = HEX_DIGITS[(pid as usize & 0x000f) >> 0];
 
     unp
 }
 
 #[link_section = ".fini_array"]
 #[used]
-static DPC_DSO_DTORS: extern fn() = {
+static DPC_DSO_DTORS: extern "C" fn() = {
     extern "C" fn dpc_dtor() {
         debug!("exiting dpc task..");
         let pid = syscall!(SYS_getpid).unwrap() as i32;
@@ -61,7 +61,7 @@ struct sockaddr {
     sa_data: [u8; 108],
 }
 
-fn dpc_main () {
+fn dpc_main() {
     let pid = syscall!(SYS_getpid).unwrap() as i32;
     let path = dpc_get_unp(pid);
 
@@ -85,9 +85,7 @@ fn dpc_main () {
     let _ = syscall!(SYS_listen, sockfd, 10).unwrap();
 
     loop {
-        let mut client = unsafe {
-            core::mem::zeroed()
-        };
+        let mut client = unsafe { core::mem::zeroed() };
         let client_ref = &mut client as *mut sockaddr;
         let fd = syscall!(SYS_accept, sockfd, client_ref, sockfd_len).unwrap();
 
@@ -96,10 +94,9 @@ fn dpc_main () {
 }
 
 fn incoming_connection(fd: i32) {
-    let mut request: [u8; 512] = unsafe {
-        core::mem::uninitialized()
-    };
+    let mut request: [u8; 512] = unsafe { core::mem::uninitialized() };
     let ptr = request.as_mut_ptr();
-    let n = syscall!(SYS_read, fd, ptr, core::mem::size_of_val(&request)).unwrap();
+    let n =
+        syscall!(SYS_read, fd, ptr, core::mem::size_of_val(&request)).unwrap();
     let _ = syscall!(SYS_write, fd, ptr, n).unwrap();
 }
