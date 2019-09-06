@@ -89,5 +89,3 @@ tests/threads6
 tests/threads7
 tests/write-many
 tests/x64-save-return-address
-src/nr.rs
-syscalls/src/nr.rs

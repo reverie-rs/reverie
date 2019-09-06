@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 libc = { version = "0.2", default-features = false }
-syscalls = { path = "../syscalls" }
+syscalls = "0.1"
 reverie-common = { path = "../reverie-common" }
 nix = "0.13"
 goblin = "0.0"

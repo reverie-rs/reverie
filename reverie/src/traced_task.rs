@@ -41,7 +41,7 @@ use reverie_common::consts::*;
 use reverie_common::local_state::*;
 use reverie_common::state::*;
 
-use syscalls::nr::*;
+use syscalls::*;
 
 use crate::aux;
 use crate::auxv;

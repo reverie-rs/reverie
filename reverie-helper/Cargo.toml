@@ -12,7 +12,7 @@ crate-type = ["lib"]
 std = []
 
 [dependencies]
-syscalls = { path = "../syscalls" }
+syscalls = "0.1"
 reverie-common = { path = "../reverie-common" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
