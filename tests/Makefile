@@ -9,7 +9,7 @@ TARGET  := x64-save-return-address openat1 openat2 open-many getpid write-many f
 
 REVERIE_LIBRARY_PATH := $(shell realpath $(shell pwd)/../lib)
 REVERIE_TOOL         := $(REVERIE_LIBRARY_PATH)/libecho.so
-REVERIE_PRELOADER    := $(REVERIE_LIBRARY_PATH)/libpreloader.so
+REVERIE_PRELOADER    := $(REVERIE_LIBRARY_PATH)/libreverie_preloader.so
 REVERIE_DEBUG := $(shell realpath ../bin/reverie) --tool=$(REVERIE_TOOL) --preloader=$(REVERIE_PRELOADER) --debug=4 --
 REVERIE       := $(shell realpath ../bin/reverie) --tool=$(REVERIE_TOOL) --preloader=$(REVERIE_PRELOADER) --debug=0 --
 IO_REDIRECT = 2>/dev/null
