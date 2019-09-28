@@ -1,3 +1,3 @@
-pub mod task;
-pub mod remote;
 pub mod event;
+pub mod remote;
+pub mod task;

@@ -1,15 +1,14 @@
-
-use std::ptr::NonNull;
 use std::ffi::CString;
+use std::ptr::NonNull;
 
-use syscalls::*;
-use std::io::{Result, Error};
-use nix::sys::signal;
 use nix::sys::ptrace;
+use nix::sys::signal;
 use nix::sys::uio;
-use nix::unistd::Pid;
 use nix::sys::wait;
-use nix::sys::wait::{WaitStatus};
+use nix::sys::wait::WaitStatus;
+use nix::unistd::Pid;
+use std::io::{Error, Result};
+use syscalls::*;
 
 use crate::task::*;
 
@@ -24,21 +23,19 @@ where
     T: Sized,
 {
     pub fn new(ptr: *mut T) -> Option<Self> {
-        NonNull::new(ptr).map(|nll| RemotePtr {
-            ptr: nll
-        })
+        NonNull::new(ptr).map(|nll| RemotePtr { ptr: nll })
     }
     pub fn as_ptr(self) -> *mut T {
         self.ptr.as_ptr()
     }
     pub fn cast<U>(self) -> RemotePtr<U> {
         RemotePtr {
-            ptr: self.ptr.cast()
+            ptr: self.ptr.cast(),
         }
     }
     pub unsafe fn offset(self, count: isize) -> Self {
         RemotePtr {
-            ptr: NonNull::new(self.ptr.as_ptr().offset(count)).unwrap()
+            ptr: NonNull::new(self.ptr.as_ptr().offset(count)).unwrap(),
         }
     }
 }
@@ -62,8 +59,7 @@ impl<T> Clone for LocalPtr<T> {
 
 impl<T: Sized> Copy for LocalPtr<T> {}
 
-
-impl <T>LocalPtr<T> {
+impl<T> LocalPtr<T> {
     pub fn new(ptr: *mut T) -> Option<Self> {
         NonNull::new(ptr).map(|p| LocalPtr(p))
     }
@@ -74,9 +70,7 @@ impl <T>LocalPtr<T> {
         LocalPtr(self.0.cast())
     }
     pub unsafe fn offset(self, count: isize) -> Self {
-        LocalPtr(
-            NonNull::new(self.0.as_ptr().offset(count)).unwrap()
-        )
+        LocalPtr(NonNull::new(self.0.as_ptr().offset(count)).unwrap())
     }
 }
 
@@ -87,46 +81,39 @@ pub enum Remoteable<T> {
     Remote(RemotePtr<T>),
 }
 
-impl <T> std::fmt::Display for Remoteable<T> {
+impl<T> std::fmt::Display for Remoteable<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Remoteable::Remote(rptr) => {
-                write!(f, "{:x?}", rptr.as_ptr())
-            }
-            Remoteable::Local(lptr) => {
-                write!(f, "{:x?}", lptr.as_ptr())
-            }
+            Remoteable::Remote(rptr) => write!(f, "{:x?}", rptr.as_ptr()),
+            Remoteable::Local(lptr) => write!(f, "{:x?}", lptr.as_ptr()),
         }
     }
 }
 
-impl <T> std::fmt::Debug for Remoteable<T> {
+impl<T> std::fmt::Debug for Remoteable<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Remoteable::Remote(rptr) => {
-                write!(f, "{:x?}", rptr.as_ptr())
-            }
-            Remoteable::Local(lptr) => {
-                write!(f, "{:x?}", lptr.as_ptr())
-            }
+            Remoteable::Remote(rptr) => write!(f, "{:x?}", rptr.as_ptr()),
+            Remoteable::Local(lptr) => write!(f, "{:x?}", lptr.as_ptr()),
         }
     }
 }
 
-impl <T> Remoteable<T> where T: Sized {
+impl<T> Remoteable<T>
+where
+    T: Sized,
+{
     pub fn local(ptr: *mut T) -> Option<Self> {
-        NonNull::new(ptr).map(|nll| {
-            Remoteable::Local(LocalPtr(nll))
-        })
+        NonNull::new(ptr).map(|nll| Remoteable::Local(LocalPtr(nll)))
     }
     pub fn remote(ptr: *mut T) -> Option<Self> {
-        RemotePtr::new(ptr).map(|nll| {
-            Remoteable::Remote(nll)
-        })
+        RemotePtr::new(ptr).map(|nll| Remoteable::Remote(nll))
     }
     pub unsafe fn offset(self, count: isize) -> Self {
         match self {
-            Remoteable::Local(lptr) => Remoteable::Local(LocalPtr(NonNull::new(lptr.as_ptr().offset(count)).unwrap())),
+            Remoteable::Local(lptr) => Remoteable::Local(LocalPtr(
+                NonNull::new(lptr.as_ptr().offset(count)).unwrap(),
+            )),
             Remoteable::Remote(rptr) => Remoteable::Remote(rptr.offset(count)),
         }
     }
@@ -157,18 +144,21 @@ pub trait GuestMemoryAccess {
     {
         match addr {
             Remoteable::Local(lptr) => {
-                let v = unsafe {
-                    std::ptr::read(lptr.as_ptr())
-                };
+                let v = unsafe { std::ptr::read(lptr.as_ptr()) };
                 Ok(v)
             }
             Remoteable::Remote(rptr) => {
                 let new_ptr = rptr.cast::<u8>();
                 let size = std::mem::size_of::<T>();
-                let bytes: Vec<u8> = self.peek_bytes(Remoteable::Remote(new_ptr), size)?;
+                let bytes: Vec<u8> =
+                    self.peek_bytes(Remoteable::Remote(new_ptr), size)?;
                 let mut uninit = std::mem::MaybeUninit::<T>::uninit();
                 let res = unsafe {
-                    std::ptr::copy_nonoverlapping(bytes.as_ptr(), uninit.as_mut_ptr() as *mut u8, size);
+                    std::ptr::copy_nonoverlapping(
+                        bytes.as_ptr(),
+                        uninit.as_mut_ptr() as *mut u8,
+                        size,
+                    );
                     uninit.assume_init()
                 };
                 Ok(res)
@@ -186,7 +176,8 @@ pub trait GuestMemoryAccess {
                     std::ptr::copy_nonoverlapping(
                         value as *const T,
                         lptr.as_ptr(),
-                        std::mem::size_of::<T>())
+                        std::mem::size_of::<T>(),
+                    )
                 };
                 Ok(())
             }
@@ -207,9 +198,8 @@ pub trait GuestMemoryAccess {
     fn peek_cstring<'a>(&self, addr: Remoteable<i8>) -> Result<CString> {
         match addr {
             Remoteable::Local(lptr) => {
-                let cstr = unsafe {
-                    std::ffi::CString::from_raw(lptr.as_ptr())
-                };
+                let cstr =
+                    unsafe { std::ffi::CString::from_raw(lptr.as_ptr()) };
                 Ok(cstr)
             }
             Remoteable::Remote(rptr) => {
@@ -220,64 +210,62 @@ pub trait GuestMemoryAccess {
                     if t & 0xff == 0 {
                         break;
                     } else if t & 0xff00 == 0 {
-                        v.push( (t & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
                         break;
                     } else if t & 0xff_0000 == 0 {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
                         break;
                     } else if t & 0xff00_0000 == 0 {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
-                        v.push( ((t>>16) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
+                        v.push(((t >> 16) & 0xff) as u8);
                         break;
                     } else if t & 0xff_0000_0000 == 0 {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
-                        v.push( ((t>>16) & 0xff) as u8);
-                        v.push( ((t>>24) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
+                        v.push(((t >> 16) & 0xff) as u8);
+                        v.push(((t >> 24) & 0xff) as u8);
                         break;
                     } else if t & 0xff00_0000_0000 == 0 {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
-                        v.push( ((t>>16) & 0xff) as u8);
-                        v.push( ((t>>24) & 0xff) as u8);
-                        v.push( ((t>>32) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
+                        v.push(((t >> 16) & 0xff) as u8);
+                        v.push(((t >> 24) & 0xff) as u8);
+                        v.push(((t >> 32) & 0xff) as u8);
                         break;
                     } else if t & 0xff_0000_0000_0000 == 0 {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
-                        v.push( ((t>>16) & 0xff) as u8);
-                        v.push( ((t>>24) & 0xff) as u8);
-                        v.push( ((t>>32) & 0xff) as u8);
-                        v.push( ((t>>40) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
+                        v.push(((t >> 16) & 0xff) as u8);
+                        v.push(((t >> 24) & 0xff) as u8);
+                        v.push(((t >> 32) & 0xff) as u8);
+                        v.push(((t >> 40) & 0xff) as u8);
                         break;
                     } else if t & 0xff00_0000_0000_0000 == 0 {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
-                        v.push( ((t>>16) & 0xff) as u8);
-                        v.push( ((t>>24) & 0xff) as u8);
-                        v.push( ((t>>32) & 0xff) as u8);
-                        v.push( ((t>>40) & 0xff) as u8);
-                        v.push( ((t>>48) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
+                        v.push(((t >> 16) & 0xff) as u8);
+                        v.push(((t >> 24) & 0xff) as u8);
+                        v.push(((t >> 32) & 0xff) as u8);
+                        v.push(((t >> 40) & 0xff) as u8);
+                        v.push(((t >> 48) & 0xff) as u8);
                         break;
                     } else {
-                        v.push( (t & 0xff) as u8);
-                        v.push( ((t>>8) & 0xff) as u8);
-                        v.push( ((t>>16) & 0xff) as u8);
-                        v.push( ((t>>24) & 0xff) as u8);
-                        v.push( ((t>>32) & 0xff) as u8);
-                        v.push( ((t>>40) & 0xff) as u8);
-                        v.push( ((t>>48) & 0xff) as u8);
-                        v.push( ((t>>56) & 0xff) as u8);
+                        v.push((t & 0xff) as u8);
+                        v.push(((t >> 8) & 0xff) as u8);
+                        v.push(((t >> 16) & 0xff) as u8);
+                        v.push(((t >> 24) & 0xff) as u8);
+                        v.push(((t >> 32) & 0xff) as u8);
+                        v.push(((t >> 40) & 0xff) as u8);
+                        v.push(((t >> 48) & 0xff) as u8);
+                        v.push(((t >> 56) & 0xff) as u8);
                         p = unsafe {
                             p.offset(std::mem::size_of::<u64>() as isize)
                         };
                     }
                 }
-                let cstr = unsafe {
-                    CString::from_vec_unchecked(v)
-                };
+                let cstr = unsafe { CString::from_vec_unchecked(v) };
                 Ok(cstr)
             }
         }
@@ -305,11 +293,17 @@ fn from_nix_error(err: nix::Error) -> Error {
 }
 
 /// peek bytes from inferior
-pub fn ptrace_peek_bytes(pid: Pid, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>> {
+pub fn ptrace_peek_bytes(
+    pid: Pid,
+    addr: RemotePtr<u8>,
+    size: usize,
+) -> Result<Vec<u8>> {
     if size <= std::mem::size_of::<u64>() {
         let raw_ptr = addr.as_ptr();
-        let x = ptrace::read(pid, raw_ptr as ptrace::AddressType).map_err(from_nix_error)?;
-        let bytes: [u8; std::mem::size_of::<u64>()] = unsafe { std::mem::transmute(x) };
+        let x = ptrace::read(pid, raw_ptr as ptrace::AddressType)
+            .map_err(from_nix_error)?;
+        let bytes: [u8; std::mem::size_of::<u64>()] =
+            unsafe { std::mem::transmute(x) };
         let res: Vec<u8> = bytes.iter().cloned().take(size).collect();
         Ok(res)
     } else {
@@ -320,40 +314,48 @@ pub fn ptrace_peek_bytes(pid: Pid, addr: RemotePtr<u8>, size: usize) -> Result<V
         }];
         let mut res = vec![0; size];
         let local_iov = &[uio::IoVec::from_mut_slice(res.as_mut_slice())];
-        uio::process_vm_readv(pid, local_iov, remote_iov).map_err(from_nix_error)?;
+        uio::process_vm_readv(pid, local_iov, remote_iov)
+            .map_err(from_nix_error)?;
         Ok(res)
     }
 }
 
 /// poke bytes into inferior
-pub fn ptrace_poke_bytes(pid: Pid, addr: RemotePtr<u8>, bytes: &[u8]) -> Result<()> {
+pub fn ptrace_poke_bytes(
+    pid: Pid,
+    addr: RemotePtr<u8>,
+    bytes: &[u8],
+) -> Result<()> {
     let size = bytes.len();
     if size <= std::mem::size_of::<u64>() {
         let raw_ptr = addr.as_ptr();
         let mut u64_val = if size < std::mem::size_of::<u64>() {
-            ptrace::read(pid, raw_ptr as ptrace::AddressType).map_err(from_nix_error)? as u64
+            ptrace::read(pid, raw_ptr as ptrace::AddressType)
+                .map_err(from_nix_error)? as u64
         } else {
             0u64
         };
-        let masks = &[ 0xffffffff_ffffff00u64,
-                       0xffffffff_ffff0000u64,
-                       0xffffffff_ff000000u64,
-                       0xffffffff_00000000u64,
-                       0xffffff00_00000000u64,
-                       0xffff0000_00000000u64,
-                       0xff000000_00000000u64,
-                       0x00000000_00000000u64 ];
-        u64_val &= masks[size-1];
+        let masks = &[
+            0xffffffff_ffffff00u64,
+            0xffffffff_ffff0000u64,
+            0xffffffff_ff000000u64,
+            0xffffffff_00000000u64,
+            0xffffff00_00000000u64,
+            0xffff0000_00000000u64,
+            0xff000000_00000000u64,
+            0x00000000_00000000u64,
+        ];
+        u64_val &= masks[size - 1];
         // for k in 0..size {
         bytes.iter().enumerate().take(size).for_each(|(k, x)| {
-            u64_val |= u64::from(*x).wrapping_shl(k as u32 *8);
+            u64_val |= u64::from(*x).wrapping_shl(k as u32 * 8);
         });
         ptrace::write(
             pid,
             raw_ptr as ptrace::AddressType,
             u64_val as *mut libc::c_void,
         )
-            .expect("ptrace poke");
+        .expect("ptrace poke");
         Ok(())
     } else {
         let raw_ptr = addr.as_ptr();
@@ -362,7 +364,8 @@ pub fn ptrace_poke_bytes(pid: Pid, addr: RemotePtr<u8>, bytes: &[u8]) -> Result<
             len: size,
         }];
         let local_iov = &[uio::IoVec::from_slice(bytes)];
-        uio::process_vm_writev(pid, local_iov, remote_iov).map_err(from_nix_error)?;
+        uio::process_vm_writev(pid, local_iov, remote_iov)
+            .map_err(from_nix_error)?;
         Ok(())
     }
 }
@@ -493,7 +496,10 @@ fn wait_sigtrap_sigchld(pid: Pid) -> Result<Option<signal::Signal>> {
             signal_to_deliver = Some(signal::SIGCHLD)
         }
         otherwise => {
-            panic!("task {} expecting SIGTRAP|SIGCHLD but got {:?}", pid, otherwise);
+            panic!(
+                "task {} expecting SIGTRAP|SIGCHLD but got {:?}",
+                pid, otherwise
+            );
         }
     };
     Ok(signal_to_deliver)

@@ -1,4 +1,5 @@
-use crate::remote::*;
+use reverie_api::remote::*;
+
 use nix::unistd::Pid;
 use std::collections::{HashMap, HashSet};
 

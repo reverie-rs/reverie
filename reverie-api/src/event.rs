@@ -1,6 +1,6 @@
-use std::io;
 use crate::task::*;
 use std::boxed::Box;
+use std::io;
 
 pub type EventHandler = Box<dyn FnMut(&dyn Task) -> io::Result<()>>;
 

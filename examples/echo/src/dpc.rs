@@ -1,9 +1,9 @@
 //! deferred precedure calls
 //!
 
+use core::mem::MaybeUninit;
 use log::debug;
 use reverie_helper::{common::consts, logger, syscalls::syscall};
-use core::mem::MaybeUninit;
 
 const DPC_PREFIX: &'static str = "/tmp/dpc-task.";
 
@@ -105,6 +105,6 @@ fn incoming_connection(fd: i32) {
         Ok(nb) => {
             let _ = syscall!(SYS_write, fd, request.as_ptr() as u64, nb as u64);
         }
-        Err(_) => {},
+        Err(_) => {}
     }
 }

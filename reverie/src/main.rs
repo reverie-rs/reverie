@@ -21,13 +21,12 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use reverie_api::task::*;
 use reverie_api::event::*;
+use reverie_api::task::*;
 
 use reverie::reverie_common::{consts, state::*};
 use reverie::sched_wait::SchedWait;
-use reverie::{ns, hooks};
-
+use reverie::{hooks, ns};
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {

@@ -14,16 +14,15 @@ use std::sync::{Arc, Mutex};
 
 use procfs;
 
+use reverie_api::event::*;
+use reverie_api::remote::*;
+use reverie_api::task::*;
 use reverie_common::consts;
 use reverie_common::state::ReverieState;
-use reverie_api::event::*;
-use reverie_api::task::*;
 
 use syscalls::*;
 
 use crate::debug;
-use crate::remote;
-use crate::remote::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 

@@ -22,7 +22,7 @@ pub mod config;
 pub mod debug;
 pub mod hooks;
 pub mod ns;
-pub mod remote;
+pub mod patcher;
 pub mod remote_rwlock;
 pub mod rpc_ptrace;
 pub mod sched_wait;

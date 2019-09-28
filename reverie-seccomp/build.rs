@@ -1,5 +1,5 @@
-use std::io;
 use cc;
+use std::io;
 
 fn main() -> io::Result<()> {
     cc::Build::new()

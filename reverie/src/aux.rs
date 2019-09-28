@@ -10,9 +10,10 @@
 use std::collections::HashMap;
 use std::io::Result;
 
+use reverie_api::remote::*;
 use reverie_api::task::Task;
 
-use crate::remote::*;
+//use crate::remote::*;
 use crate::traced_task::TracedTask;
 
 const AUXV_MAX: usize = 256;
@@ -21,31 +22,30 @@ pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
     let mut res: HashMap<usize, u64> = HashMap::new();
     let regs = task.getregs()?;
 
-    let sp = RemotePtr::new(regs.rsp as *mut u64);
+    if let Some(sp) = Remoteable::remote(regs.rsp as *mut u64) {
+        let vec =
+            task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
+        let auxv: Vec<u64> = std::mem::transmute(vec);
+        let argc = auxv[0];
+        let mut k = 2 + argc as usize;
 
-    let vec =
-        task.peek_bytes(sp.cast(), AUXV_MAX * std::mem::size_of::<u64>())?;
-    let auxv: Vec<u64> = std::mem::transmute(vec);
-    let argc = auxv[0];
-    let mut k = 2 + argc as usize;
-
-    loop {
-        if auxv[k] == 0 {
+        loop {
+            if auxv[k] == 0 {
+                k += 1;
+                break;
+            }
             k += 1;
-            break;
         }
-        k += 1;
-    }
 
-    loop {
-        let key = auxv[k];
-        if key == 0 {
-            break;
+        loop {
+            let key = auxv[k];
+            if key == 0 {
+                break;
+            }
+            let val = auxv[1 + k];
+            res.insert(key as usize, val);
+            k += 2;
         }
-        let val = auxv[1 + k];
-        res.insert(key as usize, val);
-        k += 2;
     }
-
     Ok(res)
 }
