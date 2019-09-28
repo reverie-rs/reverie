@@ -12,8 +12,6 @@ pub mod show;
 pub use common::local_state::{ProcessState, ThreadState};
 pub use counter::{note_syscall, NoteInfo};
 
-use entry::captured_syscall;
-
 #[macro_use]
 extern crate lazy_static;
 
