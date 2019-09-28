@@ -7,10 +7,11 @@
 //!
 
 use reverie_common::consts;
+use reverie_api::task::Task;
 
 use crate::remote::*;
-use crate::task::Task;
 use crate::traced_task::TracedTask;
+
 use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait;

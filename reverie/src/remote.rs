@@ -13,10 +13,11 @@ use std::ptr::NonNull;
 
 use reverie_common::consts;
 use reverie_common::consts::*;
+use reverie_api::task::{RunTask, Task};
 
 use crate::hooks;
 use crate::stubs;
-use crate::task::{RunTask, Task};
+
 use crate::traced_task::TracedTask;
 use syscalls::SyscallNo;
 use syscalls::SyscallNo::*;

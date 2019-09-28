@@ -11,10 +11,11 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::vec::Vec;
 
+use reverie_api::task::Task;
+
 use syscalls::*;
 
 use crate::remote::*;
-use crate::task::Task;
 use crate::traced_task::TracedTask;
 
 /*

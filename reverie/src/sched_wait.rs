@@ -16,14 +16,14 @@ use procfs;
 
 use reverie_common::consts;
 use reverie_common::state::ReverieState;
+use reverie_api::event::*;
+use reverie_api::task::*;
 
 use syscalls::*;
 
 use crate::debug;
-use crate::event::*;
 use crate::remote;
 use crate::remote::*;
-use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 

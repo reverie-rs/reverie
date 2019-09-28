@@ -10,8 +10,9 @@
 use std::collections::HashMap;
 use std::io::Result;
 
+use reverie_api::task::Task;
+
 use crate::remote::*;
-use crate::task::Task;
 use crate::traced_task::TracedTask;
 
 const AUXV_MAX: usize = 256;

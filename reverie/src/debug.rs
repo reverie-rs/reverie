@@ -1,7 +1,8 @@
 //! convenient functions for debugging tracees
 
+use reverie_api::task::Task;
+
 use crate::remote::{Remote, RemotePtr};
-use crate::task::Task;
 use crate::traced_task::TracedTask;
 use log::debug;
 use nix::sys::ptrace;

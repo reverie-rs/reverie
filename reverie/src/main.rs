@@ -21,10 +21,13 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use reverie_api::task::*;
+use reverie_api::event::*;
+
 use reverie::reverie_common::{consts, state::*};
 use reverie::sched_wait::SchedWait;
-use reverie::task::{RunTask, Task};
-use reverie::{event::*, hooks, ns, task};
+use reverie::{ns, hooks};
+
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
@@ -230,7 +233,7 @@ fn run_tracer(
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None)
                 .map_err(|e| Error::new(ErrorKind::Other, e))?;
-            let tracee = task::Task::new(child);
+            let tracee = Task::new(child);
             let cbs = TaskEventCB::new(
                 Box::new(task_exec_cb),
                 Box::new(task_fork_cb),

@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 syscalls = "0.1"
 reverie-common = { path = "../reverie-common" }
+reverie-seccomp = { path = "../reverie-seccomp" }
 procfs = "0.5"
 nix = "0.14"
 libc = "0.2"

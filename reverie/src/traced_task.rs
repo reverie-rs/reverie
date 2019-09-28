@@ -41,12 +41,14 @@ use reverie_common::consts::*;
 use reverie_common::local_state::*;
 use reverie_common::state::*;
 
+use reverie_api::task::*;
+use reverie_api::event::*;
+
 use syscalls::*;
 
 use crate::aux;
 use crate::auxv;
 use crate::debug;
-use crate::event::*;
 use crate::hooks;
 use crate::remote;
 use crate::remote::*;
@@ -54,7 +56,7 @@ use crate::remote_rwlock::*;
 use crate::rpc_ptrace::*;
 use crate::sched_wait::*;
 use crate::stubs;
-use crate::task::*;
+
 use crate::vdso;
 
 lazy_static! {
