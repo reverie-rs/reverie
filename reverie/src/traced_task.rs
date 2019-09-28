@@ -34,12 +34,16 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc, Mutex};
 
 use reverie_common::consts;
 use reverie_common::consts::*;
 use reverie_common::local_state::*;
 use reverie_common::state::*;
+
+use reverie_api::event::*;
+use reverie_api::remote::*;
+use reverie_api::task::*;
 
 use syscalls::*;
 
@@ -47,14 +51,12 @@ use crate::aux;
 use crate::auxv;
 use crate::debug;
 use crate::hooks;
-use crate::remote;
-use crate::remote::*;
+use crate::patcher::*;
 use crate::remote_rwlock::*;
 use crate::rpc_ptrace::*;
-use crate::sched::Scheduler;
 use crate::sched_wait::*;
 use crate::stubs;
-use crate::task::*;
+
 use crate::vdso;
 
 lazy_static! {
@@ -128,11 +130,10 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
         Ok(at) => {
             let stack_top = at + 0x4000;
             // stack grows from high -> low
-            let stack = (RemotePtr::new(stack_top as *mut u64), 0x4000);
-            let rpc_data =
-                (RemotePtr::new((at + 0x4000) as *mut c_void), 0x4000);
-            task.rpc_stack = Some(stack);
-            task.rpc_data = Some(rpc_data);
+            let stack = Remoteable::remote(stack_top as *mut u64);
+            let rpc_data = Remoteable::remote((at + 0x4000) as *mut u64);
+            task.rpc_stack = stack.map(|s| (s, 0x4000 as usize));
+            task.rpc_data = rpc_data.map(|s| (s, 0x4000 as usize));
         }
     }
 }
@@ -191,7 +192,7 @@ pub struct TracedTask {
                     Box<
                         dyn FnOnce(
                                 TracedTask,
-                                RemotePtr<c_void>,
+                                Remoteable<c_void>,
                             )
                                 -> Result<RunTask<TracedTask>>
                             + 'static,
@@ -209,9 +210,11 @@ pub struct TracedTask {
     /// ld.so symbols
     pub ldso_symbols: Rc<HashMap<String, u64>>,
     /// per-thread stack used by rpc
-    pub rpc_stack: Option<(RemotePtr<u64>, usize)>,
+    pub rpc_stack: Option<(Remoteable<u64>, usize)>,
     /// per-thread data area used by rpc
-    pub rpc_data: Option<(RemotePtr<c_void>, usize)>,
+    pub rpc_data: Option<(Remoteable<u64>, usize)>,
+    /// task event call backs for `TaskEvent`
+    pub event_cbs: Option<Rc<RefCell<TaskEventCB>>>,
 }
 
 impl std::fmt::Debug for TracedTask {
@@ -260,16 +263,13 @@ impl Task for TracedTask {
             ldso_symbols: Rc::new(HashMap::new()),
             rpc_stack: None,
             rpc_data: None,
+            event_cbs: None,
         }
     }
 
     /// cloned a `TracedTask`
     /// called only when received ptrace clone event.
-    fn cloned(&self) -> Self {
-        let pid_raw = self
-            .getevent()
-            .unwrap_or_else(|_| panic!("{:?} ptrace getevent", self));
-        let child = Pid::from_raw(pid_raw as libc::pid_t);
+    fn cloned(&self, child: Pid) -> Self {
         let new_task = TracedTask {
             tid: child,
             pid: self.pid,
@@ -295,17 +295,14 @@ impl Task for TracedTask {
             ldso_symbols: self.ldso_symbols.clone(),
             rpc_stack: None,
             rpc_data: None,
+            event_cbs: self.event_cbs.clone(),
         };
         new_task
     }
 
     /// fork a `TracedTask`
     /// called when received ptrace fork/vfork event
-    fn forked(&self) -> Self {
-        let pid_raw = self
-            .getevent()
-            .unwrap_or_else(|_| panic!("{:?} ptrace getevent", self));
-        let child = Pid::from_raw(pid_raw as libc::pid_t);
+    fn forked(&self, child: Pid) -> Self {
         TracedTask {
             tid: child,
             pid: child,
@@ -341,18 +338,30 @@ impl Task for TracedTask {
             breakpoints: Rc::new(RefCell::new(HashMap::new())),
             ldso: self.ldso,
             ldso_symbols: self.ldso_symbols.clone(),
-            rpc_stack: self.rpc_stack,
-            rpc_data: self.rpc_data,
+            rpc_stack: self.rpc_stack.clone(),
+            rpc_data: match &self.rpc_data {
+                None => None,
+                Some((rptr, size)) => {
+                    let new_rptr = match rptr {
+                        Remoteable::Remote(p) => {
+                            Remoteable::remote(p.as_ptr()).unwrap().cast()
+                        }
+                        Remoteable::Local(p) => {
+                            Remoteable::local(p.as_ptr()).unwrap().cast()
+                        }
+                    };
+                    Some((new_rptr, *size))
+                }
+            },
+            event_cbs: self.event_cbs.clone(),
         }
     }
 
     /// get task exit code
     /// called when task exits
-    fn exited(&self) -> Option<i32> {
-        match &self.state {
-            TaskState::Exited(exit_code) => Some(*exit_code as i32),
-            _otherwise => None,
-        }
+    fn exited(&self, code: i32) -> Option<i32> {
+        debug_assert!(self.state == TaskState::Exited(self.gettid(), code));
+        Some(code)
     }
 
     /// get task tid
@@ -374,49 +383,175 @@ impl Task for TracedTask {
     fn getpgid(&self) -> Pid {
         self.pgid
     }
+}
 
-    /// run a task, task ptrace event dispatcher
-    fn run(self) -> Result<RunTask<TracedTask>> {
-        let mut task = self;
-        match task.state {
-            TaskState::Running => Ok(RunTask::Runnable(task)),
-            TaskState::Signaled(signal) => {
-                let _ = ptrace::cont(task.gettid(), Some(signal));
-                Ok(RunTask::Exited(0x80 | signal as i32))
-            }
-            TaskState::Ready => Ok(RunTask::Runnable(task)),
-            TaskState::Stopped(signal) => {
-                if signal == signal::SIGTRAP {
-                    let mut regs = task.getregs()?;
-                    let rip_minus_1 = regs.rip - 1;
-                    let mut maybe_f: Option<FnBreakpoint> = None;
-                    match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
-                        None => {} // not a breakpoint
-                        Some((saved_insn, op)) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
-                            task.poke(rptr, &saved_insn)?;
-                            regs.rip = rip_minus_1;
-                            task.setregs(regs)?;
-                            maybe_f = Some(op);
-                        }
-                    }
-                    match maybe_f {
-                        None => {}
-                        Some(f) => {
-                            let rptr = RemotePtr::new(rip_minus_1 as *mut u64);
-                            task.signal_to_deliver = None;
-                            return f(task, rptr.cast());
-                        }
+/// convenient ptrace interface for `TracedTask`
+impl GuestMemoryAccess for TracedTask {
+    fn peek_bytes(&self, addr: Remoteable<u8>, size: usize) -> Result<Vec<u8>> {
+        let addr = match addr {
+            Remoteable::Local(_) => panic!("expect remote address"),
+            Remoteable::Remote(x) => x,
+        };
+        if size <= std::mem::size_of::<u64>() {
+            let raw_ptr = addr.as_ptr();
+            let x = ptrace::read(self.tid, raw_ptr as ptrace::AddressType)
+                .map_err(from_nix_error)?;
+            let bytes: [u8; std::mem::size_of::<u64>()] =
+                unsafe { std::mem::transmute(x) };
+            let res: Vec<u8> = bytes.iter().cloned().take(size).collect();
+            Ok(res)
+        } else {
+            let raw_ptr = addr.as_ptr();
+            let remote_iov = &[uio::RemoteIoVec {
+                base: raw_ptr as usize,
+                len: size,
+            }];
+            let mut res = vec![0; size];
+            let local_iov = &[uio::IoVec::from_mut_slice(res.as_mut_slice())];
+            uio::process_vm_readv(self.tid, local_iov, remote_iov)
+                .map_err(from_nix_error)?;
+            Ok(res)
+        }
+    }
+
+    fn poke_bytes(&self, addr: Remoteable<u8>, bytes: &[u8]) -> Result<()> {
+        let addr = match addr {
+            Remoteable::Local(_) => panic!("expect remote address"),
+            Remoteable::Remote(x) => x,
+        };
+        let size = bytes.len();
+        if size <= std::mem::size_of::<u64>() {
+            let raw_ptr = addr.as_ptr();
+            let mut u64_val = if size < std::mem::size_of::<u64>() {
+                ptrace::read(self.tid, raw_ptr as ptrace::AddressType)
+                    .map_err(from_nix_error)? as u64
+            } else {
+                0u64
+            };
+            let masks = &[
+                0xffffffff_ffffff00u64,
+                0xffffffff_ffff0000u64,
+                0xffffffff_ff000000u64,
+                0xffffffff_00000000u64,
+                0xffffff00_00000000u64,
+                0xffff0000_00000000u64,
+                0xff000000_00000000u64,
+                0x00000000_00000000u64,
+            ];
+            u64_val &= masks[size - 1];
+            // for k in 0..size {
+            bytes.iter().enumerate().take(size).for_each(|(k, x)| {
+                u64_val |= u64::from(*x).wrapping_shl(k as u32 * 8);
+            });
+            ptrace::write(
+                self.tid,
+                raw_ptr as ptrace::AddressType,
+                u64_val as *mut libc::c_void,
+            )
+            .expect("ptrace poke");
+            Ok(())
+        } else {
+            let raw_ptr = addr.as_ptr();
+            let remote_iov = &[uio::RemoteIoVec {
+                base: raw_ptr as usize,
+                len: size,
+            }];
+            let local_iov = &[uio::IoVec::from_slice(bytes)];
+            uio::process_vm_writev(self.tid, local_iov, remote_iov)
+                .map_err(from_nix_error)?;
+            Ok(())
+        }
+    }
+}
+
+impl Ptracer for TracedTask {
+    fn getregs(&self) -> Result<libc::user_regs_struct> {
+        let regs = ptrace::getregs(self.tid).map_err(from_nix_error);
+        regs
+    }
+
+    fn setregs(&self, regs: libc::user_regs_struct) -> Result<()> {
+        ptrace::setregs(self.tid, regs).map_err(from_nix_error)
+    }
+
+    fn resume(&self, sig: Option<signal::Signal>) -> Result<()> {
+        ptrace::cont(self.tid, sig).map_err(from_nix_error)
+    }
+
+    fn step(&self, sig: Option<signal::Signal>) -> Result<()> {
+        ptrace::step(self.tid, sig).map_err(from_nix_error)
+    }
+
+    fn getsiginfo(&self) -> Result<libc::siginfo_t> {
+        let siginfo = ptrace::getsiginfo(self.tid).map_err(from_nix_error);
+        siginfo
+    }
+
+    fn getevent(&self) -> Result<i64> {
+        let ev = ptrace::getevent(self.tid).map_err(from_nix_error);
+        ev
+    }
+}
+
+/// run a task, task ptrace event dispatcher
+pub fn run_task<G>(
+    gs: Arc<Mutex<G>>,
+    mut task: TracedTask,
+) -> Result<RunTask<TracedTask>> {
+    match task.state {
+        TaskState::Running => Ok(RunTask::Runnable(task)),
+        TaskState::Signaled(signal) => {
+            let _ = ptrace::cont(task.gettid(), Some(signal));
+            Ok(RunTask::Exited(0x80 | signal as i32))
+        }
+        TaskState::Ready => Ok(RunTask::Runnable(task)),
+        TaskState::Stopped(signal) => {
+            if signal == signal::SIGTRAP {
+                let mut regs = task.getregs()?;
+                let rip_minus_1 = regs.rip - 1;
+                let mut maybe_f: Option<FnBreakpoint> = None;
+                match task.breakpoints.borrow_mut().remove(&rip_minus_1) {
+                    None => {} // not a breakpoint
+                    Some((saved_insn, op)) => {
+                        let rptr = Remoteable::remote(rip_minus_1 as *mut u64)
+                            .unwrap();
+                        task.poke(rptr, &saved_insn)?;
+                        regs.rip = rip_minus_1;
+                        task.setregs(regs)?;
+                        maybe_f = Some(op);
                     }
                 }
-                task.signal_to_deliver = Some(signal);
-                Ok(RunTask::Runnable(task))
+                match maybe_f {
+                    None => {}
+                    Some(f) => {
+                        let rptr = Remoteable::remote(rip_minus_1 as *mut u64)
+                            .unwrap();
+                        task.signal_to_deliver = None;
+                        return f(task, rptr.cast());
+                    }
+                }
             }
-            TaskState::Event(_ev) => handle_ptrace_event(task),
-            TaskState::Syscall => handle_syscall_exit(task),
-            TaskState::Exited(_exit_code) => {
-                unreachable!("run task which is already exited")
-            }
+            task.signal_to_deliver = Some(signal);
+            Ok(RunTask::Runnable(task))
+        }
+        TaskState::Seccomp(syscall) => do_ptrace_seccomp(gs, task, syscall),
+        TaskState::Exec => {
+            let _ = do_ptrace_exec(&mut task);
+            Ok(RunTask::Runnable(task))
+        }
+        TaskState::Clone(child) => {
+            let new_task = do_ptrace_clone(gs, &mut task, child);
+            Ok(RunTask::Forked(task, new_task))
+        }
+        TaskState::Fork(child) => {
+            let new_task = do_ptrace_clone(gs, &mut task, child);
+            Ok(RunTask::Forked(task, new_task))
+        }
+        TaskState::VforkDone => Ok(RunTask::Runnable(task)),
+        TaskState::Syscall(_sc) => handle_syscall_exit(task),
+        TaskState::Exited(pid, exit_code) => {
+            do_ptrace_event_exit(gs, pid, exit_code);
+            Ok(RunTask::Exited(exit_code))
         }
     }
 }
@@ -429,7 +564,10 @@ impl TracedTask {
 
     /// return whether or net task state is seccomp stop
     pub fn task_state_is_seccomp(&self) -> bool {
-        self.state == TaskState::Event(7)
+        match self.state {
+            TaskState::Seccomp(_) => true,
+            _ => false,
+        }
     }
 
     /// get ld preloaded tool symbol address
@@ -439,6 +577,38 @@ impl TracedTask {
         } else {
             None
         }
+    }
+    /// inject a syscall which won't be traced by the tracer
+    pub fn untraced_syscall(
+        &mut self,
+        nr: SyscallNo,
+        a0: i64,
+        a1: i64,
+        a2: i64,
+        a3: i64,
+        a4: i64,
+        a5: i64,
+    ) -> Result<i64> {
+        remote_do_syscall_at(self, 0x7000_0008, nr, a0, a1, a2, a3, a4, a5)
+    }
+
+    fn setbp<F>(&mut self, _at: Remoteable<c_void>, op: F) -> Result<()>
+    where
+        F: 'static
+            + FnOnce(
+                TracedTask,
+                Remoteable<c_void>,
+            ) -> Result<RunTask<TracedTask>>,
+    {
+        let rptr = _at.cast();
+        let at = rptr.as_ptr() as u64;
+        let saved_insn: u64 = self.peek(rptr)?;
+        let insn = (saved_insn & !0xffu64) | 0xccu64;
+        self.poke(rptr, &insn)?;
+        self.breakpoints
+            .borrow_mut()
+            .insert(at, (saved_insn, Box::new(op)));
+        Ok(())
     }
 }
 
@@ -475,7 +645,7 @@ fn task_exec_reset(task: &mut TracedTask) {
     task.ldpreload_address = None;
     task.injected_mmap_page = Some(0x7000_0000);
     task.signal_to_deliver = None;
-    task.state = TaskState::Exited(0);
+    task.state = TaskState::Exited(task.gettid(), 0);
     task.in_vfork = false;
     task.seccomp_hook_size = None;
     check_ref_counters(task);
@@ -503,9 +673,10 @@ fn find_syscall_hook(
     let mut bytes: Vec<u8> = Vec::new();
 
     for i in 0..=1 {
-        let remote_ptr = RemotePtr::new(
+        let remote_ptr = Remoteable::remote(
             (rip + i * std::mem::size_of::<u64>() as u64) as *mut u64,
-        );
+        )
+        .unwrap();
         match task.peek(remote_ptr).ok() {
             None => return None,
             Some(u) => {
@@ -721,7 +892,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
         size: size as usize,
         allocated: stubs.len(),
     });
-    let remote_ptr = RemotePtr::new(at as *mut u8);
+    let remote_ptr = Remoteable::remote(at as *mut u8).unwrap();
     task.poke_bytes(remote_ptr, stubs.as_slice())?;
 
     task.untraced_syscall(
@@ -737,140 +908,6 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
     update_memory_map(task);
 
     Ok(allocated_at as u64)
-}
-
-/// convenient ptrace interface for `TracedTask`
-impl Remote for TracedTask {
-    fn peek_bytes(&self, addr: RemotePtr<u8>, size: usize) -> Result<Vec<u8>> {
-        if size <= std::mem::size_of::<u64>() {
-            let raw_ptr = addr.as_ptr();
-            let x = ptrace::read(self.tid, raw_ptr as ptrace::AddressType)
-                .map_err(from_nix_error)?;
-            let bytes: [u8; std::mem::size_of::<u64>()] =
-                unsafe { std::mem::transmute(x) };
-            let res: Vec<u8> = bytes.iter().cloned().take(size).collect();
-            Ok(res)
-        } else {
-            let raw_ptr = addr.as_ptr();
-            let remote_iov = &[uio::RemoteIoVec {
-                base: raw_ptr as usize,
-                len: size,
-            }];
-            let mut res = vec![0; size];
-            let local_iov = &[uio::IoVec::from_mut_slice(res.as_mut_slice())];
-            uio::process_vm_readv(self.tid, local_iov, remote_iov)
-                .map_err(from_nix_error)?;
-            Ok(res)
-        }
-    }
-
-    fn poke_bytes(&self, addr: RemotePtr<u8>, bytes: &[u8]) -> Result<()> {
-        let size = bytes.len();
-        if size <= std::mem::size_of::<u64>() {
-            let raw_ptr = addr.as_ptr();
-            let mut u64_val = if size < std::mem::size_of::<u64>() {
-                ptrace::read(self.tid, raw_ptr as ptrace::AddressType)
-                    .map_err(from_nix_error)? as u64
-            } else {
-                0u64
-            };
-            let masks = &[
-                0xffffffff_ffffff00u64,
-                0xffffffff_ffff0000u64,
-                0xffffffff_ff000000u64,
-                0xffffffff_00000000u64,
-                0xffffff00_00000000u64,
-                0xffff0000_00000000u64,
-                0xff000000_00000000u64,
-                0x00000000_00000000u64,
-            ];
-            u64_val &= masks[size - 1];
-            // for k in 0..size {
-            bytes.iter().enumerate().take(size).for_each(|(k, x)| {
-                u64_val |= u64::from(*x).wrapping_shl(k as u32 * 8);
-            });
-            ptrace::write(
-                self.tid,
-                raw_ptr as ptrace::AddressType,
-                u64_val as *mut libc::c_void,
-            )
-            .expect("ptrace poke");
-            Ok(())
-        } else {
-            let raw_ptr = addr.as_ptr();
-            let remote_iov = &[uio::RemoteIoVec {
-                base: raw_ptr as usize,
-                len: size,
-            }];
-            let local_iov = &[uio::IoVec::from_slice(bytes)];
-            uio::process_vm_writev(self.tid, local_iov, remote_iov)
-                .map_err(from_nix_error)?;
-            Ok(())
-        }
-    }
-
-    fn getregs(&self) -> Result<libc::user_regs_struct> {
-        let regs = ptrace::getregs(self.tid).map_err(from_nix_error);
-        regs
-    }
-
-    fn setregs(&self, regs: libc::user_regs_struct) -> Result<()> {
-        ptrace::setregs(self.tid, regs).map_err(from_nix_error)
-    }
-
-    fn resume(&self, sig: Option<signal::Signal>) -> Result<()> {
-        ptrace::cont(self.tid, sig).map_err(from_nix_error)
-    }
-
-    fn step(&self, sig: Option<signal::Signal>) -> Result<()> {
-        ptrace::step(self.tid, sig).map_err(from_nix_error)
-    }
-
-    fn getsiginfo(&self) -> Result<libc::siginfo_t> {
-        let siginfo = ptrace::getsiginfo(self.tid).map_err(from_nix_error);
-        siginfo
-    }
-
-    fn getevent(&self) -> Result<i64> {
-        let ev = ptrace::getevent(self.tid).map_err(from_nix_error);
-        ev
-    }
-
-    fn setbp<F>(&mut self, _at: RemotePtr<c_void>, op: F) -> Result<()>
-    where
-        F: 'static
-            + FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>,
-    {
-        let rptr = _at.cast();
-        let at = rptr.as_ptr() as u64;
-        let saved_insn: u64 = self.peek(rptr)?;
-        let insn = (saved_insn & !0xffu64) | 0xccu64;
-        self.poke(rptr, &insn)?;
-        self.breakpoints
-            .borrow_mut()
-            .insert(at, (saved_insn, Box::new(op)));
-        Ok(())
-    }
-}
-
-/// `RemoteSyscall` trait implementation so that
-/// tracer can inject syscalls for the tracee
-///
-/// NB: tracee must be in stopped state
-impl RemoteSyscall for TracedTask {
-    /// inject a syscall which won't be traced by the tracer
-    fn untraced_syscall(
-        &mut self,
-        nr: SyscallNo,
-        a0: i64,
-        a1: i64,
-        a2: i64,
-        a3: i64,
-        a4: i64,
-        a5: i64,
-    ) -> Result<i64> {
-        remote_do_syscall_at(self, 0x7000_0008, nr, a0, a1, a2, a3, a4, a5)
-    }
 }
 
 /// inject syscall for given tracee
@@ -969,7 +1006,9 @@ fn remote_do_clone(
     task.resume(None)?;
     let status = wait::waitpid(tid, None);
     assert_eq!(status, Ok(WaitStatus::PtraceEvent(tid, signal::SIGTRAP, 1)));
-    let new_task = task.cloned();
+    let new_pid = ptrace::getevent(task.gettid()).unwrap() as i32;
+    let child = Pid::from_raw(new_pid);
+    let new_task = task.cloned(child);
     wait_sigstop(&new_task)?;
     task.resume(None)?;
     wait_sigtrap_sigchld(&mut task)?;
@@ -980,7 +1019,7 @@ fn remote_do_clone(
     // call to the thread_routine, but we'll have to adjust
     // our stack accordingly..
     let mut new_regs = new_task.getregs()?;
-    let fake_ra = RemotePtr::new(new_regs.rsp as *mut u64);
+    let fake_ra = Remoteable::remote(new_regs.rsp as *mut u64).unwrap();
     new_task.poke(fake_ra, &0xdeadbeef)?;
     new_regs.rip = entry;
     new_regs.rdi = args;
@@ -1050,7 +1089,6 @@ fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
             SyscallNo::from(regs.orig_rax as i32),
             rip
         );
-        debug_assert_eq!(task.state, TaskState::Syscall);
         // will re-enter syscall exit, state is TaskState::Syscall
         return Ok(RunTask::Runnable(task));
     }
@@ -1090,34 +1128,6 @@ fn handle_syscall_exit(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
     Ok(RunTask::Runnable(task))
 }
 
-fn handle_ptrace_event(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
-    let raw_event = match task.state {
-        TaskState::Event(ev) => ev as i64,
-        otherwise => panic!("unknown task.state = {:x?}", otherwise),
-    };
-    if raw_event == ptrace::Event::PTRACE_EVENT_FORK as i64 {
-        let pair = do_ptrace_fork(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK as i64 {
-        let pair = do_ptrace_vfork(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_CLONE as i64 {
-        let pair = do_ptrace_clone(task)?;
-        Ok(RunTask::Forked(pair.0, pair.1))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_EXEC as i64 {
-        do_ptrace_exec(&mut task).map_err(from_nix_error)?;
-        Ok(RunTask::Runnable(task))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i64 {
-        do_ptrace_vfork_done(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_EXIT as i64 {
-        do_ptrace_event_exit(task)
-    } else if raw_event == ptrace::Event::PTRACE_EVENT_SECCOMP as i64 {
-        do_ptrace_seccomp(task).and_then(|tsk| Ok(RunTask::Runnable(tsk)))
-    } else {
-        panic!("unknown ptrace event: {:x}", raw_event);
-    }
-}
-
 // From ptrace man page:
 //
 // If the PTRACE_O_TRACEFORK, PTRACE_O_TRACEVFORK, or PTRACE_O_TRACECLONE options are in effect,
@@ -1146,9 +1156,13 @@ fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
     Ok(task)
 }
 
-fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.cloned();
-    wait_sigstop(&new_task)?;
+fn do_ptrace_clone<G>(
+    gs: Arc<Mutex<G>>,
+    task: &mut TracedTask,
+    child: Pid,
+) -> TracedTask {
+    let mut new_task = task.cloned(child);
+    wait_sigstop(&new_task).unwrap();
 
     let state = reverie_global_state();
     state
@@ -1172,12 +1186,21 @@ fn do_ptrace_clone(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
 
     init_rpc_stack_data(&mut new_task);
 
-    Ok((task, new_task))
+    if let Some(cbs) = &task.event_cbs.clone() {
+        let mut clonefn = &mut cbs.borrow_mut().on_task_clone;
+        let _ = clonefn(task);
+    }
+
+    new_task
 }
 
-fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let new_task = task.forked();
-    wait_sigstop(&new_task)?;
+fn do_ptrace_fork<G>(
+    gs: Arc<Mutex<G>>,
+    task: &mut TracedTask,
+    child: Pid,
+) -> TracedTask {
+    let mut new_task = task.forked(child);
+    wait_sigstop(&new_task).unwrap();
 
     let state = reverie_global_state();
     state
@@ -1199,14 +1222,23 @@ fn do_ptrace_fork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
         .nr_forked
         .fetch_add(1, Ordering::SeqCst);
 
-    let regs = new_task.getregs()?;
+    let regs = new_task.getregs().unwrap();
     let _rptr = RemotePtr::new(regs.rip as *mut c_void);
     // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
-    Ok((task, new_task))
+
+    if let Some(cbs) = &task.event_cbs.clone() {
+        let mut forkfn = &mut cbs.borrow_mut().on_task_fork;
+        let _ = forkfn(task);
+    }
+
+    new_task
 }
 
-fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
-    let mut new_task = task.forked();
+fn do_ptrace_vfork(
+    task: TracedTask,
+    child: Pid,
+) -> Result<(TracedTask, TracedTask)> {
+    let mut new_task = task.forked(child);
     new_task.in_vfork = true;
     wait_sigstop(&new_task)?;
 
@@ -1236,9 +1268,7 @@ fn do_ptrace_vfork(task: TracedTask) -> Result<(TracedTask, TracedTask)> {
     Ok((task, new_task))
 }
 
-fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
-    let _sig = task.signal_to_deliver;
-    let retval = task.getevent()?;
+fn do_ptrace_event_exit<G>(gs: Arc<Mutex<G>>, pid: Pid, retval: i32) {
     let state = reverie_global_state();
     state
         .lock()
@@ -1246,8 +1276,8 @@ fn do_ptrace_event_exit(task: TracedTask) -> Result<RunTask<TracedTask>> {
         .stats
         .nr_exited
         .fetch_add(1, Ordering::SeqCst);
-    let _ = ptrace::detach(task.gettid());
-    Ok(RunTask::Exited(retval as i32))
+
+    let _ = ptrace::detach(pid);
 }
 
 enum PatchStatus {
@@ -1256,22 +1286,22 @@ enum PatchStatus {
     Successed,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C)]
 struct SyscallInfo {
     no: u64,
     args: [u64; 6],
 }
 
-fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
+fn do_ptrace_seccomp<G>(
+    gs: Arc<Mutex<G>>,
+    mut task: TracedTask,
+    syscall: SyscallNo,
+) -> Result<RunTask<TracedTask>> {
     let regs = task.getregs()?;
-    let ev = task.getevent()?;
     let rip = regs.rip;
     let rip_before_syscall = regs.rip - consts::SYSCALL_INSN_SIZE as u64;
     let tid = task.gettid();
-    let syscall = SyscallNo::from(regs.orig_rax as i32);
-    if ev == 0x7fff {
-        panic!("unfiltered syscall: {:?}", syscall);
-    }
 
     if task.ldpreload_address.is_none() {
         task.ldpreload_address = libtrampoline_load_address(tid);
@@ -1300,7 +1330,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         debug!("{} seccomp syscall {:?}@{:x} restart because it is already patched, rax: {:x}", tid, syscall, rip, regs.rax);
         skip_seccomp_syscall(&mut task, new_regs).unwrap();
         synchronize_from(&task, rip_before_syscall);
-        return Ok(task);
+        return Ok(RunTask::Runnable(task));
     }
 
     // NB: another thread is patching this syscall, retry syscall
@@ -1314,7 +1344,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         let _ = skip_seccomp_syscall(&mut task, new_regs);
         let _ = task.setregs(regs);
         task.state = TaskState::Ready;
-        return Ok(task);
+        return Ok(RunTask::Runnable(task));
     }
 
     let mut patch_status = if task.ldpreload_address.is_some() && hook.is_none()
@@ -1356,7 +1386,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
             skip_seccomp_syscall(&mut task, new_regs).unwrap();
             task.setregs(regs)?;
 
-            let rptr = task.rpc_data.unwrap().0.cast();
+            let rptr = task.rpc_data.unwrap().0.clone().cast();
             let info = SyscallInfo {
                 no: regs.orig_rax,
                 args: [
@@ -1378,7 +1408,7 @@ fn do_ptrace_seccomp(mut task: TracedTask) -> Result<TracedTask> {
         }
     }
 
-    Ok(task)
+    Ok(RunTask::Runnable(task))
 }
 
 fn from_nix_error(err: nix::Error) -> Error {
@@ -1397,7 +1427,7 @@ fn just_continue(pid: Pid, sig: Option<signal::Signal>) -> Result<()> {
 // set tool library log level
 fn systool_set_log_level(task: &TracedTask) {
     let systool_log_ptr = consts::REVERIE_LOCAL_SYSTOOL_LOG_LEVEL as *mut i64;
-    let rptr = RemotePtr::new(systool_log_ptr);
+    let rptr = Remoteable::remote(systool_log_ptr).unwrap();
     let lvl =
         std::env::var(consts::REVERIE_ENV_TOOL_LOG_KEY).map(|s| match &s[..] {
             "error" => 1,
@@ -1463,7 +1493,7 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
 
     systool_set_log_level(task);
 
-    remote::gen_syscall_sequences_at(tid, page_addr)?;
+    gen_syscall_sequences_at(tid, page_addr)?;
 
     let _ = vdso::vdso_patch(task);
 
@@ -1531,7 +1561,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
         .fetch_add(1, Ordering::SeqCst);
 
     if let Some(dyn_entry) = auxv.get(&auxv::AT_ENTRY) {
-        let _rptr = RemotePtr::new(*dyn_entry as *mut c_void);
+        let _rptr = Remoteable::remote(*dyn_entry as *mut c_void).unwrap();
         task.setbp(_rptr, Box::new(handle_program_entry_bkpt))
             .unwrap();
     }
@@ -1591,7 +1621,7 @@ fn dump_bpf_filter(task: &TracedTask) {
 }
 
 type FnBreakpoint = Box<
-    (dyn FnOnce(TracedTask, RemotePtr<c_void>) -> Result<RunTask<TracedTask>>
+    (dyn FnOnce(TracedTask, Remoteable<c_void>) -> Result<RunTask<TracedTask>>
          + 'static),
 >;
 
@@ -1599,7 +1629,7 @@ type FnBreakpoint = Box<
 // for programs linked against glibc
 fn handle_program_entry_bkpt(
     mut task: TracedTask,
-    _at: RemotePtr<c_void>,
+    _at: Remoteable<c_void>,
 ) -> Result<RunTask<TracedTask>> {
     populate_ldpreload(&mut task);
     if let Some(init_proc_state) =
@@ -1616,7 +1646,7 @@ fn handle_program_entry_bkpt(
 // for programs linked against glibc
 fn handle_fork_entry_bkpt(
     task: TracedTask,
-    _at: RemotePtr<c_void>,
+    _at: Remoteable<c_void>,
 ) -> Result<RunTask<TracedTask>> {
     if let Some(init_proc_state) =
         task.get_preloaded_symbol_address("init_process_state")

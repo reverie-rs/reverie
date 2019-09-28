@@ -1,7 +1,8 @@
 //! convenient functions for debugging tracees
 
-use crate::remote::{Remote, RemotePtr};
-use crate::task::Task;
+use reverie_api::remote::*;
+use reverie_api::task::Task;
+
 use crate::traced_task::TracedTask;
 use log::debug;
 use nix::sys::ptrace;
@@ -132,11 +133,12 @@ pub fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
     );
 
     if task_rip_is_valid(task, regs.rip) {
-        let rptr = RemotePtr::new(regs.rip as *mut u8);
-        match task.peek_bytes(rptr, 16) {
-            Err(_) => (),
-            Ok(v) => {
-                debug!("insn @{:x?} = {:02x?}", rptr.as_ptr(), v);
+        if let Some(rptr) = Remoteable::remote(regs.rip as *mut u8) {
+            match task.peek_bytes(rptr, 16) {
+                Err(_) => (),
+                Ok(v) => {
+                    debug!("insn @{:x?} = {:02x?}", rptr.as_ptr(), v);
+                }
             }
         }
     } else {

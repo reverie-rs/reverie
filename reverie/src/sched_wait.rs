@@ -4,46 +4,52 @@ use log::Level::Trace;
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd::Pid;
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use procfs;
 
+use reverie_api::event::*;
+use reverie_api::remote::*;
+use reverie_api::task::*;
 use reverie_common::consts;
 use reverie_common::state::ReverieState;
 
 use syscalls::*;
 
 use crate::debug;
-use crate::remote;
-use crate::remote::*;
-use crate::sched::*;
-use crate::task::*;
 use crate::traced_task::TracedTask;
 use crate::traced_task::*;
 
 /// the scheduler
-pub struct SchedWait {
+pub struct SchedWait<G> {
     tasks: HashMap<Pid, TracedTask>,
     run_queue: VecDeque<Pid>,
     blocked_queue: VecDeque<Pid>,
     task_tree: HashMap<Pid, Pid>,
+    event_cbs: Rc<RefCell<TaskEventCB>>,
+    global_state: Arc<Mutex<G>>,
 }
 
-impl Scheduler<TracedTask> for SchedWait {
+impl<G> SchedWait<G> {
     /// create a new `Sheduler`
-    fn new() -> Self {
+    pub fn new(cb: TaskEventCB, gs: G) -> Self {
         SchedWait {
             tasks: HashMap::new(),
             run_queue: VecDeque::new(),
             blocked_queue: VecDeque::new(),
             task_tree: HashMap::new(),
+            event_cbs: Rc::new(RefCell::new(cb)),
+            global_state: Arc::new(Mutex::new(gs)),
         }
     }
     /// add a new task into `Scheduler` run (ready) queue
-    fn add(&mut self, task: TracedTask) {
+    pub fn add(&mut self, task: TracedTask) {
         let tid = Task::gettid(&task);
         self.task_tree.insert(task.gettid(), task.getppid());
         self.tasks.insert(tid, task);
@@ -102,7 +108,7 @@ impl Scheduler<TracedTask> for SchedWait {
     /// The `Scheduler` continously pick next ready
     /// task and schedule/run it, unless there's no
     /// more task left, i.e.: when all tasks are exited.
-    fn event_loop(&mut self) -> i32 {
+    pub fn run_all(&mut self) -> i32 {
         sched_wait_event_loop(self)
     }
 }
@@ -122,7 +128,7 @@ fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
     }
 }
 
-fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
+fn ptracer_get_next<G>(tasks: &mut SchedWait<G>) -> Option<TracedTask> {
     let mut retry = true;
     while retry {
         let tid = tasks
@@ -162,13 +168,51 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
                         .tasks
                         .remove(&tid)
                         .unwrap_or_else(|| panic!("unknown pid {:}", tid));
-                    task.state = TaskState::Event(event as u64);
+                    if event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
+                        task.event_cbs = Some(tasks.event_cbs.clone());
+                        task.state = TaskState::Exec;
+                    } else if event == ptrace::Event::PTRACE_EVENT_CLONE as i32
+                    {
+                        let new_pid = ptrace::getevent(tid).unwrap();
+                        task.state =
+                            TaskState::Clone(Pid::from_raw(new_pid as i32));
+                    } else if event == ptrace::Event::PTRACE_EVENT_FORK as i32 {
+                        let new_pid = ptrace::getevent(tid).unwrap();
+                        task.state =
+                            TaskState::Fork(Pid::from_raw(new_pid as i32));
+                    } else if event == ptrace::Event::PTRACE_EVENT_VFORK as i32
+                    {
+                        let new_pid = ptrace::getevent(tid).unwrap();
+                        task.state =
+                            TaskState::Fork(Pid::from_raw(new_pid as i32));
+                    } else if event
+                        == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32
+                    {
+                        task.state = TaskState::VforkDone;
+                    } else if event
+                        == ptrace::Event::PTRACE_EVENT_SECCOMP as i32
+                    {
+                        let nr = ptrace::getevent(tid).unwrap() as i32;
+                        if nr == 0x7fff {
+                            panic!("unfiltered syscall: {:?}", nr);
+                        }
+                        let regs = ptrace::getregs(tid).unwrap();
+                        let nr = regs.orig_rax as i32;
+                        task.state = TaskState::Seccomp(SyscallNo::from(nr));
+                    } else if event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
+                        let exit_code = ptrace::getevent(tid).unwrap();
+                        task.state = TaskState::Exited(tid, exit_code as i32);
+                    } else {
+                        panic!("unknown ptrace event {}", event)
+                    };
                     return Some(task);
                 }
                 Ok(WaitStatus::PtraceSyscall(pid)) => {
                     assert!(pid == tid);
                     let mut task = tasks.tasks.remove(&tid).unwrap();
-                    task.state = TaskState::Syscall;
+                    let nr = ptrace::getevent(tid).unwrap() as i32;
+                    // println!("[pid = {}] got ptrace syscall posthook", pid);
+                    task.state = TaskState::Syscall(SyscallNo::from(nr));
                     return Some(task);
                 }
                 Ok(WaitStatus::Stopped(pid, sig)) => {
@@ -204,11 +248,11 @@ fn ptracer_get_next(tasks: &mut SchedWait) -> Option<TracedTask> {
     None
 }
 
-pub fn sched_wait_event_loop(sched: &mut SchedWait) -> i32 {
+pub fn sched_wait_event_loop<G>(sched: &mut SchedWait<G>) -> i32 {
     let mut exit_code = 0i32;
     while let Some(task) = sched.next() {
         let tid = task.gettid();
-        let run_result = task.run();
+        let run_result = run_task(Arc::clone(&sched.global_state), task);
         match run_result {
             Ok(RunTask::Exited(_code)) => exit_code = _code,
             Ok(RunTask::Blocked(task1)) => {
