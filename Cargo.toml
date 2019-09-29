@@ -1,3 +1,3 @@
 [workspace]
-members= ["reverie", "reverie-helper", "reverie-common", "reverie-preloader", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
-default-members = ["reverie", "reverie-common", "reverie-preloader" ]
+members= ["reverie", "reverie-api", "reverie-seccomp", "reverie-helper", "reverie-common", "reverie-preloader", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
+default-members = ["reverie", "reverie-api", "reverie-seccomp", "reverie-common", "reverie-preloader" ]

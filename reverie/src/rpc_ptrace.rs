@@ -6,11 +6,12 @@
 //! NB: the tracee must be in a ptrace stop
 //!
 
+use reverie_api::remote::*;
+use reverie_api::task::Task;
 use reverie_common::consts;
 
-use crate::remote::*;
-use crate::task::Task;
 use crate::traced_task::TracedTask;
+
 use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait;
@@ -22,7 +23,7 @@ pub unsafe fn rpc_call(task: &TracedTask, func: u64, args: &[u64; 6]) -> i64 {
         // println!("old_sp: {:x?}, new_sp: {:x?}, top: {:x?}", regs.rsp, new_sp, top);
         let sp_addr = new_sp as u64 - 9 * core::mem::size_of::<u64>() as u64;
         let old_sp_adjusted = regs.rsp - 3 * core::mem::size_of::<u64>() as u64;
-        let sp = RemotePtr::new(sp_addr as *mut u64);
+        let sp = Remoteable::remote(sp_addr as *mut u64).unwrap();
         let data_to_write: Vec<u64> = vec![
             func,
             args[0],
@@ -40,7 +41,7 @@ pub unsafe fn rpc_call(task: &TracedTask, func: u64, args: &[u64; 6]) -> i64 {
             task.poke(at, v).unwrap();
         });
 
-        let sp = RemotePtr::new(old_sp_adjusted as *mut u64);
+        let sp = Remoteable::remote(old_sp_adjusted as *mut u64).unwrap();
         let data_to_write: Vec<u64> =
             vec![0xcafebabe, sp_addr as u64, regs.rip];
         data_to_write.iter().enumerate().for_each(|(k, v)| {
@@ -49,7 +50,8 @@ pub unsafe fn rpc_call(task: &TracedTask, func: u64, args: &[u64; 6]) -> i64 {
             task.poke(at, v).unwrap();
         });
         let syscall_helper_addr_ptr =
-            RemotePtr::new(consts::REVERIE_LOCAL_RPC_HELPER as *mut u64);
+            Remoteable::remote(consts::REVERIE_LOCAL_RPC_HELPER as *mut u64)
+                .unwrap();
         let syscall_helper_addr = task.peek(syscall_helper_addr_ptr).unwrap();
         regs.rip = syscall_helper_addr;
         regs.rsp = old_sp_adjusted;

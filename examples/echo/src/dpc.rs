@@ -1,6 +1,7 @@
 //! deferred precedure calls
 //!
 
+use core::mem::MaybeUninit;
 use log::debug;
 use reverie_helper::{common::consts, logger, syscalls::syscall};
 
@@ -94,9 +95,16 @@ fn dpc_main() {
 }
 
 fn incoming_connection(fd: i32) {
-    let mut request: [u8; 512] = unsafe { core::mem::uninitialized() };
-    let ptr = request.as_mut_ptr();
-    let n =
-        syscall!(SYS_read, fd, ptr, core::mem::size_of_val(&request)).unwrap();
-    let _ = syscall!(SYS_write, fd, ptr, n).unwrap();
+    let mut request = MaybeUninit::<[u8; 512]>::uninit();
+    let n = unsafe {
+        let nb = syscall!(SYS_read, fd, request.as_mut_ptr() as u64, 512);
+        request.assume_init();
+        nb
+    };
+    match n {
+        Ok(nb) => {
+            let _ = syscall!(SYS_write, fd, request.as_ptr() as u64, nb as u64);
+        }
+        Err(_) => {}
+    }
 }

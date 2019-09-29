@@ -11,10 +11,11 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::vec::Vec;
 
+use reverie_api::remote::*;
+use reverie_api::task::Task;
+
 use syscalls::*;
 
-use crate::remote::*;
-use crate::task::Task;
 use crate::traced_task::TracedTask;
 
 /*
@@ -176,7 +177,7 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
         for (name, (offset, size, bytes)) in VDSO_PATCH_INFO.iter() {
             let start = vdso.address.0 + offset;
             assert!(bytes.len() <= *size);
-            let rptr = RemotePtr::new(start as *mut u8);
+            let rptr = Remoteable::remote(start as *mut u8).unwrap();
             task.poke_bytes(rptr, bytes).unwrap();
             let fill: Vec<u8> =
                 std::iter::repeat(0x90u8).take(size - bytes.len()).collect();

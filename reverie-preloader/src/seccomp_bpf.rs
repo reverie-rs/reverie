@@ -1,6 +1,9 @@
 //! seccomp bpf helpers
 //!
 
+#[allow(unused_imports)]
+use reverie_seccomp::*;
+
 #[repr(C)]
 struct range {
     begin: u64,

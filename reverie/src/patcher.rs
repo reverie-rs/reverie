@@ -1,4 +1,4 @@
-//! `remote` implements APIs so that tracer can control tracees by ptrace interface
+//! `patcher` implements APIs so that tracer can control tracees by ptrace interface
 use libc;
 use log::debug;
 use nix::sys::wait::WaitStatus;
@@ -11,12 +11,14 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
+use reverie_api::remote::*;
+use reverie_api::task::{RunTask, Task};
 use reverie_common::consts;
 use reverie_common::consts::*;
 
 use crate::hooks;
 use crate::stubs;
-use crate::task::{RunTask, Task};
+
 use crate::traced_task::TracedTask;
 use syscalls::SyscallNo;
 use syscalls::SyscallNo::*;
@@ -27,44 +29,6 @@ pub struct SyscallStubPage {
     pub size: usize,
     pub allocated: usize,
 }
-
-/// a pointer belongs to tracee's address space
-#[derive(Debug)]
-pub struct RemotePtr<T> {
-    ptr: NonNull<T>,
-}
-
-impl<T> RemotePtr<T>
-where
-    T: Sized,
-{
-    pub fn new(ptr: *mut T) -> Self {
-        RemotePtr {
-            ptr: NonNull::new(ptr).unwrap(),
-        }
-    }
-    pub fn as_ptr(self) -> *mut T {
-        self.ptr.as_ptr()
-    }
-    pub fn cast<U>(self) -> RemotePtr<U> {
-        RemotePtr {
-            ptr: self.ptr.cast::<U>(),
-        }
-    }
-    pub unsafe fn offset(self, count: isize) -> Self {
-        RemotePtr {
-            ptr: NonNull::new(self.as_ptr().offset(count)).unwrap(),
-        }
-    }
-}
-
-impl<T> Clone for RemotePtr<T> {
-    fn clone(&self) -> Self {
-        RemotePtr { ptr: self.ptr }
-    }
-}
-
-impl<T: Sized> Copy for RemotePtr<T> {}
 
 /// doing syscalls from the tracer on behalf of tracee
 pub trait RemoteSyscall {
@@ -155,11 +119,14 @@ pub fn synchronize_from(task: &TracedTask, rip: u64) {
     regs.rip = 0x7000_0018u64;
     // push return address
     regs.rsp -= 8;
-    let remote_return_address_ptr = RemotePtr::new(regs.rsp as *mut u64);
-    let remote_return_address = rip;
-    task.poke(remote_return_address_ptr, &remote_return_address)
-        .unwrap();
-    task.setregs(regs).unwrap();
+    if let Some(remote_return_address_ptr) =
+        Remoteable::remote(regs.rsp as *mut u64)
+    {
+        let remote_return_address = rip;
+        task.poke(remote_return_address_ptr, &remote_return_address)
+            .unwrap();
+        task.setregs(regs).unwrap();
+    }
 }
 
 pub fn remote_do_syscall(
@@ -174,12 +141,13 @@ pub fn remote_do_syscall(
 ) -> Result<()> {
     let mut regs = task.getregs()?;
     let syscall_helper_addr_ptr =
-        RemotePtr::new(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64);
+        Remoteable::remote(consts::REVERIE_LOCAL_SYSCALL_HELPER as *mut u64)
+            .unwrap();
     let syscall_helper_addr = task.peek(syscall_helper_addr_ptr)?;
     let return_address = regs.rip;
     regs.rip = syscall_helper_addr;
     regs.rsp -= 9 * 8; // return_address + nr + a0-a5 + pad
-    let remote_rsp = RemotePtr::new(regs.rsp as *mut i64);
+    let remote_rsp = Remoteable::remote(regs.rsp as *mut i64).unwrap();
     let regs_to_save =
         vec![0, a5, a4, a3, a2, a1, a0, nr as i64, return_address as i64];
     regs_to_save.iter().enumerate().for_each(|(k, x)| {
@@ -210,7 +178,7 @@ pub fn patch_syscall_at(
 
     let mut patch_bytes: Vec<u8> = Vec::new();
 
-    let remote_rip = RemotePtr::new(ip as *mut u8);
+    let remote_rip = Remoteable::remote(ip as *mut u8).unwrap();
 
     patch_bytes.push(0xe8);
     patch_bytes.push((rela & 0xff) as u8);
@@ -310,10 +278,11 @@ pub fn patch_syscall_at(
     // change and restore, which requires two mprotect
     for (k, chunk) in patch_tail.chunks(std::mem::size_of::<u64>()).enumerate()
     {
-        let rptr: RemotePtr<u8> = RemotePtr::new(
+        let rptr = Remoteable::remote(
             (ip as usize + k * std::mem::size_of::<u64>() + SYSCALL_INSN_SIZE)
                 as *mut u8,
-        );
+        )
+        .unwrap();
         task.poke_bytes(rptr, chunk).unwrap();
     }
     task.poke_bytes(remote_rip, patch_head.as_slice()).unwrap();

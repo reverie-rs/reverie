@@ -21,11 +21,12 @@ use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use reverie_api::event::*;
+use reverie_api::task::*;
+
 use reverie::reverie_common::{consts, state::*};
-use reverie::sched::Scheduler;
 use reverie::sched_wait::SchedWait;
-use reverie::task::{RunTask, Task};
-use reverie::{hooks, ns, task};
+use reverie::{hooks, ns};
 
 #[test]
 fn can_resolve_syscall_hooks() -> Result<()> {
@@ -49,8 +50,8 @@ struct Arguments<'a> {
     program_args: Vec<&'a str>,
 }
 
-fn run_tracer_main(sched: &mut SchedWait) -> i32 {
-    sched.event_loop()
+fn run_tracer_main<G>(sched: &mut SchedWait<G>) -> i32 {
+    sched.run_all()
 }
 
 fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
@@ -183,6 +184,22 @@ fn show_perf_stats(state: &ReverieState) {
     );
 }
 
+fn task_exec_cb(task: &mut dyn Task) -> Result<()> {
+    log::trace!("[pid {}] exec cb", task.gettid());
+    Ok(())
+}
+fn task_fork_cb(task: &mut dyn Task) -> Result<()> {
+    log::trace!("[pid {}] fork cb", task.gettid());
+    Ok(())
+}
+fn task_clone_cb(task: &mut dyn Task) -> Result<()> {
+    log::trace!("[pid {}] clone cb", task.gettid());
+    Ok(())
+}
+fn task_exit_cb(_exit_code: i32) -> Result<()> {
+    Ok(())
+}
+
 fn run_tracer(
     starting_pid: unistd::Pid,
     starting_uid: unistd::Uid,
@@ -215,8 +232,14 @@ fn run_tracer(
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
             ptrace::cont(child, None)
                 .map_err(|e| Error::new(ErrorKind::Other, e))?;
-            let tracee = task::Task::new(child);
-            let mut sched: SchedWait = Scheduler::new();
+            let tracee = Task::new(child);
+            let cbs = TaskEventCB::new(
+                Box::new(task_exec_cb),
+                Box::new(task_fork_cb),
+                Box::new(task_clone_cb),
+                Box::new(task_exit_cb),
+            );
+            let mut sched: SchedWait<i32> = SchedWait::new(cbs, 0);
             sched.add(tracee);
             let res = run_tracer_main(&mut sched);
             if argv.show_perf_stats {
