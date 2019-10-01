@@ -388,79 +388,13 @@ impl Task for TracedTask {
 /// convenient ptrace interface for `TracedTask`
 impl GuestMemoryAccess for TracedTask {
     fn peek_bytes(&self, addr: Remoteable<u8>, size: usize) -> Result<Vec<u8>> {
-        let addr = match addr {
-            Remoteable::Local(_) => panic!("expect remote address"),
-            Remoteable::Remote(x) => x,
-        };
-        if size <= std::mem::size_of::<u64>() {
-            let raw_ptr = addr.as_ptr();
-            let x = ptrace::read(self.tid, raw_ptr as ptrace::AddressType)
-                .map_err(from_nix_error)?;
-            let bytes: [u8; std::mem::size_of::<u64>()] =
-                unsafe { std::mem::transmute(x) };
-            let res: Vec<u8> = bytes.iter().cloned().take(size).collect();
-            Ok(res)
-        } else {
-            let raw_ptr = addr.as_ptr();
-            let remote_iov = &[uio::RemoteIoVec {
-                base: raw_ptr as usize,
-                len: size,
-            }];
-            let mut res = vec![0; size];
-            let local_iov = &[uio::IoVec::from_mut_slice(res.as_mut_slice())];
-            uio::process_vm_readv(self.tid, local_iov, remote_iov)
-                .map_err(from_nix_error)?;
-            Ok(res)
-        }
+        let rptr = RemotePtr::new(addr.as_ptr()).unwrap();
+        ptrace_peek_bytes(self.gettid(), rptr, size)
     }
 
     fn poke_bytes(&self, addr: Remoteable<u8>, bytes: &[u8]) -> Result<()> {
-        let addr = match addr {
-            Remoteable::Local(_) => panic!("expect remote address"),
-            Remoteable::Remote(x) => x,
-        };
-        let size = bytes.len();
-        if size <= std::mem::size_of::<u64>() {
-            let raw_ptr = addr.as_ptr();
-            let mut u64_val = if size < std::mem::size_of::<u64>() {
-                ptrace::read(self.tid, raw_ptr as ptrace::AddressType)
-                    .map_err(from_nix_error)? as u64
-            } else {
-                0u64
-            };
-            let masks = &[
-                0xffffffff_ffffff00u64,
-                0xffffffff_ffff0000u64,
-                0xffffffff_ff000000u64,
-                0xffffffff_00000000u64,
-                0xffffff00_00000000u64,
-                0xffff0000_00000000u64,
-                0xff000000_00000000u64,
-                0x00000000_00000000u64,
-            ];
-            u64_val &= masks[size - 1];
-            // for k in 0..size {
-            bytes.iter().enumerate().take(size).for_each(|(k, x)| {
-                u64_val |= u64::from(*x).wrapping_shl(k as u32 * 8);
-            });
-            ptrace::write(
-                self.tid,
-                raw_ptr as ptrace::AddressType,
-                u64_val as *mut libc::c_void,
-            )
-            .expect("ptrace poke");
-            Ok(())
-        } else {
-            let raw_ptr = addr.as_ptr();
-            let remote_iov = &[uio::RemoteIoVec {
-                base: raw_ptr as usize,
-                len: size,
-            }];
-            let local_iov = &[uio::IoVec::from_slice(bytes)];
-            uio::process_vm_writev(self.tid, local_iov, remote_iov)
-                .map_err(from_nix_error)?;
-            Ok(())
-        }
+        let rptr = RemotePtr::new(addr.as_ptr()).unwrap();
+        ptrace_poke_bytes(self.gettid(), rptr, bytes)
     }
 }
 
