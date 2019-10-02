@@ -4,6 +4,20 @@ use nix::unistd::Pid;
 
 use syscalls::SyscallNo;
 
+use crate::remote::Injector;
+
+pub trait GlobalState {
+    fn new() -> Self
+    where
+        Self: Sized;
+}
+
+pub trait ProcessState: Task + Injector {
+    fn new(pid: Pid) -> Self
+    where
+        Self: Sized;
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TaskState {
     /// XXX: iternal only
