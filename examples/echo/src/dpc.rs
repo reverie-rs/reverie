@@ -65,30 +65,19 @@ struct sockaddr {
 }
 
 fn dpc_main() {
-    let pid = unsafe {
-        syscall!(SYS_getpid).unwrap() as i32
-    };
+    let pid = unsafe { syscall!(SYS_getpid).unwrap() as i32 };
     let path = dpc_get_unp(pid);
 
-    let _ = unsafe {
-        syscall!(SYS_unlink, path.as_ptr())
-    };
+    let _ = unsafe { syscall!(SYS_unlink, path.as_ptr()) };
 
-    let _tempfd = unsafe {
-        syscall!(SYS_socket, PF_UNIX, SOCK_STREAM, 0).unwrap()
-    };
+    let _tempfd =
+        unsafe { syscall!(SYS_socket, PF_UNIX, SOCK_STREAM, 0).unwrap() };
     let sockfd = consts::REVERIE_DPC_SOCKFD;
     let sockfd_len = core::mem::size_of::<sockaddr>();
-    let _ = unsafe {
-        syscall!(SYS_dup2, _tempfd, sockfd).unwrap()
-    };
-    let _ = unsafe {
-        syscall!(SYS_close, _tempfd).unwrap()
-    };
+    let _ = unsafe { syscall!(SYS_dup2, _tempfd, sockfd).unwrap() };
+    let _ = unsafe { syscall!(SYS_close, _tempfd).unwrap() };
 
-    let _ = unsafe {
-        syscall!(SYS_unlink, path.as_ptr())
-    };
+    let _ = unsafe { syscall!(SYS_unlink, path.as_ptr()) };
 
     let sa = sockaddr {
         sa_family: PF_UNIX as u16,
@@ -96,12 +85,8 @@ fn dpc_main() {
     };
 
     let sa_ref = &sa as *const sockaddr;
-    let _ = unsafe {
-        syscall!(SYS_bind, sockfd, sa_ref, sockfd_len).unwrap()
-    };
-    let _ = unsafe {
-        syscall!(SYS_listen, sockfd, 10).unwrap()
-    };
+    let _ = unsafe { syscall!(SYS_bind, sockfd, sa_ref, sockfd_len).unwrap() };
+    let _ = unsafe { syscall!(SYS_listen, sockfd, 10).unwrap() };
 
     loop {
         let mut client = unsafe { core::mem::zeroed() };

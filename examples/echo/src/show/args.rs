@@ -179,9 +179,10 @@ impl SyscallInfo {
                 SyscallArg::WaitpidOptions(a2 as i32),
                 SyscallArg::Ptr(ptr!(void, a3)),
             ],
-            SYS_set_robust_list => {
-                vec![SyscallArg::Ptr(ptr!(void, a0)), SyscallArg::Int(a1 as i64)]
-            }
+            SYS_set_robust_list => vec![
+                SyscallArg::Ptr(ptr!(void, a0)),
+                SyscallArg::Int(a1 as i64),
+            ],
             SYS_get_robust_list => vec![
                 SyscallArg::I32(a0 as i32),
                 SyscallArg::PtrOut(ptr!(void, a1)),

@@ -152,9 +152,7 @@ macro_rules! flush {
 }
 
 fn ll_write(rawfd: i32, buffer: *const u8, size: usize) {
-    let _ = unsafe {
-        syscall!(SYS_write, rawfd, buffer, size)
-    };
+    let _ = unsafe { syscall!(SYS_write, rawfd, buffer, size) };
 }
 
 fn log_enabled(level: Level) -> bool {

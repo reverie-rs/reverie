@@ -19,7 +19,15 @@ static ECHO_DSO_CTORS: extern "C" fn() = {
 };
 
 extern "C" {
-    fn untraced_syscall(no: i32, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64;
+    fn untraced_syscall(
+        no: i32,
+        a0: u64,
+        a1: u64,
+        a2: u64,
+        a3: u64,
+        a4: u64,
+        a5: u64,
+    ) -> i64;
 }
 
 #[no_mangle]

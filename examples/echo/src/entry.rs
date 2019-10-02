@@ -23,7 +23,15 @@ macro_rules! smsgln {
 }
 
 extern "C" {
-    fn untraced_syscall(no: i32, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64;
+    fn untraced_syscall(
+        no: i32,
+        a0: u64,
+        a1: u64,
+        a2: u64,
+        a3: u64,
+        a4: u64,
+        a5: u64,
+    ) -> i64;
 }
 
 #[no_mangle]
@@ -40,9 +48,7 @@ pub extern "C" fn captured_syscall(
     let sc = SyscallNo::from(no);
     note_syscall(p, no, NoteInfo::SyscallEntry);
 
-    let tid = unsafe {
-        syscall!(SYS_gettid).unwrap()
-    };
+    let tid = unsafe { syscall!(SYS_gettid).unwrap() };
 
     let info = SyscallInfo::from(tid as i32, sc, a0, a1, a2, a3, a4, a5);
     smsg!("{}", info);
