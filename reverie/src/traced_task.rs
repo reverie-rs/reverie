@@ -478,7 +478,7 @@ pub fn run_task<G>(
             Ok(RunTask::Forked(task, new_task))
         }
         TaskState::Fork(child) => {
-            let new_task = do_ptrace_clone(gs, &mut task, child);
+            let new_task = do_ptrace_fork(gs, &mut task, child);
             Ok(RunTask::Forked(task, new_task))
         }
         TaskState::VforkDone => Ok(RunTask::Runnable(task)),
@@ -1091,7 +1091,7 @@ fn do_ptrace_vfork_done(task: TracedTask) -> Result<TracedTask> {
 }
 
 fn do_ptrace_clone<G>(
-    gs: Arc<Mutex<G>>,
+    _gs: Arc<Mutex<G>>,
     task: &mut TracedTask,
     child: Pid,
 ) -> TracedTask {
@@ -1121,7 +1121,7 @@ fn do_ptrace_clone<G>(
     init_rpc_stack_data(&mut new_task);
 
     if let Some(cbs) = &task.event_cbs.clone() {
-        let mut clonefn = &mut cbs.borrow_mut().on_task_clone;
+        let clonefn = &mut cbs.borrow_mut().on_task_clone;
         let _ = clonefn(task);
     }
 
@@ -1129,11 +1129,11 @@ fn do_ptrace_clone<G>(
 }
 
 fn do_ptrace_fork<G>(
-    gs: Arc<Mutex<G>>,
+    _gs: Arc<Mutex<G>>,
     task: &mut TracedTask,
     child: Pid,
 ) -> TracedTask {
-    let mut new_task = task.forked(child);
+    let new_task = task.forked(child);
     wait_sigstop(&new_task).unwrap();
 
     let state = reverie_global_state();
@@ -1161,7 +1161,7 @@ fn do_ptrace_fork<G>(
     // new_task.setbp(rptr, handle_fork_entry_bkpt)?;
 
     if let Some(cbs) = &task.event_cbs.clone() {
-        let mut forkfn = &mut cbs.borrow_mut().on_task_fork;
+        let forkfn = &mut cbs.borrow_mut().on_task_fork;
         let _ = forkfn(task);
     }
 
@@ -1202,7 +1202,7 @@ fn do_ptrace_vfork(
     Ok((task, new_task))
 }
 
-fn do_ptrace_event_exit<G>(gs: Arc<Mutex<G>>, pid: Pid, retval: i32) {
+fn do_ptrace_event_exit<G>(_gs: Arc<Mutex<G>>, pid: Pid, _retval: i32) {
     let state = reverie_global_state();
     state
         .lock()
@@ -1228,7 +1228,7 @@ struct SyscallInfo {
 }
 
 fn do_ptrace_seccomp<G>(
-    gs: Arc<Mutex<G>>,
+    _gs: Arc<Mutex<G>>,
     mut task: TracedTask,
     syscall: SyscallNo,
 ) -> Result<RunTask<TracedTask>> {
