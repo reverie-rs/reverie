@@ -21,7 +21,7 @@ function build {
 	if [ "X"${MUSL_BUILD_DIR} != "X" ]; then
 		cd ${MUSL_BUILD_DIR}
 		../musl-${MUSL_VER}/configure --prefix=""
-		${SYSTRACE} make -j5
+		make -j5
 	fi
 }
 
