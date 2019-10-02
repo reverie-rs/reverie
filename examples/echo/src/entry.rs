@@ -6,7 +6,6 @@ use reverie_helper::common::local_state::{ProcessState, ThreadState};
 use reverie_helper::counter::{note_syscall, NoteInfo};
 use reverie_helper::syscalls::*;
 
-use reverie_helper::logger::*;
 use reverie_helper::*;
 
 #[macro_export(smsg)]
@@ -23,21 +22,27 @@ macro_rules! smsgln {
     })
 }
 
+extern "C" {
+    fn untraced_syscall(no: i32, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64;
+}
+
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     p: &mut ProcessState,
     no: i32,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
 ) -> i64 {
     let sc = SyscallNo::from(no);
     note_syscall(p, no, NoteInfo::SyscallEntry);
 
-    let tid = syscall!(SYS_gettid).unwrap();
+    let tid = unsafe {
+        syscall!(SYS_gettid).unwrap()
+    };
 
     let info = SyscallInfo::from(tid as i32, sc, a0, a1, a2, a3, a4, a5);
     smsg!("{}", info);

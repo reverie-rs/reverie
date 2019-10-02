@@ -12,6 +12,6 @@ path = "src/lib.rs"
 
 [dependencies]
 syscalls = "0.1"
-nix = "0.13"
-lazy_static = "1.3"
+nix = "0.15"
+lazy_static = "1.4"
 libc = "0.2"

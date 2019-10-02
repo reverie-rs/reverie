@@ -27,16 +27,20 @@ static ECHO_DSO_CTORS: extern "C" fn() = {
 
 pub static LOGICAL_TIME: AtomicUsize = AtomicUsize::new(744847200);
 
+extern "C" {
+    fn untraced_syscall(no: i32, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64;
+}
+
 #[no_mangle]
 pub extern "C" fn captured_syscall(
     p: &mut ProcessState,
     no: i32,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
 ) -> i64 {
     note_syscall(p, no, NoteInfo::SyscallEntry);
     let sc = SyscallNo::from(no);
@@ -78,7 +82,7 @@ pub extern "C" fn captured_syscall(
                 tv_nsec: 0,
             };
             let tp = &t as *const libc::timespec;
-            res = unsafe { untraced_syscall(no, tp as i64, a1, 0, 0, 0, 0) }
+            res = unsafe { untraced_syscall(no, tp as u64, a1, 0, 0, 0, 0) }
         }
         _ => {
             res = unsafe { untraced_syscall(no, a0, a1, a2, a3, a4, a5) };

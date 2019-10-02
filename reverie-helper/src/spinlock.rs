@@ -59,7 +59,9 @@ impl SpinLock {
 }
 
 fn gettid() -> usize {
-    let tid = syscall!(SYS_gettid);
+    let tid = unsafe {
+        syscall!(SYS_gettid)
+    };
     tid.unwrap() as usize
 }
 

@@ -40,12 +40,12 @@ impl SyscallInfo {
     pub fn from(
         tid: i32,
         no: SyscallNo,
-        a0: i64,
-        a1: i64,
-        a2: i64,
-        a3: i64,
-        a4: i64,
-        a5: i64,
+        a0: u64,
+        a1: u64,
+        a2: u64,
+        a3: u64,
+        a4: u64,
+        a5: u64,
     ) -> Self {
         let args = match no {
             SYS_open => {
@@ -87,20 +87,20 @@ impl SyscallInfo {
             SYS_getdents => vec![
                 SyscallArg::DirFd(a0 as i32),
                 SyscallArg::DirentPtr(ptr!(void, a1)),
-                SyscallArg::Int(a2),
+                SyscallArg::Int(a2 as i64),
             ],
             SYS_getdents64 => vec![
                 SyscallArg::DirFd(a0 as i32),
                 SyscallArg::Dirent64Ptr(ptr!(void, a1)),
-                SyscallArg::Int(a2),
+                SyscallArg::Int(a2 as i64),
             ],
             SYS_mmap => vec![
                 SyscallArg::Ptr(ptr!(void, a0)),
-                SyscallArg::Hex(a1),
+                SyscallArg::Hex(a1 as u64),
                 SyscallArg::MmapProt(a2 as i32),
                 SyscallArg::MmapFlags(a3 as i32),
                 SyscallArg::Fd(a4 as i32),
-                SyscallArg::Int(a5),
+                SyscallArg::Int(a5 as i64),
             ],
             SYS_munmap => {
                 vec![SyscallArg::Ptr(ptr!(void, a0)), SyscallArg::Hex(a1)]
@@ -119,24 +119,24 @@ impl SyscallInfo {
             SYS_read => vec![
                 SyscallArg::Fd(a0 as i32),
                 SyscallArg::SizedCStrOut(a2 as usize, ptr!(i8, a1)),
-                SyscallArg::Int(a2),
+                SyscallArg::Int(a2 as i64),
             ],
             SYS_write => vec![
                 SyscallArg::Fd(a0 as i32),
                 SyscallArg::SizedCStr(a2 as usize, ptr!(i8, a1)),
-                SyscallArg::Int(a2),
+                SyscallArg::Int(a2 as i64),
             ],
             SYS_pread64 => vec![
                 SyscallArg::Fd(a0 as i32),
                 SyscallArg::SizedCStrOut(a2 as usize, ptr!(i8, a1)),
-                SyscallArg::Int(a2),
-                SyscallArg::Int(a3),
+                SyscallArg::Int(a2 as i64),
+                SyscallArg::Int(a3 as i64),
             ],
             SYS_pwrite64 => vec![
                 SyscallArg::Fd(a0 as i32),
                 SyscallArg::SizedCStr(a2 as usize, ptr!(i8, a1)),
-                SyscallArg::Int(a2),
-                SyscallArg::Int(a3),
+                SyscallArg::Int(a2 as i64),
+                SyscallArg::Int(a3 as i64),
             ],
             SYS_exit | SYS_exit_group => vec![SyscallArg::I32(a0 as i32)],
             SYS_dup => vec![SyscallArg::Fd(a0 as i32)],
@@ -159,7 +159,7 @@ impl SyscallInfo {
             SYS_readlink => vec![
                 SyscallArg::CStr(ptr!(i8, a0)),
                 SyscallArg::SizedU8VecOut(a2 as usize, ptr!(u8, a1)),
-                SyscallArg::Int(a2),
+                SyscallArg::Int(a2 as i64),
             ],
             SYS_seccomp => vec![
                 SyscallArg::SeccompOp(a0 as u32),
@@ -170,7 +170,7 @@ impl SyscallInfo {
             | SYS_getpgrp => Vec::new(),
             SYS_getrandom => vec![
                 SyscallArg::SizedU8VecOut(a1 as usize, ptr!(u8, a0)),
-                SyscallArg::Int(a1),
+                SyscallArg::Int(a1 as i64),
                 SyscallArg::I32(a2 as i32),
             ],
             SYS_wait4 => vec![
@@ -180,7 +180,7 @@ impl SyscallInfo {
                 SyscallArg::Ptr(ptr!(void, a3)),
             ],
             SYS_set_robust_list => {
-                vec![SyscallArg::Ptr(ptr!(void, a0)), SyscallArg::Int(a1)]
+                vec![SyscallArg::Ptr(ptr!(void, a0)), SyscallArg::Int(a1 as i64)]
             }
             SYS_get_robust_list => vec![
                 SyscallArg::I32(a0 as i32),
@@ -232,7 +232,7 @@ impl SyscallInfo {
             ],
             SYS_lseek => vec![
                 SyscallArg::Fd(a0 as i32),
-                SyscallArg::Int(a1),
+                SyscallArg::Int(a1 as i64),
                 SyscallArg::LseekWhence(a2 as i32),
             ],
             SYS_fcntl => vec![
@@ -250,12 +250,12 @@ impl SyscallInfo {
                 SyscallArg::Envp(ptr!(void, a2)),
             ],
             _ => vec![
-                SyscallArg::Int(a0),
-                SyscallArg::Int(a1),
-                SyscallArg::Int(a2),
-                SyscallArg::Int(a3),
-                SyscallArg::Int(a4),
-                SyscallArg::Int(a5),
+                SyscallArg::Int(a0 as i64),
+                SyscallArg::Int(a1 as i64),
+                SyscallArg::Int(a2 as i64),
+                SyscallArg::Int(a3 as i64),
+                SyscallArg::Int(a4 as i64),
+                SyscallArg::Int(a5 as i64),
             ],
         };
 

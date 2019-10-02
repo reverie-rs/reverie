@@ -16,7 +16,7 @@ syscalls = "0.1"
 reverie-common = { path = "../reverie-common" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
-nix = "0.13"
+nix = "0.15"
 
 [build-dependencies]
 cc = "1.0"

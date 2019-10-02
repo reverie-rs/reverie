@@ -16,7 +16,7 @@ pub enum SyscallRet {
 pub enum SyscallArg {
     Int(i64),
     UInt(u64),
-    Hex(i64),
+    Hex(u64),
     Ptr(Option<NonNull<void>>),
     PtrOut(Option<NonNull<void>>),
     CStr(Option<NonNull<i8>>),
