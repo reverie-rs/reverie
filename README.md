@@ -28,7 +28,7 @@ cargo build --all # build `reverie` and tool libraries
 
 
 ```
-./target/debug/reverie --tool=target/debug/libecho.so --preloader=target/debug/libpreloader.so /path/to/X [X_command_arguments]
+./target/debug/reverie --tool=target/debug/libecho.so --preloader=target/debug/libpreloader.so -- /path/to/X [X_command_arguments]
 ```
 
 Tool log can be enabled by pass `TOOL_LOG=<level>` as environment variables (with `reverie`).
