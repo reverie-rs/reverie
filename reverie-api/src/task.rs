@@ -59,7 +59,7 @@ pub enum RunTask<Task> {
     Forked(Task, Task),
 }
 
-pub trait Task {
+pub trait Task: Injector {
     fn new(pid: Pid) -> Self
     where
         Self: Sized;

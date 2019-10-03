@@ -135,10 +135,10 @@ unsafe extern "C" fn init_process_state(pid: Pid) -> Box<EchoState> {
 }
 
 impl Injector for EchoState {
-    fn resolve_symbol_address(&self, _: Pid, _: String) -> Option<FunAddr> {
+    fn resolve_symbol_address(&self, _: &str) -> Option<FunAddr> {
         None
     }
-    fn inject_funcall(&self, func: FunAddr, _args: SyscallArgs) {
+    fn inject_funcall(&self, func: FunAddr, _args: &SyscallArgs) {
         unimplemented!("inject_funccall: {:x?}", func);
     }
     fn inject_syscall(&self, no: SyscallNo, args: SyscallArgs) -> i64 {

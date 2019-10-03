@@ -119,9 +119,9 @@ fn init_rpc_stack_data(task: &mut TracedTask) {
         SYS_mmap,
         0,
         0x8000,
-        i64::from(libc::PROT_READ | libc::PROT_WRITE),
-        i64::from(libc::MAP_PRIVATE | libc::MAP_ANONYMOUS),
-        -1,
+        u64::from((libc::PROT_READ | libc::PROT_WRITE) as u32),
+        u64::from((libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as u32),
+        -1i64 as u64,
         0,
     );
 
@@ -427,6 +427,44 @@ impl Ptracer for TracedTask {
     }
 }
 
+impl Injector for TracedTask {
+    /// Inject a system call into the guest and register the callback.
+    /// Note that the callback will be called twice in the case of a Fork.
+    fn inject_syscall(&self, sc: SyscallNo, args: SyscallArgs) -> i64 {
+        reverie_api::remote::untraced_syscall(self as &dyn Task,
+                                              sc,
+                                              args.arg0,
+                                              args.arg1,
+                                              args.arg2,
+                                              args.arg3,
+                                              args.arg4,
+                                              args.arg5)
+    }
+
+    /// Look up the address of a function within the guest.
+    fn resolve_symbol_address(&self, sym: &str) -> Option<FunAddr> {
+        match self.get_preloaded_symbol_address(sym) {
+            None => None,
+            Some(symaddr) => {
+                Remoteable::remote(symaddr as *mut u64)
+            }
+        }
+    }
+
+    /// Run a function in the guest.
+    ///
+    /// TODO: ideally a tool implementing SystraceTool would be able to
+    /// call its own functions within the guest without indirecting through the
+    fn inject_funcall(&self, func: FunAddr, args: &SyscallArgs) {
+        let symaddr = func.as_ptr() as u64;
+        let v = [args.arg0, args.arg1, args.arg2,
+                 args.arg3, args.arg4, args.arg5];
+        unsafe {
+            rpc_call(self, symaddr, &v);
+        }
+    }
+}
+
 /// run a task, task ptrace event dispatcher
 pub fn run_task<G>(
     gs: Arc<Mutex<G>>,
@@ -516,12 +554,12 @@ impl TracedTask {
     pub fn untraced_syscall(
         &mut self,
         nr: SyscallNo,
-        a0: i64,
-        a1: i64,
-        a2: i64,
-        a3: i64,
-        a4: i64,
-        a5: i64,
+        a0: u64,
+        a1: u64,
+        a2: u64,
+        a3: u64,
+        a4: u64,
+        a5: u64,
     ) -> Result<i64> {
         remote_do_syscall_at(self, 0x7000_0008, nr, a0, a1, a2, a3, a4, a5)
     }
@@ -799,18 +837,18 @@ fn extended_jump_from_to(
 // `callq extended_jump_stub`, the `extended_jump_stub`
 // must be within +/- 2GB of IP.
 fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
-    let size = (stubs::extended_jump_pages() * 0x1000) as i64;
-    let at = search_stub_page(task.gettid(), rip, size as usize)? as i64;
+    let size = (stubs::extended_jump_pages() * 0x1000) as u64;
+    let at = search_stub_page(task.gettid(), rip, size as usize)? as u64;
     let allocated_at = task.untraced_syscall(
         SYS_mmap,
         at,
         size,
-        i64::from(libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC),
-        i64::from(libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS),
-        -1i64,
+        u64::from((libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u32),
+        u64::from((libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u32),
+        -1i64 as u64,
         0,
     )?;
-    assert!(at == allocated_at);
+    assert!(at == allocated_at as u64);
 
     let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
 
@@ -831,9 +869,9 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
 
     task.untraced_syscall(
         SYS_mprotect,
-        allocated_at,
+        allocated_at as u64,
         size,
-        i64::from(libc::PROT_READ | libc::PROT_EXEC),
+        u64::from((libc::PROT_READ | libc::PROT_EXEC)as u32),
         0,
         0,
         0,
@@ -851,15 +889,16 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
 /// - the tracee must have returned from PTRACE_EXEC_EVENT
 fn remote_do_syscall_at(
     task: &mut TracedTask,
-    rip: u64,
+    _rip: u64,
     nr: SyscallNo,
-    a0: i64,
-    a1: i64,
-    a2: i64,
-    a3: i64,
-    a4: i64,
-    a5: i64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
 ) -> Result<i64> {
+    /*
     let mut regs = task.getregs()?;
     let oldregs = regs;
 
@@ -887,6 +926,13 @@ fn remote_do_syscall_at(
         Err(Error::from_raw_os_error(-(newregs.rax as i64) as i32))
     } else {
         Ok(newregs.rax as i64)
+    }
+    */
+    let ret = reverie_api::remote::untraced_syscall(task, nr, a0, a1, a2, a3, a4, a5);
+    if ret as u64 > (-4096i64) as u64 {
+        Err(Error::from_raw_os_error(-ret as i32))
+    } else {
+        Ok(ret)
     }
 }
 
@@ -1133,7 +1179,7 @@ fn do_ptrace_fork<G>(
     task: &mut TracedTask,
     child: Pid,
 ) -> TracedTask {
-    let new_task = task.forked(child);
+    let mut new_task = task.forked(child);
     wait_sigstop(&new_task).unwrap();
 
     let state = reverie_global_state();
@@ -1162,7 +1208,7 @@ fn do_ptrace_fork<G>(
 
     if let Some(cbs) = &task.event_cbs.clone() {
         let forkfn = &mut cbs.borrow_mut().on_task_fork;
-        let _ = forkfn(task);
+        let _ = forkfn(&mut new_task);
     }
 
     new_task
@@ -1472,10 +1518,10 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
         .untraced_syscall(
             SYS_mmap,
             0,
-            consts::REVERIE_GLOBAL_STATE_SIZE as i64,
-            i64::from(libc::PROT_READ | libc::PROT_WRITE),
-            i64::from(libc::MAP_PRIVATE | libc::MAP_ANONYMOUS),
-            -1i64,
+            consts::REVERIE_GLOBAL_STATE_SIZE as u64,
+            u64::from((libc::PROT_READ | libc::PROT_WRITE) as u32),
+            u64::from((libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as u32),
+            -1i64 as u64,
             0,
         )
         .unwrap();
@@ -1567,12 +1613,11 @@ fn handle_program_entry_bkpt(
 ) -> Result<RunTask<TracedTask>> {
     populate_ldpreload(&mut task);
     if let Some(init_proc_state) =
-        task.get_preloaded_symbol_address("init_process_state")
+        task.resolve_symbol_address("init_process_state")
     {
-        let args: &[u64; 6] = &[0, 0, 0, 0, 0, 0];
-        unsafe { rpc_call(&task, init_proc_state, args) };
+        let args = SyscallArgs::from(0, 0, 0, 0, 0, 0);
+        task.inject_funcall(init_proc_state, &args);
     }
-
     may_start_dpc_task(task)
 }
 
@@ -1610,13 +1655,13 @@ fn may_start_dpc_task(mut task: TracedTask) -> Result<RunTask<TracedTask>> {
                 SYS_mmap,
                 0,
                 stack_size,
-                i64::from(libc::PROT_READ | libc::PROT_WRITE),
-                i64::from(libc::MAP_PRIVATE | libc::MAP_ANONYMOUS),
-                -1,
+                u64::from((libc::PROT_READ | libc::PROT_WRITE) as u32),
+                u64::from((libc::MAP_PRIVATE | libc::MAP_ANONYMOUS) as u32),
+                -1i64 as u64,
                 0,
             )
             .unwrap();
-        let stack_top = child_stack + stack_size - 0x10;
+        let stack_top = child_stack as u64 + stack_size - 0x10;
         match remote_do_clone(
             task,
             dpc_entry,

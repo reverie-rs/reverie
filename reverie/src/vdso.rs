@@ -166,9 +166,9 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
     {
         task.untraced_syscall(
             SYS_mprotect,
-            vdso.address.0 as i64,
-            (vdso.address.1 - vdso.address.0) as i64,
-            i64::from(libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC),
+            vdso.address.0 as u64,
+            (vdso.address.1 - vdso.address.0) as u64,
+            u64::from((libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u32),
             0,
             0,
             0,
@@ -192,9 +192,9 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
         }
         task.untraced_syscall(
             SYS_mprotect,
-            vdso.address.0 as i64,
-            (vdso.address.1 - vdso.address.0) as i64,
-            i64::from(libc::PROT_READ | libc::PROT_EXEC),
+            vdso.address.0,
+            vdso.address.1 - vdso.address.0,
+            u64::from((libc::PROT_READ | libc::PROT_EXEC) as u64),
             0,
             0,
             0,

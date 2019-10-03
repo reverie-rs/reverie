@@ -402,7 +402,7 @@ pub type SysCallRet = i64;
 // syscall number
 pub type SysNo = i32;
 
-pub type FunAddr = NonNull<u64>;
+pub type FunAddr = Remoteable<u64>;
 
 /// Run code *inside* a guest process.
 ///
@@ -417,16 +417,17 @@ pub type FunAddr = NonNull<u64>;
 pub trait Injector {
     /// Inject a system call into the guest and register the callback.
     /// Note that the callback will be called twice in the case of a Fork.
-    fn inject_syscall(&self, _: SyscallNo, _: SyscallArgs) -> i64;
+    fn inject_syscall(&self, nr: SyscallNo, args: SyscallArgs) -> i64;
 
-    /// Look up the address of a function within the guest.
-    fn resolve_symbol_address(&self, _: Pid, _: String) -> Option<FunAddr>;
+    /// Look up the symbol address within the guest.
+    /// only symbols from dso passwd by `--tool` is looked up
+    fn resolve_symbol_address(&self, sym: &str) -> Option<FunAddr>;
 
-    /// Run a function in the guest.
-    ///
-    /// TODO: ideally a tool implementing SystraceTool would be able to
-    /// call its own functions within the guest without indirecting through the
-    fn inject_funcall(&self, func: FunAddr, args: SyscallArgs);
+    /// Call a function in the guest.
+    /// Even though function ABI is a lot more flexibile
+    /// we only allow syscall style function calls, that is,
+    /// up to six arguments without fpu/vector.
+    fn inject_funcall(&self, func: FunAddr, args: &SyscallArgs);
 
     // Wait for the guest to exit.
     // fn wait_exit(&self);
@@ -452,14 +453,6 @@ pub fn untraced_syscall(
     let tid = task.gettid();
     let mut regs = ptrace::getregs(tid).unwrap();
     let oldregs = regs;
-
-    if nr == SYS_execve || nr == SYS_execveat {
-        return 0;
-    }
-
-    if nr == SYS_clone || nr == SYS_fork || nr == SYS_vfork {
-        return 0;
-    }
 
     let no = nr as u64;
     regs.orig_rax = no;

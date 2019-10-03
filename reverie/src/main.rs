@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use reverie_api::event::*;
 use reverie_api::task::*;
+use reverie_api::remote::*;
 
 use reverie::reverie_common::{consts, state::*};
 use reverie::sched_wait::SchedWait;
@@ -186,10 +187,22 @@ fn show_perf_stats(state: &ReverieState) {
 
 fn task_exec_cb(task: &mut dyn Task) -> Result<()> {
     log::trace!("[pid {}] exec cb", task.gettid());
+    if let Some(init_proc_state) =
+        task.resolve_symbol_address("init_process_state")
+    {
+        let args = SyscallArgs::from(0, 0, 0, 0, 0, 0);
+        task.inject_funcall(init_proc_state, &args);
+    }
     Ok(())
 }
 fn task_fork_cb(task: &mut dyn Task) -> Result<()> {
     log::trace!("[pid {}] fork cb", task.gettid());
+    if let Some(init_proc_state) =
+        task.resolve_symbol_address("init_process_state")
+    {
+        let args = SyscallArgs::from(0, 0, 0, 0, 0, 0);
+        task.inject_funcall(init_proc_state, &args);
+    }
     Ok(())
 }
 fn task_clone_cb(task: &mut dyn Task) -> Result<()> {
