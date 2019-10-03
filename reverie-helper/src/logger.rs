@@ -20,7 +20,7 @@ use log::{Level, Log, Metadata, Record, SetLoggerError};
 use crate::spinlock::SpinLock;
 use syscalls::*;
 
-const RING_BUFF_SIZE: usize = 16384;
+const RING_BUFF_SIZE: usize = 0x100000;
 
 struct RingBuffer {
     bytes: [u8; RING_BUFF_SIZE],
