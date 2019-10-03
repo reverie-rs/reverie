@@ -562,7 +562,21 @@ impl TracedTask {
         a4: u64,
         a5: u64,
     ) -> Result<i64> {
-        remote_do_syscall_at(self, 0x7000_0008, nr, a0, a1, a2, a3, a4, a5)
+        let ret = reverie_api::remote::untraced_syscall(
+            self as &dyn Task,
+            nr,
+            a0,
+            a1,
+            a2,
+            a3,
+            a4,
+            a5,
+        );
+        if ret as u64 > (-4096i64) as u64 {
+            Err(Error::from_raw_os_error(-ret as i32))
+        } else {
+            Ok(ret)
+        }
     }
 
     fn setbp<F>(&mut self, _at: Remoteable<c_void>, op: F) -> Result<()>
@@ -885,61 +899,6 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
     update_memory_map(task);
 
     Ok(allocated_at as u64)
-}
-
-/// inject syscall for given tracee
-///
-/// NB: limitations:
-/// - tracee must be in stopped state.
-/// - the tracee must have returned from PTRACE_EXEC_EVENT
-fn remote_do_syscall_at(
-    task: &mut TracedTask,
-    _rip: u64,
-    nr: SyscallNo,
-    a0: u64,
-    a1: u64,
-    a2: u64,
-    a3: u64,
-    a4: u64,
-    a5: u64,
-) -> Result<i64> {
-    /*
-    let mut regs = task.getregs()?;
-    let oldregs = regs;
-
-    let no = nr as u64;
-    regs.orig_rax = no;
-    regs.rax = no;
-    regs.rdi = a0 as u64;
-    regs.rsi = a1 as u64;
-    regs.rdx = a2 as u64;
-    regs.r10 = a3 as u64;
-    regs.r8 = a4 as u64;
-    regs.r9 = a5 as u64;
-
-    // instruction at 0x7000_0008 must be
-    // callq 0x70000000 (5-bytes)
-    // .byte 0xcc
-    regs.rip = rip;
-    task.setregs(regs)?;
-
-    task.resume(None)?;
-    wait_sigtrap_sigchld(task)?;
-    let newregs = task.getregs()?;
-    task.setregs(oldregs)?;
-    if newregs.rax as u64 > (-4096i64) as u64 {
-        Err(Error::from_raw_os_error(-(newregs.rax as i64) as i32))
-    } else {
-        Ok(newregs.rax as i64)
-    }
-    */
-    let ret =
-        reverie_api::remote::untraced_syscall(task, nr, a0, a1, a2, a3, a4, a5);
-    if ret as u64 > (-4096i64) as u64 {
-        Err(Error::from_raw_os_error(-ret as i32))
-    } else {
-        Ok(ret)
-    }
 }
 
 // wait either SIGTRAP (breakpoint) or SIGCHLD.
