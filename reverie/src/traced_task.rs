@@ -1322,7 +1322,8 @@ fn do_ptrace_seccomp<G>(
                 .fetch_add(1, Ordering::SeqCst);
         }
         PatchStatus::Failed => {
-            let hook = task.resolve_symbol_address("syscall_hook")
+            let hook = task
+                .resolve_symbol_address("syscall_hook")
                 .expect("syscall_hook not found");
             let mut new_regs = regs;
             new_regs.rax = regs.orig_rax;

@@ -2,7 +2,7 @@
 //!
 
 use crate::show::*;
-use reverie_helper::common::local_state::{ProcessState};
+use reverie_helper::common::local_state::ProcessState;
 use reverie_helper::counter::{note_syscall, NoteInfo};
 use reverie_helper::syscalls::*;
 
