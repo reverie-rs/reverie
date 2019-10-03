@@ -1321,10 +1321,8 @@ fn do_ptrace_seccomp<G>(
                 .nr_syscalls_ptraced
                 .fetch_add(1, Ordering::SeqCst);
         }
-        //PatchStatus::Failed => {}
         PatchStatus::Failed => {
-            let hook = task
-                .get_preloaded_symbol_address("syscall_hook")
+            let hook = task.resolve_symbol_address("syscall_hook")
                 .expect("syscall_hook not found");
             let mut new_regs = regs;
             new_regs.rax = regs.orig_rax;
@@ -1339,8 +1337,8 @@ fn do_ptrace_seccomp<G>(
                 ],
             };
             task.poke(rptr, &info).unwrap();
-            let args = &[rptr.as_ptr() as u64, 0, 0, 0, 0, 0];
-            let _ = unsafe { rpc_call(&task, hook, args) };
+            let args = SyscallArgs::from(rptr.as_ptr() as u64, 0, 0, 0, 0, 0);
+            task.inject_funcall(hook, &args);
         }
         PatchStatus::Successed => {
             // others fields are updated in tracee instead.
