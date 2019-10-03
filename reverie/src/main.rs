@@ -22,8 +22,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use reverie_api::event::*;
-use reverie_api::task::*;
 use reverie_api::remote::*;
+use reverie_api::task::*;
 
 use reverie::reverie_common::{consts, state::*};
 use reverie::sched_wait::SchedWait;

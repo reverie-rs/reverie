@@ -431,23 +431,23 @@ impl Injector for TracedTask {
     /// Inject a system call into the guest and register the callback.
     /// Note that the callback will be called twice in the case of a Fork.
     fn inject_syscall(&self, sc: SyscallNo, args: SyscallArgs) -> i64 {
-        reverie_api::remote::untraced_syscall(self as &dyn Task,
-                                              sc,
-                                              args.arg0,
-                                              args.arg1,
-                                              args.arg2,
-                                              args.arg3,
-                                              args.arg4,
-                                              args.arg5)
+        reverie_api::remote::untraced_syscall(
+            self as &dyn Task,
+            sc,
+            args.arg0,
+            args.arg1,
+            args.arg2,
+            args.arg3,
+            args.arg4,
+            args.arg5,
+        )
     }
 
     /// Look up the address of a function within the guest.
     fn resolve_symbol_address(&self, sym: &str) -> Option<FunAddr> {
         match self.get_preloaded_symbol_address(sym) {
             None => None,
-            Some(symaddr) => {
-                Remoteable::remote(symaddr as *mut u64)
-            }
+            Some(symaddr) => Remoteable::remote(symaddr as *mut u64),
         }
     }
 
@@ -457,8 +457,9 @@ impl Injector for TracedTask {
     /// call its own functions within the guest without indirecting through the
     fn inject_funcall(&self, func: FunAddr, args: &SyscallArgs) {
         let symaddr = func.as_ptr() as u64;
-        let v = [args.arg0, args.arg1, args.arg2,
-                 args.arg3, args.arg4, args.arg5];
+        let v = [
+            args.arg0, args.arg1, args.arg2, args.arg3, args.arg4, args.arg5,
+        ];
         unsafe {
             rpc_call(self, symaddr, &v);
         }
@@ -843,8 +844,12 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
         SYS_mmap,
         at,
         size,
-        u64::from((libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u32),
-        u64::from((libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u32),
+        u64::from(
+            (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u32,
+        ),
+        u64::from(
+            (libc::MAP_PRIVATE | libc::MAP_FIXED | libc::MAP_ANONYMOUS) as u32,
+        ),
         -1i64 as u64,
         0,
     )?;
@@ -871,7 +876,7 @@ fn allocate_extended_jumps(task: &mut TracedTask, rip: u64) -> Result<u64> {
         SYS_mprotect,
         allocated_at as u64,
         size,
-        u64::from((libc::PROT_READ | libc::PROT_EXEC)as u32),
+        u64::from((libc::PROT_READ | libc::PROT_EXEC) as u32),
         0,
         0,
         0,
@@ -928,7 +933,8 @@ fn remote_do_syscall_at(
         Ok(newregs.rax as i64)
     }
     */
-    let ret = reverie_api::remote::untraced_syscall(task, nr, a0, a1, a2, a3, a4, a5);
+    let ret =
+        reverie_api::remote::untraced_syscall(task, nr, a0, a1, a2, a3, a4, a5);
     if ret as u64 > (-4096i64) as u64 {
         Err(Error::from_raw_os_error(-ret as i32))
     } else {

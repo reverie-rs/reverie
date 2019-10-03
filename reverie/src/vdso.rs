@@ -168,7 +168,9 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
             SYS_mprotect,
             vdso.address.0 as u64,
             (vdso.address.1 - vdso.address.0) as u64,
-            u64::from((libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u32),
+            u64::from(
+                (libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC) as u32,
+            ),
             0,
             0,
             0,
