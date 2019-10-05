@@ -2,8 +2,8 @@
 
 TOPDIR=`realpath $(dirname $0)/..`
 
-REVERIE=${TOPDIR}/target/debug/reverie
-PRELOADER=${TOPDIR}/target/debug/libreverie_preloader.so
-ECHO=${TOPDIR}/target/debug/libecho.so
+REVERIE=${TOPDIR}/target/release/reverie
+PRELOADER=${TOPDIR}/target/release/libreverie_preloader.so
+ECHO=${TOPDIR}/target/release/libecho.so
 
-unshare --mount-proc -Umpf ${REVERIE} --preloader=${PRELOADER} --tool=${ECHO} -- $*
+unshare --mount-proc -Umpf ${REVERIE} --debug=${DEBUG} --preloader=${PRELOADER} --tool=${ECHO} -- $*
