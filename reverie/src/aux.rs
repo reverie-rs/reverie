@@ -13,10 +13,9 @@ use std::io::Result;
 use reverie_api::remote::*;
 use reverie_api::task::Task;
 
-//use crate::remote::*;
 use crate::traced_task::TracedTask;
 
-const AUXV_MAX: usize = 256;
+const AUXV_MAX: usize = 512;
 
 pub unsafe fn getauxval(task: &TracedTask) -> Result<HashMap<usize, u64>> {
     let mut res: HashMap<usize, u64> = HashMap::new();

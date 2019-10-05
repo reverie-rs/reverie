@@ -19,9 +19,7 @@
 use goblin::elf::Elf;
 use libc;
 use log::{debug, info, trace, warn};
-use nix::sys::socket;
-use nix::sys::wait::WaitStatus;
-use nix::sys::{ptrace, signal, uio, wait};
+use nix::sys::{mman, ptrace, signal, socket, uio, wait, wait::WaitStatus};
 use nix::unistd;
 use nix::unistd::Pid;
 use procfs;
@@ -30,6 +28,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result, Write};
+use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -430,7 +429,7 @@ impl Ptracer for TracedTask {
 impl Injector for TracedTask {
     /// Inject a system call into the guest and register the callback.
     /// Note that the callback will be called twice in the case of a Fork.
-    fn inject_syscall(&self, sc: SyscallNo, args: SyscallArgs) -> i64 {
+    fn inject_syscall(&self, sc: SyscallNo, args: &SyscallArgs) -> i64 {
         reverie_api::remote::untraced_syscall(
             self as &dyn Task,
             sc,
@@ -523,7 +522,7 @@ pub fn run_task<G>(
         TaskState::VforkDone => Ok(RunTask::Runnable(task)),
         TaskState::Syscall(_sc) => handle_syscall_exit(task),
         TaskState::Exited(pid, exit_code) => {
-            do_ptrace_event_exit(gs, pid, exit_code);
+            do_ptrace_event_exit(gs, &mut task, pid, exit_code);
             Ok(RunTask::Exited(exit_code))
         }
     }
@@ -1213,7 +1212,12 @@ fn do_ptrace_vfork(
     Ok((task, new_task))
 }
 
-fn do_ptrace_event_exit<G>(_gs: Arc<Mutex<G>>, pid: Pid, _retval: i32) {
+fn do_ptrace_event_exit<G>(
+    _gs: Arc<Mutex<G>>,
+    _task: &mut TracedTask,
+    pid: Pid,
+    _retval: i32,
+) {
     let state = reverie_global_state();
     state
         .lock()
@@ -1221,8 +1225,28 @@ fn do_ptrace_event_exit<G>(_gs: Arc<Mutex<G>>, pid: Pid, _retval: i32) {
         .stats
         .nr_exited
         .fetch_add(1, Ordering::SeqCst);
-
     let _ = ptrace::detach(pid);
+    // XXX: this could be Exited, SIGCHLD, or ECHILD
+    let _status = wait::waitpid(pid, None);
+    let _ = ptrace::detach(pid);
+
+    let offset = 4096 * (pid.as_raw() as i64 - 1);
+    let mut buf: [u8; 8] = unsafe { std::mem::zeroed() };
+    nix::sys::uio::pread(consts::REVERIE_GLOBAL_STATE_FD, &mut buf, offset)
+        .expect("memfd pread failed");
+    let nr_syscalls: usize = unsafe { std::mem::transmute(buf) };
+    state
+        .lock()
+        .unwrap()
+        .stats
+        .nr_syscalls
+        .fetch_add(nr_syscalls, Ordering::SeqCst);
+    state
+        .lock()
+        .unwrap()
+        .stats
+        .nr_syscalls_captured
+        .fetch_add(nr_syscalls, Ordering::SeqCst);
 }
 
 enum PatchStatus {

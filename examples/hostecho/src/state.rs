@@ -141,7 +141,7 @@ impl Injector for EchoState {
     fn inject_funcall(&self, func: FunAddr, _args: &SyscallArgs) {
         unimplemented!("inject_funccall: {:x?}", func);
     }
-    fn inject_syscall(&self, no: SyscallNo, args: SyscallArgs) -> i64 {
+    fn inject_syscall(&self, no: SyscallNo, args: &SyscallArgs) -> i64 {
         reverie_api::remote::untraced_syscall(
             self, no, args.arg0, args.arg1, args.arg2, args.arg3, args.arg4,
             args.arg5,

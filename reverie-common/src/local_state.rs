@@ -13,14 +13,17 @@ use core::ffi::c_void;
 
 use std::cell::{RefCell, UnsafeCell};
 use std::os::unix::io::RawFd;
+use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 #[allow(unused_imports)]
 use std::collections::{HashMap, HashSet};
 
+use nix::sys::mman;
 use nix::unistd::Pid;
 
+use crate::consts;
 use crate::profiling::*;
 
 /// resources belongs to threads
@@ -72,8 +75,11 @@ pub struct DescriptorType {
 }
 
 /// Resources belongs to process scope (intead of thread scope)
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ProcessState {
+    pub nr_syscalls: u64,
+    pub pstate_store: NonNull<u64>,
+    pub pstate_store_size: usize,
     pub sockfd_read: Option<RawFd>,
     pub sockfd_write: Option<RawFd>,
 
@@ -83,9 +89,29 @@ pub struct ProcessState {
     pub thread_states: Rc<RefCell<HashMap<Pid, ThreadState>>>,
 }
 
+fn get_pstate_store() -> NonNull<u64> {
+    let pid = nix::unistd::getpid();
+    let offset = 4096 * (pid.as_raw() - 1) as i64;
+    let mem = unsafe {
+        mman::mmap(
+            0 as *mut _,
+            4096,
+            mman::ProtFlags::PROT_READ | mman::ProtFlags::PROT_WRITE,
+            mman::MapFlags::MAP_SHARED,
+            consts::REVERIE_GLOBAL_STATE_FD,
+            offset,
+        )
+        .expect("mmap memfd failed")
+    };
+    NonNull::new(mem as *mut u64).unwrap()
+}
+
 impl ProcessState {
     pub fn new() -> Self {
         ProcessState {
+            nr_syscalls: 0,
+            pstate_store: get_pstate_store(),
+            pstate_store_size: 4096,
             sockfd_read: None,
             sockfd_write: None,
             stats: SyscallStats::new(),
@@ -95,6 +121,9 @@ impl ProcessState {
     }
     pub fn forked(&self) -> Self {
         ProcessState {
+            nr_syscalls: self.nr_syscalls,
+            pstate_store: get_pstate_store(),
+            pstate_store_size: 4096,
             sockfd_read: self.sockfd_read.clone(),
             sockfd_write: self.sockfd_write.clone(),
             fd_status: {
@@ -108,6 +137,9 @@ impl ProcessState {
     }
     pub fn cloned(&self) -> Self {
         ProcessState {
+            nr_syscalls: self.nr_syscalls,
+            pstate_store: get_pstate_store(),
+            pstate_store_size: 4096,
             sockfd_read: self.sockfd_read.clone(),
             sockfd_write: self.sockfd_write.clone(),
             stats: self.stats.clone(),
@@ -129,3 +161,12 @@ unsafe extern "C" fn init_process_state() {
     let pstate = UnsafeCell::new(new_state);
     PSTATE = Some(pstate);
 }
+
+#[link_section = ".init_array"]
+#[used]
+static EARLY_STATE_INIT: extern "C" fn() = {
+    extern "C" fn early_state_init() {
+        /* nothing to do */
+    };
+    early_state_init
+};

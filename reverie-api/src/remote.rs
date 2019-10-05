@@ -415,9 +415,8 @@ pub type FunAddr = Remoteable<u64>;
 /// inject the functional calls, and instead intercept and prevent attempts by the guest
 /// to register signal handlers in the first place.
 pub trait Injector {
-    /// Inject a system call into the guest and register the callback.
-    /// Note that the callback will be called twice in the case of a Fork.
-    fn inject_syscall(&self, nr: SyscallNo, args: SyscallArgs) -> i64;
+    /// Inject a system call into the guest and wait for the return value
+    fn inject_syscall(&self, nr: SyscallNo, args: &SyscallArgs) -> i64;
 
     /// Look up the symbol address within the guest.
     /// only symbols from dso passwd by `--tool` is looked up

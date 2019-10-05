@@ -8,10 +8,9 @@ use clap::{App, Arg};
 use fern;
 use libc;
 use nix::fcntl::OFlag;
-use nix::sys::mman;
 use nix::sys::stat::Mode;
 use nix::sys::wait::WaitStatus;
-use nix::sys::{ptrace, signal, wait};
+use nix::sys::{memfd, mman, ptrace, signal, wait};
 use nix::unistd;
 use nix::unistd::ForkResult;
 use std::collections::HashMap;
@@ -224,6 +223,19 @@ fn run_tracer(
         ns::init_ns(starting_pid, starting_uid, starting_gid)?;
         debug_assert!(unistd::getpid() == unistd::Pid::from_raw(1));
     }
+
+    let memfd_name = std::ffi::CStr::from_bytes_with_nul(&[
+        b'r', b'e', b'v', b'e', b'r', b'i', b'e', 0,
+    ])
+    .unwrap();
+    let fd_ = memfd::memfd_create(&memfd_name, memfd::MemFdCreateFlag::empty())
+        .expect("memfd_create failed");
+    let memfd = unistd::dup2(fd_, consts::REVERIE_GLOBAL_STATE_FD)
+        .expect("dup2 to REVERIE_GLOBAL_STATE_FD failed");
+    let _ = unistd::close(fd_);
+    let glob_size = 32768 * 4096;
+    let _ = unistd::ftruncate(memfd, 32768 * 4096)
+        .expect(&format!("memfd, unable to alloc {} bytes.", glob_size));
 
     match unistd::fork().expect("fork failed") {
         ForkResult::Child => run_tracee(argv),
