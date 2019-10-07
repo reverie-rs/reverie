@@ -5,7 +5,7 @@ LD	 = lld
 CFLAGS	 = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -fPIC
 CXXFLAGS = -g -Wall -O2 -D_POSIX_C_SOURCE=20180920 -D_GNU_SOURCE=1 -std=c++1z -fPIC
 
-DOCKER_NAME=reverie
+DOCKER_NAME=reverie-ht
 
 # Build Rust code in release or debug mode?  (Blank for debug.)
 # WAY="--release"
