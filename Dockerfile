@@ -26,7 +26,11 @@ RUN curl https://sh.rustup.rs -sSf | \
 ENV PATH=/root/.cargo/bin:$PATH
 
 ADD ./ /reverie
-
-RUN cd /reverie/ && make
-
 WORKDIR /reverie
+
+# RUN cd /reverie/ && make
+
+RUN cargo build --all --release
+RUN make -C tests build-tests
+
+
