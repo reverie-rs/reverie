@@ -8,8 +8,8 @@ jobs:
     - script: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         source ~/.cargo/env
-        rustup toolchain add nightly
-        rustup component add rustfmt --toolchain nightly
+        rustup toolchain add nightly-2019-08-27
+        rustup component add rustfmt --toolchain nightly-2019-08-27
       displayName: Install nightly Rust
     - script: |
         cargo fmt -- --check
@@ -20,7 +20,7 @@ jobs:
   strategy:
     matrix:
       nightly:
-        rustup_toolchain: nightly
+        rustup_toolchain: nightly-2019-08-27
   steps:
     - script: |
         sudo apt update -y
