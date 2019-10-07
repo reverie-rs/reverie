@@ -6,7 +6,7 @@ edition = "2018"
 
 
 [dependencies]
-syscalls = { path = "../../syscalls" }
+syscalls = "0.1"
 api = { path = "../../api" }
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }

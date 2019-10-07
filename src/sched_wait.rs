@@ -2,7 +2,8 @@
 
 use futures::prelude::*;
 use futures::executor::{LocalPool, LocalSpawner, block_on};
-use futures::task::{Poll, Waker, Context, SpawnExt};
+use futures::task::{Poll, Waker, Context, SpawnExt, waker};
+use futures::future::{Future, BoxFuture};
 use futures_util::task::LocalSpawnExt;
 use core::pin::Pin;
 
@@ -15,13 +16,17 @@ use log::{debug, trace};
 use nix::sys::wait::{WaitPidFlag, WaitStatus};
 use nix::sys::{ptrace, signal, wait};
 use nix::unistd::Pid;
+use nix::errno::Errno;
+use nix::Error;
+
 use std::collections::{HashMap, VecDeque};
-use std::io::{Error, ErrorKind, Result};
+//use std::io::{Error, ErrorKind, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use syscalls::SyscallNo;
 use api::task::*;
+use api::executor::WaitidWaker;
 
 use procfs;
 
@@ -450,4 +455,83 @@ pub async fn run_all<G>(sched: &mut SchedWait<G>) -> i32
         }
     }
     exit_code
+}
+
+#[allow(unused)]
+unsafe fn si_pid(info: &libc::siginfo_t) -> Pid {
+    let ptr = (info as *const libc::siginfo_t as  *const i32).offset(4);
+    Pid::from_raw(std::ptr::read(ptr))
+}
+
+impl<G>SchedWait<G> {
+    pub fn add_future<F>(&mut self, future: F, task: TracedTask)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        trace!("Adding new future through handle.");
+        // Pin it, and box it up for storing.
+        let mut future: BoxFuture<'static, ()> = Box::pin(future);
+
+        let waker = waker(Arc::new(WaitidWaker { }));
+        match future.as_mut().poll(&mut Context::from_waker(& waker)) {
+            Poll::Pending => {
+                trace!("Polled once, still pending.");
+                self.add_blocked(task);
+            }
+            Poll::Ready(_) => {
+                trace!("Future finished successfull!");
+                // All done don't bother adding...
+            }
+        }
+    }
+
+    pub fn run_all(&mut self) {
+        trace!("Running all futures.");
+        let ignored = 0;
+
+        // The future may have polled and finished in the add_future method.
+        // Let program continue running (no more tasks for us to execute).
+        if self.run_queue.is_empty() && self.blocked_queue.is_empty() {
+            debug!("All done!");
+            return;
+        }
+
+        loop {
+            let mut siginfo: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let ret = unsafe {
+                libc::waitid(
+                    libc::P_ALL,
+                    ignored,
+                    &mut siginfo as *mut libc::siginfo_t,
+                    libc::WNOWAIT | libc::WEXITED | libc::WSTOPPED,
+                )
+            };
+
+            // Block here for actual events to come.
+            match ret {
+                -1 => {
+                    let error = nix::Error::last();
+                    if let Error::Sys(Errno::ECHILD) = error {
+                        trace!("done!");
+                        return;
+                    } else {
+                        panic!("Unexpected error reason: {}", error);
+                    }
+                }
+                _ => {
+                    let pid = unsafe { si_pid(&siginfo) };
+                    trace!("waitid() = {}", pid);
+
+                    let task = self.tasks.get_mut(&pid).unwrap();
+                    let waker = waker(Arc::new(WaitidWaker { }));
+                    match task.future.as_mut().unwrap().as_mut().poll(&mut Context::from_waker(&waker)) {
+                        Poll::Pending => {} // Made progress but still pending.
+                        Poll::Ready(_) => {
+                            self.tasks.remove(&pid);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

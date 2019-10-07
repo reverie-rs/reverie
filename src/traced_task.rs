@@ -445,7 +445,7 @@ pub async fn run_task<G>(gs: Arc<Mutex<G>>, mut task: TracedTask) -> Result<RunT
                                                tid,
                                                syscall,
                                                regs.rax as i64,
-                                               args);
+                                                args);
             Ok(RunTask::Runnable(task))
         }
         TaskState::Exited(pid, exit_code) => {

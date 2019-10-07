@@ -1,6 +1,6 @@
 use futures::future::Future;
 use futures::future::BoxFuture;
-use futures::task::{Context, Poll, ArcWake};
+use futures::task::{Context, Poll, ArcWake, waker};
 
 use nix::errno::Errno;
 use nix::unistd::{Pid};
@@ -12,11 +12,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use log::{debug, trace};
-
-unsafe fn si_pid(info: &libc::siginfo_t) -> Pid {
-    let ptr = (info as *const libc::siginfo_t as  *const i32).offset(4);
-    Pid::from_raw(std::ptr::read(ptr))
-}
 
 /// This is our futures runtime. It is responsible for accepting futures to run,
 /// polling them, registering the Pid the future is waiting for, and scheduling,

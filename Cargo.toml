@@ -5,8 +5,8 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members= [".", "syscalls", "tools_helper", "seccomp", "preloader", "api", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
-default-members = [".", "syscalls", "seccomp", "preloader", "tools_helper" ]
+members= [".", "tools_helper", "seccomp", "preloader", "api", "examples/none", "examples/echo", "examples/counter", "examples/det" ]
+default-members = [".", "seccomp", "preloader", "tools_helper" ]
 
 [lib]
 name = "reverie"
@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 libc = { version = "0.2", default-features = false }
-syscalls = { path = "syscalls" }
+syscalls = "0.1"
 seccomp = { path = "seccomp" }
 nix = "0.15"
 goblin = "0.0"
@@ -40,4 +40,3 @@ hostecho = { path = "examples/hostecho" }
 
 [build-dependencies]
 cc = "1.0"
-sysnum = { path = "sysnum" }

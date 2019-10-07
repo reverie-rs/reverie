@@ -5,7 +5,7 @@ authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-syscalls = { path = "../syscalls" }
+syscalls = "0.1"
 log = { version = "0.4", default-features = false }
 serde = { version = "1.0", default-features = false, features = [ "derive" ] }
 libc = { version = "0.2", default-features = false, features = [] }
