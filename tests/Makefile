@@ -116,7 +116,7 @@ tests: build-tests
 	$(REVERIE_DEBUG) ./nanosleep $(IO_REDIRECT)
 	$(REVERIE_DEBUG) ./clock-nanosleep $(IO_REDIRECT)
 	$(REVERIE_DEBUG) ./getpid-pie $(IO_REDIRECT)
-	timeout 30s $(REVERIE_DEBUG) ./test1.sh $(IO_REDIRECT)
+	-@#timeout 30s $(REVERIE_DEBUG) ./test1.sh $(IO_REDIRECT)
 	-@#timeout 30s $(REVERIE_DEBUG) ./test2.sh $(IO_REDIRECT)
 	-@#timeout 30s $(REVERIE_DEBUG) ./segfault && exit 1 || exit 0 $(IO_REDIRECT)
 	-@#timeout 30s $(REVERIE_DEBUG) ./threads1 $(IO_REDIRECT)
