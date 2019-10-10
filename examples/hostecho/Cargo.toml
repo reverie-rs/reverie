@@ -18,7 +18,3 @@ libc = { version = "0.2", default-features = false, features = [] }
 lazy_static = "1.4"
 nix = "0.15"
 itertools = "0.8"
-
-[build-dependencies]
-cc = "1.0"
-tempfile = "3.0.8"

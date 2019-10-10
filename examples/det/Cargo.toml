@@ -13,7 +13,3 @@ path = "src/lib.rs"
 reverie-helper = { path = "../../reverie-helper" }
 log = { version = "0.4", default-features = false }
 libc = { version = "0.2", default-features = false }
-
-[build-dependencies]
-cc = "1.0.28"
-tempfile = "3.0.8"

@@ -20,4 +20,3 @@ nix = "0.15"
 
 [build-dependencies]
 cc = "1.0"
-tempfile = "3.0.8"
