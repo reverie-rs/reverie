@@ -8,7 +8,6 @@ mod util;
 
 use fern;
 use libc;
-use structopt::{clap::AppSettings, StructOpt};
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use nix::sys::wait::WaitStatus;
@@ -18,9 +17,10 @@ use nix::unistd::ForkResult;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::CString;
-use std::io::{Error, ErrorKind, self};
+use std::io::{self, Error, ErrorKind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use structopt::{clap::AppSettings, StructOpt};
 
 use reverie_api::event::*;
 use reverie_api::remote::*;
