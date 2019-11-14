@@ -3,6 +3,7 @@ name = "reverie"
 version = "0.1.0"
 authors = ["Baojun Wang <wangbj@gmail.com>"]
 edition = "2018"
+description = "A fast syscall tracer and interceptor."
 
 [lib]
 name = "reverie"
@@ -25,7 +26,6 @@ reverie-seccomp = { path = "../reverie-seccomp" }
 nix = "0.15"
 goblin = "0.0"
 procfs = "0.5"
-clap = "2.32"
 lazy_static = "1.4"
 colored = "1.7"
 chrono = "0.4"
@@ -33,3 +33,5 @@ log = "0.4"
 fern = "0.5"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_json = "1.0"
+structopt = { version = "0.3", features = ["paw"] }
+paw = "1.0"
