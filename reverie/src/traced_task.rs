@@ -62,16 +62,20 @@ lazy_static! {
 // get all symbols from tool dso
     static ref PRELOAD_TOOL_SYMS: HashMap<String, u64> = {
         let mut res = HashMap::new();
-        let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut file = File::open(so).unwrap();
-        file.read_to_end(&mut bytes).unwrap();
-        let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e)).unwrap();
-        let strtab = elf.strtab;
-        for sym in elf.syms.iter() {
-            res.insert(strtab[sym.st_name].to_string(), sym.st_value);
-        }
-        res
+        match std::env::var(consts::REVERIE_TRACEE_PRELOAD) {
+	    Ok(so) => {
+		let mut bytes: Vec<u8> = Vec::new();
+		let mut file = File::open(so).unwrap();
+		file.read_to_end(&mut bytes).unwrap();
+		let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e)).unwrap();
+		let strtab = elf.strtab;
+		for sym in elf.syms.iter() {
+		    res.insert(strtab[sym.st_name].to_string(), sym.st_value);
+		}
+		res
+	    }
+	    Err(_) => HashMap::new(),
+	}
     };
 }
 
@@ -107,9 +111,11 @@ fn libtrampoline_load_address(pid: unistd::Pid) -> Option<(u64, u64)> {
 
 lazy_static! {
     static ref SYSCALL_HOOKS: Vec<hooks::SyscallHook> = {
-        let so = std::env::var(consts::REVERIE_TRACEE_PRELOAD).unwrap();
-        hooks::resolve_syscall_hooks_from(PathBuf::from(so.clone()))
-            .unwrap_or_else(|_| panic!("unable to load {}", so))
+        match std::env::var(consts::REVERIE_TRACEE_PRELOAD) {
+	    Ok(so) => hooks::resolve_syscall_hooks_from(PathBuf::from(so.clone()))
+		.unwrap_or_else(|_| panic!("unable to load {}", so)),
+	    Err(_) => Vec::new(),
+	}
     };
 }
 

@@ -1,3 +1,5 @@
+pub mod seccomp_bpf;
+
 #[cfg(test)]
 mod tests {
     #[test]

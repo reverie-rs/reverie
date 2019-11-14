@@ -12,11 +12,16 @@ path = "src/lib.rs"
 name = "reverie"
 path = "src/main.rs"
 
+[[bin]]
+name = "strace"
+path = "src/strace.rs"
+
 [dependencies]
 libc = { version = "0.2", default-features = false }
 syscalls = "0.1"
 reverie-api = { path = "../reverie-api" }
 reverie-common = { path = "../reverie-common" }
+reverie-seccomp = { path = "../reverie-seccomp" }
 nix = "0.15"
 goblin = "0.0"
 procfs = "0.5"

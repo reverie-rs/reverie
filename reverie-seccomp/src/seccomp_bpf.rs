@@ -2,7 +2,11 @@
 //!
 
 #[allow(unused_imports)]
-use reverie_seccomp::*;
+
+use syscalls::*;
+
+use std::io;
+use libc;
 
 #[repr(C)]
 struct range {
@@ -14,6 +18,13 @@ struct range {
 struct sock_filter {
     opcode: u64, // opaque as long as size is 64bit
 }
+
+#[repr(C)]
+struct sock_fprog {
+    len: u32,
+    filter: *const sock_filter,
+}
+
 
 extern "C" {
     fn bpf_ll_whitelist_ips(
@@ -67,4 +78,20 @@ pub fn bpf_blacklist_ips(ips: &[(u64, u64)]) -> Vec<u64> {
     let mut v = res.to_vec();
     v.truncate(nb as usize);
     v
+}
+
+pub fn seccomp(bytecode: &[u64]) -> io::Result<()> {
+    let prog = sock_fprog {
+        len: bytecode.len() as u32,
+        filter: bytecode.as_ptr() as *const sock_filter,
+    };
+    let ptr = &prog as *const sock_fprog;
+    let r = unsafe {
+        libc::syscall(SYS_seccomp as i64, 1, 0, ptr as i64, 0, 0, 0)
+    };
+    if r == 0 {
+	Ok(())
+    } else {
+	Err(io::Error::last_os_error())
+    }
 }

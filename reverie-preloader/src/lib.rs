@@ -3,9 +3,10 @@
 use std::io::Result;
 
 pub mod relink;
-pub mod seccomp_bpf;
 
 use reverie_common::consts;
+use reverie_seccomp::seccomp_bpf;
+
 use syscalls::*;
 
 #[link_section = ".init_array"]
