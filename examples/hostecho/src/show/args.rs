@@ -320,7 +320,7 @@ impl Display for SyscallRet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             SyscallRet::RetInt(val) => {
-                if *val as u64 >= 0xfffffffffffff000 {
+                if *val as u64 >= 0xffff_ffff_ffff_f000 {
                     write!(
                         f,
                         "{} ({})",
@@ -381,7 +381,7 @@ impl InferiorSyscallArg {
             .unwrap_or_else(|_| CString::new("").unwrap())
     }
     #[allow(unused)]
-    fn from_cstr_sized<'a>(&self, ptr: Remoteable<i8>, size: usize) -> CString {
+    fn from_cstr_sized(&self, ptr: Remoteable<i8>, size: usize) -> CString {
         let slice: Vec<u8> = self
             .peek_bytes(ptr.cast(), size)
             .unwrap_or_else(|_| Vec::new());
@@ -493,7 +493,7 @@ impl InferiorSyscallArg {
                 }
             };
             res.push("\"".to_owned() + &escape(self.from_cstr(z)) + "\"");
-            cnt = 1 + cnt;
+            cnt += 1;
         }
         write!(f, "[{}]", res.join(", "))
     }
@@ -630,12 +630,10 @@ impl Display for InferiorSyscallArg {
             SyscallArg::FdFlags(flags) => write!(f, "{}", show_fdflags(flags)),
             SyscallArg::FdModes(modes) => write!(f, "0{:o}", modes),
             SyscallArg::DirFd(dirfd) => match dirfd {
-                libc::AT_FDCWD => write!(f, "{}", "AT_FDCWD"),
-                libc::AT_SYMLINK_NOFOLLOW => {
-                    write!(f, "{}", "AT_SYMLINK_NOFOLLOW")
-                }
-                libc::AT_REMOVEDIR => write!(f, "{}", "AT_REMOVEDIR"),
-                libc::AT_SYMLINK_FOLLOW => write!(f, "{}", "AT_SYMLINK_FOLLOW"),
+                libc::AT_FDCWD => write!(f, "AT_FDCWD"),
+                libc::AT_SYMLINK_NOFOLLOW => write!(f, "AT_SYMLINK_NOFOLLOW"),
+                libc::AT_REMOVEDIR => write!(f, "AT_REMOVEDIR"),
+                libc::AT_SYMLINK_FOLLOW => write!(f, "AT_SYMLINK_FOLLOW"),
                 _ => write!(f, "{}", dirfd),
             },
             SyscallArg::MmapProt(prot) => write!(f, "{}", show_mmap_prot(prot)),
@@ -824,11 +822,7 @@ fn show_mmap_flags(flags: i32) -> String {
 
 fn show_fdflags(flags: i32) -> String {
     vec![
-        if flags == 0 {
-            libc_bit_field!(flags, O_RDONLY)
-        } else {
-            None
-        },
+        if flags == 0 { Some("O_RDONLY") } else { None },
         libc_bit_field!(flags, O_WRONLY),
         libc_bit_field!(flags, O_CREAT),
         libc_bit_field!(flags, O_EXCL),
@@ -991,6 +985,7 @@ impl RtSigset {
 }
 
 impl fmt::Display for RtSigset {
+    #[allow(clippy::cognitive_complexity)]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let set = self.set;
         let s = [
@@ -1075,7 +1070,7 @@ fn fmt_rt_signal(f: &mut fmt::Formatter, sig: i32) -> fmt::Result {
             .or_else(|| libc_match_value!(sig, SIGIO))
             .or_else(|| libc_match_value!(sig, SIGPWR))
             .or_else(|| libc_match_value!(sig, SIGSYS))
-            .map(|s| String::from(s))
+            .map(String::from)
             .unwrap_or_else(|| sig.to_string())
     )
 }

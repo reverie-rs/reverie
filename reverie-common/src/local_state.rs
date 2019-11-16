@@ -13,7 +13,7 @@ use core::ffi::c_void;
 
 use std::cell::{RefCell, UnsafeCell};
 use std::os::unix::io::RawFd;
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -34,11 +34,17 @@ pub struct ThreadState {
     pub process_state: Rc<RefCell<ProcessState>>,
 }
 
-impl ThreadState {
-    pub fn new() -> Self {
+impl Default for ThreadState {
+    fn default() -> Self {
         ThreadState {
             process_state: Rc::new(RefCell::new(ProcessState::new())),
         }
+    }
+}
+
+impl ThreadState {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     pub fn forked(&self) -> Self {
@@ -94,7 +100,7 @@ fn get_pstate_store() -> NonNull<u64> {
     let offset = 4096 * (pid.as_raw() - 1) as i64;
     let mem = unsafe {
         mman::mmap(
-            0 as *mut _,
+            ptr::null_mut(),
             4096,
             mman::ProtFlags::PROT_READ | mman::ProtFlags::PROT_WRITE,
             mman::MapFlags::MAP_SHARED,
@@ -106,8 +112,8 @@ fn get_pstate_store() -> NonNull<u64> {
     NonNull::new(mem as *mut u64).unwrap()
 }
 
-impl ProcessState {
-    pub fn new() -> Self {
+impl Default for ProcessState {
+    fn default() -> Self {
         ProcessState {
             nr_syscalls: 0,
             pstate_store: get_pstate_store(),
@@ -119,13 +125,19 @@ impl ProcessState {
             thread_states: Rc::new(RefCell::new(HashMap::new())),
         }
     }
+}
+
+impl ProcessState {
+    pub fn new() -> Self {
+        Default::default()
+    }
     pub fn forked(&self) -> Self {
         ProcessState {
             nr_syscalls: self.nr_syscalls,
             pstate_store: get_pstate_store(),
             pstate_store_size: 4096,
-            sockfd_read: self.sockfd_read.clone(),
-            sockfd_write: self.sockfd_write.clone(),
+            sockfd_read: self.sockfd_read,
+            sockfd_write: self.sockfd_write,
             fd_status: {
                 let fd_status_copied: HashMap<RawFd, DescriptorType> =
                     self.fd_status.lock().unwrap().clone();
@@ -140,8 +152,8 @@ impl ProcessState {
             nr_syscalls: self.nr_syscalls,
             pstate_store: get_pstate_store(),
             pstate_store_size: 4096,
-            sockfd_read: self.sockfd_read.clone(),
-            sockfd_write: self.sockfd_write.clone(),
+            sockfd_read: self.sockfd_read,
+            sockfd_write: self.sockfd_write,
             stats: self.stats.clone(),
             fd_status: self.fd_status.clone(),
             thread_states: self.thread_states.clone(),

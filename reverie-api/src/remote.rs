@@ -61,7 +61,7 @@ impl<T: Sized> Copy for LocalPtr<T> {}
 
 impl<T> LocalPtr<T> {
     pub fn new(ptr: *mut T) -> Option<Self> {
-        NonNull::new(ptr).map(|p| LocalPtr(p))
+        NonNull::new(ptr).map(LocalPtr)
     }
     pub fn as_ptr(self) -> *mut T {
         self.0.as_ptr()
@@ -107,7 +107,7 @@ where
         NonNull::new(ptr).map(|nll| Remoteable::Local(LocalPtr(nll)))
     }
     pub fn remote(ptr: *mut T) -> Option<Self> {
-        RemotePtr::new(ptr).map(|nll| Remoteable::Remote(nll))
+        RemotePtr::new(ptr).map(Remoteable::Remote)
     }
     pub unsafe fn offset(self, count: isize) -> Self {
         match self {
@@ -124,6 +124,7 @@ where
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_ptr(self) -> *mut T {
         match self {
             Remoteable::Local(lptr) => lptr.as_ptr(),
@@ -195,7 +196,7 @@ pub trait GuestMemoryAccess {
     }
 
     /// peek null terminated C-style string
-    fn peek_cstring<'a>(&self, addr: Remoteable<i8>) -> Result<CString> {
+    fn peek_cstring(&self, addr: Remoteable<i8>) -> Result<CString> {
         match addr {
             Remoteable::Local(lptr) => {
                 let cstr =
@@ -407,7 +408,7 @@ pub type FunAddr = Remoteable<u64>;
 /// Run code *inside* a guest process.
 ///
 /// The Injector interface provides the "downcalls".
-/// The injector inserts either new system calls or function calls into the guest.  
+/// The injector inserts either new system calls or function calls into the guest.
 /// It does *not* create (JIT compile) new functions in the guest, rather it calls
 /// existing functions. (Though it does inject new code in the case of individual syscalls.)
 ///
@@ -439,6 +440,7 @@ pub trait Injector {
 /// NB: limitations:
 /// - tracee must be in stopped state.
 /// - the tracee must have returned from PTRACE_EXEC_EVENT
+#[allow(clippy::too_many_arguments)]
 pub fn untraced_syscall(
     task: &dyn Task,
     nr: SyscallNo,
@@ -502,6 +504,7 @@ fn wait_sigtrap_sigchld(pid: Pid) -> Result<Option<signal::Signal>> {
 /// NB: limitations:
 /// - tracee must be in stopped state.
 /// - the tracee must have returned from PTRACE_EXEC_EVENT
+#[allow(clippy::too_many_arguments)]
 pub fn ptraced_syscall(
     pid: Pid,
     nr: SyscallNo,

@@ -20,7 +20,7 @@ pub struct LinkMap {
 
 impl LinkMap {
     pub fn load_address(&self) -> Option<u64> {
-        if self.ranges.len() < 1 {
+        if self.ranges.is_empty() {
             None
         } else {
             Some(self.ranges[0].address.0)
@@ -42,7 +42,7 @@ struct ll_link_map {
 }
 
 fn into_ranges(
-    maps: &Vec<MemoryMap>,
+    maps: &[MemoryMap],
     base: u64,
     name: &PathBuf,
 ) -> Vec<MemoryMap> {
@@ -75,7 +75,7 @@ pub fn dl_open_ns(dso: String) -> Vec<LinkMap> {
         .and_then(|p| p.maps())
         .unwrap();
 
-    let mut _curr = head.clone();
+    let mut _curr = head;
 
     while let Some(curr) = _curr {
         let ll = unsafe { std::ptr::read(curr.as_ptr()) };
