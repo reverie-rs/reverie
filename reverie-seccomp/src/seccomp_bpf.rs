@@ -2,11 +2,10 @@
 //!
 
 #[allow(unused_imports)]
-
 use syscalls::*;
 
-use std::io;
 use libc;
+use std::io;
 
 #[repr(C)]
 struct range {
@@ -24,7 +23,6 @@ struct sock_fprog {
     len: u32,
     filter: *const sock_filter,
 }
-
 
 extern "C" {
     fn bpf_ll_whitelist_ips(
@@ -86,12 +84,11 @@ pub fn seccomp(bytecode: &[u64]) -> io::Result<()> {
         filter: bytecode.as_ptr() as *const sock_filter,
     };
     let ptr = &prog as *const sock_fprog;
-    let r = unsafe {
-        libc::syscall(SYS_seccomp as i64, 1, 0, ptr as i64, 0, 0, 0)
-    };
+    let r =
+        unsafe { libc::syscall(SYS_seccomp as i64, 1, 0, ptr as i64, 0, 0, 0) };
     if r == 0 {
-	Ok(())
+        Ok(())
     } else {
-	Err(io::Error::last_os_error())
+        Err(io::Error::last_os_error())
     }
 }

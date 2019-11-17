@@ -4,7 +4,8 @@
 #[macro_use]
 extern crate lazy_static;
 
-use clap::{App, Arg};
+mod util;
+
 use fern;
 use libc;
 use nix::fcntl::OFlag;
@@ -16,9 +17,10 @@ use nix::unistd::ForkResult;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::CString;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{self, Error, ErrorKind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use structopt::{clap::AppSettings, StructOpt};
 
 use reverie_api::event::*;
 use reverie_api::remote::*;
@@ -31,30 +33,69 @@ use reverie::{hooks, ns};
 use reverie_seccomp::seccomp_bpf;
 
 #[test]
-fn can_resolve_syscall_hooks() -> Result<()> {
+fn can_resolve_syscall_hooks() -> io::Result<()> {
     let so = PathBuf::from("../lib").join("libecho.so").canonicalize()?;
     let parsed = hooks::resolve_syscall_hooks_from(so)?;
     assert_ne!(parsed.len(), 0);
     Ok(())
 }
 
-struct Arguments<'a> {
-    debug_level: i32,
+#[derive(Debug, StructOpt)]
+#[structopt(about)]
+struct Arguments {
+    /// Set debug level [0...5].
+    #[structopt(
+        long = "debug",
+        value_name = "DEBUG_LEVEL",
+        default_value = "0"
+    )]
+    log_level: u32,
+
+    /// Do not pass-through host's environment variables.
+    #[structopt(long = "no-host-envs")]
     host_envs: bool,
-    envs: HashMap<String, String>,
+
+    /// Sets an environment variable. Can be used multiple times.
+    #[structopt(
+        long = "env",
+        short = "e",
+        value_name = "ENV[=VALUE]",
+        parse(try_from_str = util::parse_env),
+        number_of_values = 1
+    )]
+    envs: Vec<(String, String)>,
+
+    /// Enables namespaces, including PID, USER, MOUNT... default is false.
+    #[structopt(long = "with-namespace")]
     namespaces: bool,
-    output: Option<&'a str>,
+
+    /// Configures how to do logging.
+    #[structopt(long = "with-log", value_name = "OUTPUT")]
+    log_output: Option<String>,
+
+    /// Do not match any syscalls. Handle all syscalls by seccomp.
+    #[structopt(long)]
     disable_monkey_patcher: bool,
+
+    /// Shows reverie software performance counter statistics (--debug must be
+    /// >=3).
+    #[structopt(long)]
     show_perf_stats: bool,
-    program: &'a str,
-    program_args: Vec<&'a str>,
+
+    /// Name of the program to trace.
+    #[structopt(value_name = "PROGRAM")]
+    program: String,
+
+    /// Arguments to the program to trace.
+    #[structopt(value_name = "ARGS")]
+    program_args: Vec<String>,
 }
 
 fn run_tracer_main<G>(sched: &mut SchedWait<G>) -> i32 {
     sched.run_all()
 }
 
-fn wait_sigstop(pid: unistd::Pid) -> Result<()> {
+fn wait_sigstop(pid: unistd::Pid) -> io::Result<()> {
     match wait::waitpid(Some(pid), None).expect("waitpid failed") {
         WaitStatus::Stopped(new_pid, signal)
             if signal == signal::SIGSTOP && new_pid == pid =>
@@ -94,7 +135,7 @@ fn tracee_init_signals() {
     };
 }
 
-fn run_tracee(argv: &Arguments) -> Result<i32> {
+fn run_tracee(argv: &Arguments) -> io::Result<i32> {
     unsafe {
         assert!(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
         assert!(libc::personality(PER_LINUX | ADDR_NO_RANDOMIZE) != -1);
@@ -124,9 +165,9 @@ fn run_tracee(argv: &Arguments) -> Result<i32> {
         }
     });
 
-    let program = CString::new(argv.program)?;
+    let program = CString::new(argv.program.as_str())?;
     let mut args: Vec<CString> = Vec::new();
-    CString::new(argv.program).map(|s| args.push(s))?;
+    args.push(program.clone());
     for v in argv.program_args.clone() {
         CString::new(v).map(|s| args.push(s))?;
     }
@@ -181,7 +222,7 @@ fn show_perf_stats(state: &ReverieState) {
     );
 }
 
-fn task_exec_cb(task: &mut dyn Task) -> Result<()> {
+fn task_exec_cb(task: &mut dyn Task) -> io::Result<()> {
     log::trace!("[pid {}] exec cb", task.gettid());
     if let Some(init_proc_state) =
         task.resolve_symbol_address("init_process_state")
@@ -191,7 +232,7 @@ fn task_exec_cb(task: &mut dyn Task) -> Result<()> {
     }
     Ok(())
 }
-fn task_fork_cb(task: &mut dyn Task) -> Result<()> {
+fn task_fork_cb(task: &mut dyn Task) -> io::Result<()> {
     log::trace!("[pid {}] fork cb", task.gettid());
     if let Some(init_proc_state) =
         task.resolve_symbol_address("init_process_state")
@@ -201,11 +242,11 @@ fn task_fork_cb(task: &mut dyn Task) -> Result<()> {
     }
     Ok(())
 }
-fn task_clone_cb(task: &mut dyn Task) -> Result<()> {
+fn task_clone_cb(task: &mut dyn Task) -> io::Result<()> {
     log::trace!("[pid {}] clone cb", task.gettid());
     Ok(())
 }
-fn task_exit_cb(_exit_code: i32) -> Result<()> {
+fn task_exit_cb(_exit_code: i32) -> io::Result<()> {
     Ok(())
 }
 
@@ -214,7 +255,7 @@ fn run_tracer(
     starting_uid: unistd::Uid,
     starting_gid: unistd::Gid,
     argv: &Arguments,
-) -> Result<i32> {
+) -> io::Result<i32> {
     // tracer is the 1st process in the new namespace.
     if argv.namespaces {
         ns::init_ns(starting_pid, starting_uid, starting_gid)?;
@@ -275,7 +316,7 @@ fn run_tracer(
     }
 }
 
-fn run_app(argv: &Arguments) -> Result<i32> {
+fn run_app(argv: &Arguments) -> io::Result<i32> {
     let (starting_pid, starting_uid, starting_gid) =
         (unistd::getpid(), unistd::getuid(), unistd::getgid());
 
@@ -313,7 +354,7 @@ fn run_app(argv: &Arguments) -> Result<i32> {
     }
 }
 
-fn populate_rpath(hint: Option<&str>, so: &str) -> Result<PathBuf> {
+fn populate_rpath(hint: Option<&str>, so: &str) -> io::Result<PathBuf> {
     let mut exe_path = env::current_exe()?;
     exe_path.pop();
     let search_path = vec![PathBuf::from("."), PathBuf::from("lib"), exe_path];
@@ -334,106 +375,18 @@ fn populate_rpath(hint: Option<&str>, so: &str) -> Result<PathBuf> {
     })
 }
 
-fn main() {
-    let matches = App::new("reverie - a fast syscall tracer and interceper")
-        .version("0.0.1")
-        .arg(
-            Arg::with_name("debug")
-                .long("debug")
-                .value_name("DEBUG_LEVEL")
-                .help("Set debug level [0..5]")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("no-host-envs")
-                .long("no-host-envs")
-                .help("do not pass-through host's environment variables")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("env")
-                .long("env")
-                .value_name("ENV=VALUE")
-                .multiple(true)
-                .help("set environment variables, can be used multiple times")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("with-namespace")
-                .long("with-namespace")
-                .help("enable namespaces, including PID, USER, MOUNT.. default is false")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("with-log")
-                .long("with-log")
-                .value_name("OUTPUT")
-                .help("with-log=[filename|stdout|stderr], default is stdout")
-                .takes_value(true),
-        )
-        .arg(Arg::with_name("disable-monkey-patcher")
-             .long("disable-monkey-patcher")
-             .help("do not patch any syscalls, handle all syscalls by seccomp")
-             .takes_value(false)
-        )
-        .arg(Arg::with_name("show-perf-stats")
-             .long("show-perf-stats")
-             .help("show reverie softare performance counter statistics, --debug must be >= 3")
-             .takes_value(false)
-        )
-        .arg(
-            Arg::with_name("program")
-                .value_name("PROGRAM")
-                .required(true)
-                .help("PROGRAM")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("program_args")
-                .value_name("PROGRAM_ARGS")
-                .allow_hyphen_values(true)
-                .multiple(true)
-                .help("[PROGRAM_ARGUMENTS..]"),
-        )
-        .get_matches();
+#[paw::main]
+fn main(args: Arguments) {
+    setup_logger(args.log_level, args.log_output.as_ref().map(|s| s.as_ref()))
+        .expect("set log level");
 
-    let log_level = matches
-        .value_of("debug")
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(0);
-    let log_output = matches.value_of("with-log");
-    setup_logger(log_level, log_output).expect("set log level");
-
-    let argv = Arguments {
-        debug_level: log_level,
-        host_envs: !matches.is_present("-no-host-envs"),
-        envs: matches
-            .values_of("env")
-            .unwrap_or_default()
-            .map(|s| {
-                let t: Vec<&str> = s.split('=').collect();
-                debug_assert!(!t.is_empty());
-                (t[0].to_string(), t[1..].join("="))
-            })
-            .collect(),
-        namespaces: matches.is_present("with-namespace"),
-        output: log_output,
-        disable_monkey_patcher: matches.is_present("disable-monkey-patcher"),
-        show_perf_stats: matches.is_present("show-perf-stats"),
-        program: matches.value_of("program").unwrap_or(""),
-        program_args: matches
-            .values_of("program_args")
-            .map(|v| v.collect())
-            .unwrap_or_else(Vec::new),
-    };
-
-    match run_app(&argv) {
+    match run_app(&args) {
         Ok(exit_code) => std::process::exit(exit_code),
         err => panic!("run app failed with error: {:?}", err),
     }
 }
 
-fn fern_with_output(output: Option<&str>) -> Result<fern::Dispatch> {
+fn fern_with_output(output: Option<&str>) -> io::Result<fern::Dispatch> {
     match output {
         None => Ok(fern::Dispatch::new().chain(std::io::stdout())),
         Some(s) => match s {
@@ -451,7 +404,7 @@ fn fern_with_output(output: Option<&str>) -> Result<fern::Dispatch> {
     }
 }
 
-fn setup_logger(level: i32, output: Option<&str>) -> Result<()> {
+fn setup_logger(level: u32, output: Option<&str>) -> io::Result<()> {
     let log_level = match level {
         0 => log::LevelFilter::Off,
         1 => log::LevelFilter::Error,
