@@ -53,9 +53,9 @@ fn preload_dl_ns() -> Result<()> {
                };
         */
         let filter = vec![
-            0x400000020u64,
-            0xc000003e01000015u64,
-            0x7fff000000000006u64,
+            0x0004_0000_0020u64,
+            0xc000_003e_0100_0015u64,
+            0x7fff_0000_0000_0006u64,
             0x6u64,
         ];
         let prog = sock_fprog {
@@ -71,7 +71,7 @@ fn preload_dl_ns() -> Result<()> {
         linkmap.iter().for_each(|lm| {
             lm.ranges.iter().for_each(|e| {
                 let perms = e.perms.as_bytes();
-                if perms[2] == 'x' as u8 {
+                if perms[2] == b'x' {
                     whitelist.push(e.address);
                 }
             });

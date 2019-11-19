@@ -18,12 +18,18 @@ pub struct EchoGlobalState {
     pub tasks: HashMap<Pid, EchoState>,
 }
 
-impl EchoGlobalState {
-    pub fn new() -> Self {
+impl Default for EchoGlobalState {
+    fn default() -> Self {
         EchoGlobalState {
             logger: stderr(),
             tasks: HashMap::new(),
         }
+    }
+}
+
+impl EchoGlobalState {
+    pub fn new() -> Self {
+        Default::default()
     }
 }
 

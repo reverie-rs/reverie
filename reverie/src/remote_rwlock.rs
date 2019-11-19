@@ -21,7 +21,15 @@ impl RemoteRWLock {
     pub fn try_read_lock(&mut self, tid: Pid, at: u64) -> bool {
         self.reader.insert(tid);
         let r = self.reverse_loopup_table.get(&at);
-        if r.is_none() || r.unwrap().is_empty() {
+
+        if let Some(r) = r.filter(|r| !r.is_empty()) {
+            for x in r {
+                if self.writer.contains(&x) {
+                    self.reader.remove(&tid);
+                    return false;
+                }
+            }
+        } else {
             self.writer.remove(&tid);
             self.reverse_loopup_table
                 .entry(at)
@@ -33,16 +41,9 @@ impl RemoteRWLock {
                     s.insert(tid);
                     s
                 });
-            true
-        } else {
-            for x in r.unwrap() {
-                if self.writer.contains(&x) {
-                    self.reader.remove(&tid);
-                    return false;
-                }
-            }
-            true
         }
+
+        true
     }
     pub fn try_read_unlock(&mut self, tid: Pid, at: u64) -> bool {
         if !self.reader.contains(&tid) {

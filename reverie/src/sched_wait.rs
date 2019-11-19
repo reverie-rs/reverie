@@ -128,6 +128,19 @@ fn is_ptrace_group_stop(pid: Pid, sig: signal::Signal) -> bool {
     }
 }
 
+fn ptrace_event(event: i32) -> ptrace::Event {
+    match event {
+        1 => ptrace::Event::PTRACE_EVENT_FORK,
+        2 => ptrace::Event::PTRACE_EVENT_VFORK,
+        3 => ptrace::Event::PTRACE_EVENT_CLONE,
+        4 => ptrace::Event::PTRACE_EVENT_EXEC,
+        5 => ptrace::Event::PTRACE_EVENT_VFORK_DONE,
+        6 => ptrace::Event::PTRACE_EVENT_EXIT,
+        7 => ptrace::Event::PTRACE_EVENT_SECCOMP,
+        _ => panic!("unknown ptrace event `{}`", event),
+    }
+}
+
 fn ptracer_get_next<G>(tasks: &mut SchedWait<G>) -> Option<TracedTask> {
     let mut retry = true;
     while retry {
@@ -168,43 +181,43 @@ fn ptracer_get_next<G>(tasks: &mut SchedWait<G>) -> Option<TracedTask> {
                         .tasks
                         .remove(&tid)
                         .unwrap_or_else(|| panic!("unknown pid {:}", tid));
-                    if event == ptrace::Event::PTRACE_EVENT_EXEC as i32 {
-                        task.event_cbs = Some(tasks.event_cbs.clone());
-                        task.state = TaskState::Exec;
-                    } else if event == ptrace::Event::PTRACE_EVENT_CLONE as i32
-                    {
-                        let new_pid = ptrace::getevent(tid).unwrap();
-                        task.state =
-                            TaskState::Clone(Pid::from_raw(new_pid as i32));
-                    } else if event == ptrace::Event::PTRACE_EVENT_FORK as i32 {
-                        let new_pid = ptrace::getevent(tid).unwrap();
-                        task.state =
-                            TaskState::Fork(Pid::from_raw(new_pid as i32));
-                    } else if event == ptrace::Event::PTRACE_EVENT_VFORK as i32
-                    {
-                        let new_pid = ptrace::getevent(tid).unwrap();
-                        task.state =
-                            TaskState::Fork(Pid::from_raw(new_pid as i32));
-                    } else if event
-                        == ptrace::Event::PTRACE_EVENT_VFORK_DONE as i32
-                    {
-                        task.state = TaskState::VforkDone;
-                    } else if event
-                        == ptrace::Event::PTRACE_EVENT_SECCOMP as i32
-                    {
-                        let nr = ptrace::getevent(tid).unwrap() as i32;
-                        if nr == 0x7fff {
-                            panic!("unfiltered syscall: {:?}", nr);
+
+                    match ptrace_event(event) {
+                        ptrace::Event::PTRACE_EVENT_EXEC => {
+                            task.event_cbs = Some(tasks.event_cbs.clone());
+                            task.state = TaskState::Exec;
                         }
-                        let regs = ptrace::getregs(tid).unwrap();
-                        let nr = regs.orig_rax as i32;
-                        task.state = TaskState::Seccomp(SyscallNo::from(nr));
-                    } else if event == ptrace::Event::PTRACE_EVENT_EXIT as i32 {
-                        let exit_code = ptrace::getevent(tid).unwrap();
-                        task.state = TaskState::Exited(tid, exit_code as i32);
-                    } else {
-                        panic!("unknown ptrace event {}", event)
-                    };
+                        ptrace::Event::PTRACE_EVENT_CLONE => {
+                            let new_pid = ptrace::getevent(tid).unwrap();
+                            task.state =
+                                TaskState::Clone(Pid::from_raw(new_pid as i32));
+                        }
+                        ptrace::Event::PTRACE_EVENT_FORK
+                        | ptrace::Event::PTRACE_EVENT_VFORK => {
+                            let new_pid = ptrace::getevent(tid).unwrap();
+                            task.state =
+                                TaskState::Fork(Pid::from_raw(new_pid as i32));
+                        }
+                        ptrace::Event::PTRACE_EVENT_VFORK_DONE => {
+                            task.state = TaskState::VforkDone;
+                        }
+                        ptrace::Event::PTRACE_EVENT_SECCOMP => {
+                            let nr = ptrace::getevent(tid).unwrap() as i32;
+                            if nr == 0x7fff {
+                                panic!("unfiltered syscall: {:?}", nr);
+                            }
+                            let regs = ptrace::getregs(tid).unwrap();
+                            let nr = regs.orig_rax as i32;
+                            task.state =
+                                TaskState::Seccomp(SyscallNo::from(nr));
+                        }
+                        ptrace::Event::PTRACE_EVENT_EXIT => {
+                            let exit_code = ptrace::getevent(tid).unwrap();
+                            task.state =
+                                TaskState::Exited(tid, exit_code as i32);
+                        }
+                    }
+
                     return Some(task);
                 }
                 Ok(WaitStatus::PtraceSyscall(pid)) => {

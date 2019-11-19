@@ -63,19 +63,21 @@ lazy_static! {
     static ref PRELOAD_TOOL_SYMS: HashMap<String, u64> = {
         let mut res = HashMap::new();
         match std::env::var(consts::REVERIE_TRACEE_PRELOAD) {
-        Ok(so) => {
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut file = File::open(so).unwrap();
-        file.read_to_end(&mut bytes).unwrap();
-        let elf = Elf::parse(bytes.as_slice()).map_err(|e| Error::new(ErrorKind::Other, e)).unwrap();
-        let strtab = elf.strtab;
-        for sym in elf.syms.iter() {
-            res.insert(strtab[sym.st_name].to_string(), sym.st_value);
+            Ok(so) => {
+                let mut bytes: Vec<u8> = Vec::new();
+                let mut file = File::open(so).unwrap();
+                file.read_to_end(&mut bytes).unwrap();
+                let elf = Elf::parse(bytes.as_slice())
+                    .map_err(|e| Error::new(ErrorKind::Other, e))
+                    .unwrap();
+                let strtab = elf.strtab;
+                for sym in elf.syms.iter() {
+                    res.insert(strtab[sym.st_name].to_string(), sym.st_value);
+                }
+                res
+            }
+            Err(_) => HashMap::new(),
         }
-        res
-        }
-        Err(_) => HashMap::new(),
-    }
     };
 }
 
@@ -345,7 +347,7 @@ impl Task for TracedTask {
             breakpoints: Rc::new(RefCell::new(HashMap::new())),
             ldso: self.ldso,
             ldso_symbols: self.ldso_symbols.clone(),
-            rpc_stack: self.rpc_stack.clone(),
+            rpc_stack: self.rpc_stack,
             rpc_data: match &self.rpc_data {
                 None => None,
                 Some((rptr, size)) => {
@@ -1324,18 +1326,18 @@ fn do_ptrace_seccomp<G>(
         return Ok(RunTask::Runnable(task));
     }
 
-    let mut patch_status = if task.ldpreload_address.is_some() && hook.is_none()
-    {
-        PatchStatus::Failed
+    let patch_status = if task.ldpreload_address.is_some() {
+        if let Some(hook) = hook {
+            match patch_syscall_with(&mut task, hook, syscall, rip) {
+                Err(_) => PatchStatus::Failed,
+                Ok(_) => PatchStatus::Successed,
+            }
+        } else {
+            PatchStatus::Failed
+        }
     } else {
         PatchStatus::NotTried
     };
-    if !(task.ldpreload_address.is_none() || hook.is_none()) {
-        match patch_syscall_with(&mut task, hook.unwrap(), syscall, rip) {
-            Err(_) => patch_status = PatchStatus::Failed,
-            Ok(_) => patch_status = PatchStatus::Successed,
-        }
-    }
 
     let state = reverie_global_state();
     match patch_status {
