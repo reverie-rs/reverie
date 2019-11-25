@@ -25,7 +25,7 @@ reverie-common = { path = "../reverie-common" }
 reverie-seccomp = { path = "../reverie-seccomp" }
 nix = "0.15"
 goblin = "0.0"
-procfs = "0.5"
+procfs = "0.7"
 lazy_static = "1.4"
 colored = "1.7"
 chrono = "0.4"

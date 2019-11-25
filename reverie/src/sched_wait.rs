@@ -304,8 +304,9 @@ pub fn sched_wait_event_loop<G>(sched: &mut SchedWait<G>) -> i32 {
                 // task not to be re-queued, assuming exited/killed.
                 log::debug!("[sched] {} failed to run, assuming killed", tid);
                 if log::log_enabled!(log::Level::Trace) {
-                    if let Ok(status) = procfs::Process::new(tid.as_raw())
-                        .and_then(|p| p.status())
+                    if let Ok(status) =
+                        procfs::process::Process::new(tid.as_raw())
+                            .and_then(|p| p.status())
                     {
                         log::trace!("[sched] task {} refused to be traced while alive, {:?}", tid, status);
                         let regs = ptrace::getregs(tid);

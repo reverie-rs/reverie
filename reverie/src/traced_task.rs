@@ -83,12 +83,12 @@ lazy_static! {
 
 fn dso_load_address(pid: unistd::Pid, so: &str) -> Option<(u64, u64)> {
     let path = PathBuf::from(so);
-    procfs::Process::new(pid.as_raw())
+    procfs::process::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
         .find(|e| match &e.pathname {
-            procfs::MMapPath::Path(soname) => soname == &path,
+            procfs::process::MMapPath::Path(soname) => soname == &path,
             _ => false,
         })
         .map(|e| e.address)
@@ -185,7 +185,7 @@ pub struct TracedTask {
     /// each process should have its own copy of below data
     /// however, threads do resides in the same address space
     /// as a result they should share below data as well
-    pub memory_map: Rc<RefCell<Vec<procfs::MemoryMap>>>,
+    pub memory_map: Rc<RefCell<Vec<procfs::process::MemoryMap>>>,
     pub stub_pages: Rc<RefCell<Vec<SyscallStubPage>>>,
     pub unpatchable_syscalls: Rc<RefCell<HashSet<u64>>>,
     pub patched_syscalls: Rc<RefCell<HashSet<u64>>>,
@@ -657,7 +657,7 @@ fn update_memory_map(task: &mut TracedTask) {
     // update memory mapping from /proc/[pid]/maps
     // NB: we must use `pid` here.
     *(task.memory_map.borrow_mut()) =
-        procfs::Process::new(task.getpid().as_raw())
+        procfs::process::Process::new(task.getpid().as_raw())
             .and_then(|p| p.maps())
             .unwrap_or_else(|_| Vec::new());
 }
@@ -1480,8 +1480,8 @@ fn tracee_preinit(task: &mut TracedTask) -> nix::Result<()> {
 }
 
 // get ld.so load address (range) from pid.
-fn get_proc_maps(pid: Pid) -> Option<Vec<procfs::MemoryMap>> {
-    procfs::Process::new(pid.as_raw())
+fn get_proc_maps(pid: Pid) -> Option<Vec<procfs::process::MemoryMap>> {
+    procfs::process::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
         .ok()
 }
@@ -1549,7 +1549,7 @@ fn do_ptrace_exec(mut task: &mut TracedTask) -> nix::Result<()> {
             ents.iter().find(|e| e.address.0 == *ldso_start).cloned()
         }) {
             task.ldso = Some(ldso.address);
-            if let procfs::MMapPath::Path(so) = &ldso.pathname {
+            if let procfs::process::MMapPath::Path(so) = &ldso.pathname {
                 let mut res: HashMap<String, u64> = HashMap::new();
                 let mut bytes: Vec<u8> = Vec::new();
                 let mut file = File::open(so).unwrap();

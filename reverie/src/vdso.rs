@@ -99,11 +99,11 @@ lazy_static! {
 // so that we don't have to decode vdso for each process
 fn vdso_get_symbols_info() -> HashMap<String, (u64, usize)> {
     let mut res: HashMap<String, (u64, usize)> = HashMap::new();
-    procfs::Process::new(unistd::getpid().as_raw())
+    procfs::process::Process::new(unistd::getpid().as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .find(|e| e.pathname == procfs::MMapPath::Vdso)
+        .find(|e| e.pathname == procfs::process::MMapPath::Vdso)
         .and_then(|vdso| {
             let slice = unsafe {
                 std::slice::from_raw_parts(
@@ -132,11 +132,11 @@ fn vdso_get_symbols_info() -> HashMap<String, (u64, usize)> {
 
 #[test]
 fn can_find_vdso() {
-    assert!(procfs::Process::new(unistd::getpid().as_raw())
+    assert!(procfs::process::Process::new(unistd::getpid().as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .filter(|e| e.pathname == procfs::MMapPath::Vdso)
+        .filter(|e| e.pathname == procfs::process::MMapPath::Vdso)
         .next()
         .is_some());
 }
@@ -158,11 +158,11 @@ fn vdso_patch_info_is_valid() {
 ///
 /// `task` must be in stopped state.
 pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
-    if let Some(vdso) = procfs::Process::new(task.getpid().as_raw())
+    if let Some(vdso) = procfs::process::Process::new(task.getpid().as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
-        .find(|e| e.pathname == procfs::MMapPath::Vdso)
+        .find(|e| e.pathname == procfs::process::MMapPath::Vdso)
     {
         task.untraced_syscall(
             SYS_mprotect,
