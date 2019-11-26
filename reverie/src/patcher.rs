@@ -310,7 +310,7 @@ pub fn patch_syscall_at(
 /// search for spare page(s) which can be allocated (mmap) within the
 /// range of @addr_hint +/- 2GB.
 pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
-    let mappings = procfs::Process::new(pid.as_raw())
+    let mappings = procfs::process::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new());
     let page_size: u64 = 0x1000;
@@ -364,13 +364,13 @@ pub fn search_stub_page(pid: Pid, addr_hint: u64, pages: usize) -> Result<u64> {
 #[test]
 fn can_find_stub_page() {
     let pid = unistd::getpid();
-    let ranges: Vec<_> = procfs::Process::new(pid.as_raw())
+    let ranges: Vec<_> = procfs::process::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()
         .map(|e| e.address)
         .collect();
-    let addr_hints: Vec<u64> = procfs::Process::new(pid.as_raw())
+    let addr_hints: Vec<u64> = procfs::process::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()

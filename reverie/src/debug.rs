@@ -67,17 +67,16 @@ fn show_user_regs(regs: &libc::user_regs_struct) -> String {
     res
 }
 
-fn show_proc_maps(maps: &procfs::MemoryMap) -> String {
+fn show_proc_maps(maps: &procfs::process::MemoryMap) -> String {
+    use procfs::process::MMapPath;
     let mut res = String::new();
     let fp = match &maps.pathname {
-        procfs::MMapPath::Path(path) => {
-            String::from(path.to_str().unwrap_or(""))
-        }
-        procfs::MMapPath::Vdso => String::from("[vdso]"),
-        procfs::MMapPath::Vvar => String::from("[vvar]"),
-        procfs::MMapPath::Vsyscall => String::from("[vsyscall]"),
-        procfs::MMapPath::Stack => String::from("[stack]"),
-        procfs::MMapPath::Other(s) => s.clone(),
+        MMapPath::Path(path) => String::from(path.to_str().unwrap_or("")),
+        MMapPath::Vdso => String::from("[vdso]"),
+        MMapPath::Vvar => String::from("[vvar]"),
+        MMapPath::Vsyscall => String::from("[vsyscall]"),
+        MMapPath::Stack => String::from("[stack]"),
+        MMapPath::Other(s) => s.clone(),
         _ => String::from(""),
     };
     let s = format!(
@@ -98,8 +97,8 @@ fn show_proc_maps(maps: &procfs::MemoryMap) -> String {
 
 fn task_rip_is_valid(task: &TracedTask, rip: u64) -> bool {
     let mut has_valid_rip = None;
-    if let Ok(mapping) =
-        procfs::Process::new(task.getpid().as_raw()).and_then(|p| p.maps())
+    if let Ok(mapping) = procfs::process::Process::new(task.getpid().as_raw())
+        .and_then(|p| p.maps())
     {
         has_valid_rip = mapping
             .iter()
@@ -145,7 +144,7 @@ pub fn show_fault_context(task: &TracedTask, sig: signal::Signal) {
         debug!("insn @{:x?} = <invalid rip>", regs.rip);
     }
 
-    procfs::Process::new(task.getpid().as_raw())
+    procfs::process::Process::new(task.getpid().as_raw())
         .and_then(|p| p.maps())
         .unwrap_or_else(|_| Vec::new())
         .iter()

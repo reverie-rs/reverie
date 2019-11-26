@@ -4,7 +4,7 @@
 
 use nix::unistd;
 use procfs;
-use procfs::MemoryMap;
+use procfs::process::MemoryMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::ptr::NonNull;
@@ -49,7 +49,7 @@ fn into_ranges(
     maps.iter()
         .skip_while(|e| e.address.0 != base)
         .take_while(|e| match &e.pathname {
-            procfs::MMapPath::Path(p) => p == name,
+            procfs::process::MMapPath::Path(p) => p == name,
             _ => false,
         })
         .cloned()
@@ -71,7 +71,7 @@ pub fn dl_open_ns(dso: String) -> Vec<LinkMap> {
     let mut res: Vec<LinkMap> = Vec::new();
 
     let head = std::ptr::NonNull::new(handle as *mut ll_link_map);
-    let maps = procfs::Process::new(pid.as_raw())
+    let maps = procfs::process::Process::new(pid.as_raw())
         .and_then(|p| p.maps())
         .unwrap();
 
