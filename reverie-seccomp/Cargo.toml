@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2"
-syscalls = "0.1"
+syscalls = { version = "0.2", default-features = false }
 
 [build-dependencies]
 cc = "1.0"

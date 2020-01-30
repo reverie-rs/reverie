@@ -19,7 +19,7 @@ path = "src/strace.rs"
 
 [dependencies]
 libc = { version = "0.2", default-features = false }
-syscalls = "0.1"
+syscalls = { version = "0.2", default-features = false }
 reverie-api = { path = "../reverie-api" }
 reverie-common = { path = "../reverie-common" }
 reverie-seccomp = { path = "../reverie-seccomp" }

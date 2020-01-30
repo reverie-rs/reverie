@@ -1,4 +1,3 @@
-#![feature(format_args_nl, slice_internals)]
 #![allow(unused_attributes)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]

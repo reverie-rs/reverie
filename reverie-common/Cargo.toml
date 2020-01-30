@@ -11,7 +11,7 @@ name = "reverie_common"
 path = "src/lib.rs"
 
 [dependencies]
-syscalls = "0.1"
+syscalls = { version = "0.2", default-features = false }
 nix = "0.15"
 lazy_static = "1.4"
 libc = "0.2"

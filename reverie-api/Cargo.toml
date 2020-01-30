@@ -11,7 +11,7 @@ name = "reverie_api"
 path = "src/mod.rs"
 
 [dependencies]
-syscalls = "0.1"
+syscalls = { version = "0.2", default-features = false }
 nix = "0.15"
 libc = "0.2"
 lazy_static = "1.4"
