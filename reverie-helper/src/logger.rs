@@ -17,6 +17,7 @@
 use core::fmt::{Arguments, Error, Write};
 use log::{Level, Log, Metadata, Record, SetLoggerError};
 
+use crate::memrchr;
 use crate::spinlock::SpinLock;
 use syscalls::*;
 
@@ -117,7 +118,7 @@ macro_rules! __log_format_args {
 #[macro_export]
 macro_rules! __log_format_args_nl {
     ($($args:tt)*) => {
-        format_args_nl!($($args)*)
+        format_args!("{}\n", format_args!($($args)*))
     };
 }
 
@@ -190,7 +191,7 @@ fn ring_buffer_write<F>(rb: &mut RingBuffer, s: &str, flush: F)
 where
     F: Fn(i32, *const u8, usize),
 {
-    match core::slice::memchr::memrchr(b'\n', s.as_bytes()) {
+    match memrchr::memrchr(b'\n', s.as_bytes()) {
         None => update_buffer(rb, s.as_ptr(), s.bytes().len() as isize, false),
         Some(i) => {
             let i = 1 + i;

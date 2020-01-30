@@ -1,4 +1,3 @@
-#![feature(format_args_nl)]
 #![allow(unused_imports)]
 #![allow(unused_attributes)]
 
