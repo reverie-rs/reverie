@@ -3,7 +3,7 @@
  *     ("University Works" via Baojun Wang)
  * Copyright (c) 2018-2019, Ryan Newton
  *     ("Traditional Works of Scholarship")
- * 
+ *
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -38,26 +38,26 @@ pub struct DynConfig {
     syscall_filter : fn (SysNo) -> bool
 }
 
-/// Setting to optionally interupt the guest (fire a timer) causing an event to be 
+/// Setting to optionally interupt the guest (fire a timer) causing an event to be
 /// created and handled by the tool.
 pub enum Heartbeat {
-    /// No heartbeat.  Guests will only yield when they trigger a relevant event, 
+    /// No heartbeat.  Guests will only yield when they trigger a relevant event,
     /// not merely due to the passage of time.
     NoBeat,
 
-    /// Future/TODO: A maximum guest compute quantum, specified in units of 
-    /// retired branch conditionals.  This heartbeat can be used to construct 
+    /// Future/TODO: A maximum guest compute quantum, specified in units of
+    /// retired branch conditionals.  This heartbeat can be used to construct
     /// a deterministic logical clock (DLC), but it is expensive, because current
     /// (2019) Intel hardware does not support exact interrupts on this perf counter
     /// so some single-stepping is required (see RR ATC'17 paper).
-    /// 
+    ///
     /// The boolean indicates whether other handled events "count" as heartbeats.
     /// If true, then the heartbeat only triggers if and when the guest exceeds
     /// its time slice before yielding with a syscall or some other event.
     ExactRBCs(u64, bool),
 
     /// Future/TODO: a nondeterministic heartbeat that is less expensive to implement.
-    /// This can be useful for updating ones own clock, for example (i.e. in a scenario 
+    /// This can be useful for updating ones own clock, for example (i.e. in a scenario
     /// where we do not yield on heartbeats, but do publish state).
     ApproxCyclesRBCs(u64, bool),
     /// Future/TODO: The same as above, but in units of cycles rather than RBCs.
@@ -66,22 +66,22 @@ pub enum Heartbeat {
 
 /// How should the intrumentor do its job?
 pub enum InstrumentMode {
-    /// Fully centralized tool execution inside a tracer process.  
-    /// 
+    /// Fully centralized tool execution inside a tracer process.
+    ///
     /// This uses ptrace to handle all events, and for all guest access/modification.
     FullPtrace,
 
-    /// Execute event handlers inside guest process when possible.  
-    /// 
-    /// In this default setting, local handlers communicate with the 
-    /// global state object using ________, the default RPC 
+    /// Execute event handlers inside guest process when possible.
+    ///
+    /// In this default setting, local handlers communicate with the
+    /// global state object using ________, the default RPC
     /// implementation.  Global state methods run centrally in a tracer
     /// and they read and modify (inject) the guest processes using ptrace.
     InGuestDefault,
 
-    // TODO: in the future we may offer a mode for executing global methods 
-    // in a decentralized fashion, assuming threadsafe implementations and all 
-    // global state managed in shared pages.  We're setting aside this option 
+    // TODO: in the future we may offer a mode for executing global methods
+    // in a decentralized fashion, assuming threadsafe implementations and all
+    // global state managed in shared pages.  We're setting aside this option
     // for the near and medium term.
     //
     // GlobalSharedState
@@ -108,8 +108,8 @@ pub enum Event<PState,TState> {
     /// QUESTION: Can this be removed?
     PreExit(TID),
 
-    /// Exit of a thread.  This is not defined as requiring that the OS has freed 
-    /// resources.  Rather, the definition is that no further events or observable 
+    /// Exit of a thread.  This is not defined as requiring that the OS has freed
+    /// resources.  Rather, the definition is that no further events or observable
     /// side effects will be seen from this TID.
     ///
     /// When we process an exit-thread event, we get a copy of the
@@ -117,11 +117,11 @@ pub enum Event<PState,TState> {
     /// appropriate updates to the global state before the thread
     /// local state is lost.
     ExitThread(TID, TState),
-    
+
     /// The same as ExitThread but for processes.
     ExitProc(Pid,PState),
 
-    /// Future/TODO: 
+    /// Future/TODO:
     /// Timer/heartbeat events: for future use with a deterministic (DLC) implementation.
     /// The guest yields cooperatively when it finishes its logical time slice.
     /// The heartbeat carries with it the current thread time, in whatever unit was requested.
@@ -139,7 +139,7 @@ pub struct FullEvent<Ps,Ts> {
 /// Run code *inside* a guest process.
 ///
 /// The Injector interface provides the "downcalls".
-/// The injector inserts either new system calls or function calls into the guest.  
+/// The injector inserts either new system calls or function calls into the guest.
 /// It does *not* create (JIT compile) new functions in the guest, rather it calls
 /// existing functions. (Though it does inject new code in the case of individual syscalls.)
 ///
@@ -187,8 +187,8 @@ pub trait GuestAccess : Injector {
 }
 
 // TODO: Full "Instrumentor" interface that allows sending global RPCs as well.
-pub trait Instrumentor : GuestAccess { 
-    /// Send an RPC message to wherever the global state is stored, 
+pub trait Instrumentor : GuestAccess {
+    /// Send an RPC message to wherever the global state is stored,
     /// synchronously block until a response is received.
     fn send_rpc_sync(self : &mut Self, args : SerializedVal) -> SerializedVal;
 
@@ -205,9 +205,9 @@ pub enum Remoteable<T> {
 }
 
 /// A reference to an object on a remote machine
-/// 
+///
 /// TODO: replace this with the appropriate concept from a popular RPC library.
-pub struct RemoteRef<T> {    
+pub struct RemoteRef<T> {
     id : u64,
     phantom : PhantomData<T>,
 }
@@ -218,34 +218,34 @@ pub struct RemoteRef<T> {
 
 /// The interface satisfied by a complete Systrace instrumentation tool.
 ///
-/// The trait is implemented for the global state type, and thus this is what is used 
+/// The trait is implemented for the global state type, and thus this is what is used
 /// to distinguish one tool from another.
 pub trait SystraceTool
 where
     // Self::Tmp: Debug,
     // Processor- and Thread-local state may need to migrated:
     Self::Proc: Serialize,
-    Self::Proc: DeserializeOwned,    
+    Self::Proc: DeserializeOwned,
     Self::Thrd: Serialize,
     Self::Thrd: DeserializeOwned,
-    // In contrast, the global state should serialize into a remote 
+    // In contrast, the global state should serialize into a remote
     // HANDLE that allows RPC communication with the original.
     // Self::Glob: Serialize,
     Self::GlobMethodArgs : Serialize,
     Self::GlobMethodArgs : DeserializeOwned,
-    Self::GlobMethodResult : Serialize, 
-    Self::GlobMethodResult : DeserializeOwned, 
+    Self::GlobMethodResult : Serialize,
+    Self::GlobMethodResult : DeserializeOwned,
     Self : std::marker::Sized,
 {
     /// Global state shared by the tool across the whole process tree being instrumented.
     type Glob;
     // type Glob = Self;
     // type Glob = Remote<Self>;
-    
-    /// Arguments to a global state RPC.  This is weakly typed, muxing together 
+
+    /// Arguments to a global state RPC.  This is weakly typed, muxing together
     /// all different methods of the global state object!
     type GlobMethodArgs;
-    /// Corresponding method results. 
+    /// Corresponding method results.
     type GlobMethodResult;
 
     /// Tool state specific to the guest process.
@@ -258,7 +258,7 @@ where
 
     /// Initialize the tool, allocating the global state.
     ///
-    /// Takes an optional buffer in which to allocate shared, global state.  
+    /// Takes an optional buffer in which to allocate shared, global state.
     /// This feature is unimplemeneted, but included for forward portability.
     ///
     fn init_global_state(gbuf: Option<NonNull<u8>>) -> Self::Glob;
@@ -269,7 +269,7 @@ where
 
     // Make a remote procedure call either locally or remotely, as appropriate.
     fn exec_rpc<I: Instrumentor>(g: &mut Remoteable<Self::Glob>, args : Self::GlobMethodArgs, i : &mut I)
-       -> Self::GlobMethodResult 
+       -> Self::GlobMethodResult
     {
        match g {
             Remoteable::Local(gl) => <Self as SystraceTool>::receive_rpc::<I>(gl, args, i),
@@ -284,7 +284,7 @@ where
 
     /// Trigger to initialize state when a process is created, including the root process.
     /// Every process includes at least one thread, so this returns a thread state as well.
-    /// 
+    ///
     /// For now this assumes access to the global state, but that may change.
     fn init_process_state(g: &Remoteable<Self::Glob>, id : Pid ) -> (Self::Proc, Self::Thrd);
 
@@ -299,15 +299,15 @@ where
     /// against either (1) the global state (remote object), or (2) the injector.
     /// In either case, it is registering a continuation to respond to the completion of an RPC
     /// in the host (coordinator) or guest respectively.
-    fn handle_event<I: Instrumentor>(g: &mut Remoteable<Self::Glob>, p: &mut Self::Proc, t: 
-                                     &mut Self::Thrd, 
-                                     i : &mut I, 
+    fn handle_event<I: Instrumentor>(g: &mut Remoteable<Self::Glob>, p: &mut Self::Proc, t:
+                                     &mut Self::Thrd,
+                                     i : &mut I,
                                      e : Event<Self::Proc, Self::Thrd>) -> ();
-        //  TODO: in the future each event handled may return a result to the instrumentor 
-        // which changes its configuration: for example, subscribing or unsubscribing to 
+        //  TODO: in the future each event handled may return a result to the instrumentor
+        // which changes its configuration: for example, subscribing or unsubscribing to
         // categories of events.
 
-    // Optionally override this as an optimization.  By default it will send the event 
+    // Optionally override this as an optimization.  By default it will send the event
     // to the respective
     // fn handle_global_event<I: Injector>(e : Event, i: I, g: Self::Glob) -> ();
 }
@@ -340,7 +340,7 @@ pub struct SysArgs {
 
 #[derive(PartialEq, Debug, Eq, Hash, Clone)]
 pub enum Instr {
-    RDTSC,    
+    RDTSC,
     CPUID,
     // Future, no current way to trap:
     // RDRAND,
@@ -361,13 +361,13 @@ pub struct CounterTool {}
 // AUDIT: is this singleton type idiomatic?
 
 /// Type-safe wrapper-methods for RPC calls.  These could be generated.
-impl CounterTool {    
+impl CounterTool {
     fn incr<I : Instrumentor>(g: &mut Remoteable<u64>, i : &mut I, x : u64) -> () {
        Self::exec_rpc(g, IncrMsg(x), i);
     }
 }
 
-#[derive(PartialEq, Debug, Eq, Hash, Clone, Deserialize)] 
+#[derive(PartialEq, Debug, Eq, Hash, Clone, Deserialize)]
 pub struct IncrMsg(u64);
 
 // [derive(Serialize,Deserialize)]
@@ -377,17 +377,17 @@ impl Serialize for IncrMsg {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S : serde::Serializer,
-    {        
+    {
         match self {
             IncrMsg(n) => n.serialize(serializer)
         }
-    }        
+    }
 }
 
 impl SystraceTool for CounterTool {
-    type Glob = u64;    
+    type Glob = u64;
     type GlobMethodArgs = IncrMsg;
-    type GlobMethodResult = ();    
+    type GlobMethodResult = ();
 
     type Proc = ();
     type Thrd = ();
@@ -405,13 +405,13 @@ impl SystraceTool for CounterTool {
         ()
     }
 
-    fn handle_event<I:Instrumentor>(g: &mut Remoteable<Self::Glob>, 
-                                    _p: &mut Self::Proc, 
-                                    _t: &mut Self::Thrd, 
-                                    i : &mut I, 
+    fn handle_event<I:Instrumentor>(g: &mut Remoteable<Self::Glob>,
+                                    _p: &mut Self::Proc,
+                                    _t: &mut Self::Thrd,
+                                    i : &mut I,
                                     e : Event<Self::Proc, Self::Thrd>) {
         println!(" - Counter tool recv event: {:?}", e);
-        match e {            
+        match e {
             Event::Syscall(_,_) => Self::incr(g, i, 1),
             _ => ()
         }
@@ -470,7 +470,7 @@ impl GuestAccess for FakeInstrumentor {
         }
     }
     fn get_dynamic_config(&self) -> DynConfig {
-        
+
         DEFAULT_DYNCONFIG
     }
 }
@@ -485,29 +485,29 @@ impl Instrumentor for FakeInstrumentor {
 
 //--------------------------------------------------------------
 
-/// Hook up the give tool so that it becomes the single, global tool compiled 
+/// Hook up the give tool so that it becomes the single, global tool compiled
 /// in this library.  This must be called at startup.  It is called in the guest process.
 /// Therefore, this will use local, in-process interactions with the guest.
 fn register_instrumentation_tool_local<T : SystraceTool>(_t : & T, r : RemoteRef<T::Glob>) {
-    let mut rem = Remoteable::Remote(r);    
+    let mut rem = Remoteable::Remote(r);
     let (mut ps,mut ts) = T::init_process_state(& rem, unistd::getpid());
     println!(" * Process, and thread state allocated.");
 
     // Initialize instrumentor:
     let mut inst = FakeInstrumentor{}; // TODO: GUEST mode instrumentor..
 
-    // Temporarily call test events:    
+    // Temporarily call test events:
     let e = Event::Syscall(0, SysArgs{arg0:0, arg1:1, arg2:2, arg3:3, arg4:4, arg5:5});
     T::handle_event(&mut rem, &mut ps, &mut ts, &mut inst, e);
     T::handle_event(&mut rem, &mut ps, &mut ts, &mut inst, Event::Instruction(Instr::RDTSC));
     ()
 }
 
-/// The same as register_instrumentation_tool_local, except called in the global/daemon/tracer 
-/// process instead.  The tool will therefore interact with the guest remotely, using 
+/// The same as register_instrumentation_tool_local, except called in the global/daemon/tracer
+/// process instead.  The tool will therefore interact with the guest remotely, using
 /// inter-process communication.
 fn register_instrumentation_tool_global<T : SystraceTool>(_t : & T) {
-    let _gs = T::init_global_state(None);    
+    let _gs = T::init_global_state(None);
 
     let mut _inst = FakeInstrumentor{}; // TODO: Ptrace-mode instrumentor..
 

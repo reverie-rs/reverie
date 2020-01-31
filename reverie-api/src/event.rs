@@ -3,7 +3,7 @@
  *     ("University Works" via Baojun Wang)
  * Copyright (c) 2018-2019, Ryan Newton
  *     ("Traditional Works of Scholarship")
- * 
+ *
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
