@@ -181,14 +181,18 @@ pub fn vdso_patch(task: &mut TracedTask) -> Result<()> {
             assert!(bytes.len() <= *size);
             let rptr = Remoteable::remote(start as *mut u8).unwrap();
             task.poke_bytes(rptr, bytes).unwrap();
-            let fill: Vec<u8> =
-                std::iter::repeat(0x90u8).take(size - bytes.len()).collect();
-            unsafe {
-                task.poke_bytes(
-                    rptr.offset(bytes.len() as isize),
-                    fill.as_slice(),
-                )
-                .unwrap();
+            assert!(*size >= bytes.len());
+            if *size > bytes.len() {
+                let fill: Vec<u8> = std::iter::repeat(0x90u8)
+                    .take(size - bytes.len())
+                    .collect();
+                unsafe {
+                    task.poke_bytes(
+                        rptr.offset(bytes.len() as isize),
+                        fill.as_slice(),
+                    )
+                    .unwrap();
+                }
             }
             debug!("{} patched {}@{:x}", task.getpid(), name, start);
         }

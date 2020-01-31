@@ -299,7 +299,9 @@ pub fn ptrace_peek_bytes(
     addr: RemotePtr<u8>,
     size: usize,
 ) -> Result<Vec<u8>> {
-    if size <= std::mem::size_of::<u64>() {
+    if size == 0 {
+        Ok(Vec::new())
+    } else if size <= std::mem::size_of::<u64>() {
         let raw_ptr = addr.as_ptr();
         let x = ptrace::read(pid, raw_ptr as ptrace::AddressType)
             .map_err(from_nix_error)?;
@@ -328,7 +330,9 @@ pub fn ptrace_poke_bytes(
     bytes: &[u8],
 ) -> Result<()> {
     let size = bytes.len();
-    if size <= std::mem::size_of::<u64>() {
+    if size == 0 {
+        Ok(())
+    } else if size <= std::mem::size_of::<u64>() {
         let raw_ptr = addr.as_ptr();
         let mut u64_val = if size < std::mem::size_of::<u64>() {
             ptrace::read(pid, raw_ptr as ptrace::AddressType)
