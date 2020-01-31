@@ -187,6 +187,9 @@ for f in $NEW_FILES; do
     update_hdr $f $NEW_HDR
 done
 
+echo "Cleaning up..."
+rm $ORIG_HDR $MODIFIED_HDR $NEW_HDR
+
 for f in $OTHER_FILES; do
     if ! grep -q Copyright $f; then
 	echo "ERROR: this file with third-party source lacks a copyright header: $f"
