@@ -1,7 +1,7 @@
 [package]
 name = "reverie"
 version = "0.1.0"
-authors = ["Baojun Wang <wangbj@gmail.com>"]
+authors = ["Baojun Wang <wangbj@fb.com>"]
 edition = "2018"
 description = "A fast syscall tracer and interceptor."
 
