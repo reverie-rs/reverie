@@ -23,7 +23,7 @@ cat > $ORIG_HDR <<EOF
  *     ("University Works" via Baojun Wang)
  * Copyright (c) 2018-2019, Ryan Newton
  *     ("Traditional Works of Scholarship")
- * 
+ *
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -51,9 +51,9 @@ EOF
 cat > $NEW_HDR <<EOF
 /*
  * Copyright (c) Facebook, Inc. and its affiliates.
- * 
+ *
  * All rights reserved.
- * 
+ *
  * This source code is licensed under the BSD-style license found in the
  * LICENSE file in the root directory of this source tree.
  */
