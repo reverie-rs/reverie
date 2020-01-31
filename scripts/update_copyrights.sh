@@ -159,14 +159,6 @@ ALL_FILES=$(cat ${ORIG_FILES} ${MODIFIED_FILES} ${NEW_FILES} ${OTHER_FILES})
 
 # ------------------------------------------------------------------------------
 
-# TODO: check that ALL Rust files are addressed by the above lists.
-# Using a Hash will require Bash 4:
-# declare -A files_hash
-# for f in $ALL_FILES; do
-#     files_hash[$f]=1
-# done
-# echo done populating
-
 # TODO: replace license files even if already present.
 # This script is idempotent but only because it skips anything with a copyright.
 
@@ -194,3 +186,19 @@ done
 for f in $NEW_FILES; do
     update_hdr $f $NEW_HDR
 done
+
+for f in $OTHER_FILES; do
+    if ! grep -q Copyright $f; then
+	echo "ERROR: this file with third-party source lacks a copyright header: $f"
+	exit 1
+    fi
+done
+
+# TODO: check that ALL Rust files are addressed by the above lists.
+# Using a Hash will require Bash 4:
+# declare -A files_hash
+# for f in $ALL_FILES; do
+#     files_hash[$f]=1
+# done
+# echo done populating
+
