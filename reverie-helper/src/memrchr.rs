@@ -1,3 +1,8 @@
+// Original implementation taken from rust-memchr.
+// Copyright 2015 Andrew Gallant, bluss and Nicolas Koch
+
+// ignore-tidy-undocumented-unsafe
+
 const LO_U64: u64 = 0x0101010101010101;
 const HI_U64: u64 = 0x8080808080808080;
 
