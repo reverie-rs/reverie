@@ -41,13 +41,13 @@ static const char* const lab_go_next[] = {
 #define FIND_LABEL_INDEXED(labels, symbol, index) \
   seccomp_bpf_label((labels), (symbol)[index])
 
-#define JUMP_INDEXED(labels, symbol, index)				\
+#define JUMP_INDEXED(labels, symbol, index)       \
   BPF_JUMP(BPF_JMP+BPF_JA, FIND_LABEL_INDEXED((labels), (symbol), (index)), \
-	   JUMP_JT, JUMP_JF)
+     JUMP_JT, JUMP_JF)
 
-#define LABEL_INDEXED(labels, symbol, index)				\
+#define LABEL_INDEXED(labels, symbol, index)        \
   BPF_JUMP(BPF_JMP+BPF_JA, FIND_LABEL_INDEXED((labels), (symbol), (index)), \
-		 LABEL_JT, LABEL_JF)
+     LABEL_JT, LABEL_JF)
 
 long bpf_ll_whitelist_ips(struct sock_filter* filter, struct range* ranges, size_t nranges)
 {
@@ -62,7 +62,7 @@ long bpf_ll_whitelist_ips(struct sock_filter* filter, struct range* ranges, size
     SYSCALL(__NR_vfork, ALLOW),
     SYSCALL(__NR_arch_prctl, ALLOW),
     SYSCALL(__NR_rt_sigreturn, ALLOW),
-    SYSCALL(__NR_clock_nanosleep, ALLOW),	// this syscall should not be patched
+    SYSCALL(__NR_clock_nanosleep, ALLOW), // this syscall should not be patched
     LOAD_SYSCALL_IP,
   };
   long k = 0;

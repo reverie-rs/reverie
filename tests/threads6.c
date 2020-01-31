@@ -31,7 +31,7 @@ static int ts_printf(const char* fmt, ...)
     n += vsnprintf(buf+n, 8192-n, fmt, ap);
   }
   va_end(ap);
-  
+
   fputs(buf, stdout);
 
   return n;
@@ -141,6 +141,6 @@ int main(int argc, char* argv[])
   }
 
   assert(pthread_attr_destroy(&attr) == 0);
- 
+
   return 0;
 }

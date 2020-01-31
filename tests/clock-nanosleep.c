@@ -13,7 +13,7 @@ int main(int argc, char* argv[])
   };
   struct timespec rem;
   int ret;
-  
+
   do {
     ret = clock_nanosleep(CLOCK_REALTIME, 0, &req, &rem);
     memcpy(&req, &rem, sizeof(req));
@@ -21,4 +21,3 @@ int main(int argc, char* argv[])
 
   return 0;
 }
-

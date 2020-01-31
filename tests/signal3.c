@@ -22,7 +22,7 @@ static void dump_sa(const struct sigaction *sa)
 {
   printf("  struct sigaction @%p\n   ", sa);
   printf("handler = %p, sigaction = %p, flags = %x, restorer = %p, sigset: \n   ",
-	 sa->sa_handler, sa->sa_sigaction, sa->sa_flags, sa->sa_restorer);
+   sa->sa_handler, sa->sa_sigaction, sa->sa_flags, sa->sa_restorer);
   for (int i = 0; i < sizeof(sigset_t) / sizeof(long); i++) {
     printf(" %016lx", sa->sa_mask.__val[i]);
   }
@@ -42,7 +42,7 @@ int main(int argc, char* argv[])
   new.sa_sigaction = handler;
   new.sa_mask = sigset;
   new.sa_flags = SA_RESTART | SA_SIGINFO;
-  
+
   ret = sigaction(SIGALRM, &new, &old);
   if (ret < 0) {
     perror("rt_sigaction");

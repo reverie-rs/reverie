@@ -44,13 +44,13 @@ int main(int argc, char* argv[])
   }
 
   size_t alloc_size = ALIGN_UP(ntests * sizeof(getpid_body) + sizeof(getpid_return), 0x1000);
-  
+
   void* pages = mmap(0, alloc_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   assert (pages != (void*)-1);
 
   unsigned char* curr = pages;
-  
+
   for (int i = 0; i < ntests; i++) {
     memcpy(curr, getpid_body, sizeof(getpid_body));
     curr += sizeof(getpid_body);
@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
 
   struct timespec start, end;
   pid_t pid;
-  
+
   clock_gettime(CLOCK_MONOTONIC, &end);
   clock_gettime(CLOCK_MONOTONIC, &start);
   pid = getpid_many();

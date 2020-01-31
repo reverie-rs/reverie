@@ -17,7 +17,7 @@ ORIG_HDR=$(mktemp -t origXXXX)
 MODIFIED_HDR=$(mktemp -t modifiedXXXX)
 NEW_HDR=$(mktemp -t newXXXX)
 
-cat > $ORIG_HDR <<EOF
+cat > "$ORIG_HDR" <<EOF
 /*
  * Copyright (c) 2018-2019, Trustees of Indiana University
  *     ("University Works" via Baojun Wang)
@@ -32,7 +32,7 @@ cat > $ORIG_HDR <<EOF
 
 EOF
 
-cat > $MODIFIED_HDR <<EOF
+cat > "$MODIFIED_HDR" <<EOF
 /*
  * Copyright (c) 2018-2019, Trustees of Indiana University
  *     ("University Works" via Baojun Wang)
@@ -48,7 +48,7 @@ cat > $MODIFIED_HDR <<EOF
 
 EOF
 
-cat > $NEW_HDR <<EOF
+cat > "$NEW_HDR" <<EOF
 /*
  * Copyright (c) Facebook, Inc. and its affiliates.
  *
@@ -63,7 +63,7 @@ EOF
 # ------------------------------------------------------------------------------
 
 # Files touched before Facebook use of this library:
-ORIG_FILES=$(cat <<EOF
+ORIG_FILES=(
 ./reverie-preloader/build.rs
 ./reverie-preloader/src/lib.rs
 ./reverie-preloader/src/relink.rs
@@ -118,11 +118,10 @@ ORIG_FILES=$(cat <<EOF
 ./reverie-helper/src/counter.rs
 ./reverie-helper/src/ffi.rs
 ./reverie-helper/src/spinlock.rs
-EOF
 )
 
 # Modified at Facebook
-MODIFIED_FILES=$(cat <<EOF
+MODIFIED_FILES=(
 ./examples/counter/src/lib.rs
 ./examples/det/src/lib.rs
 ./examples/echo/src/lib.rs
@@ -133,7 +132,6 @@ MODIFIED_FILES=$(cat <<EOF
 ./reverie-helper/src/logger.rs
 ./reverie-seccomp/build.rs
 ./reverie/src/vdso.rs
-EOF
 )
 # Also:
 # reverie-api/Cargo.toml
@@ -144,18 +142,15 @@ EOF
 # reverie/Cargo.toml
 
 # Created at Facebook:
-NEW_FILES=$(cat <<EOF
-EOF
+NEW_FILES=(
 )
 
 # These come from elsewhere and have a custom copyright:
-OTHER_FILES=$(cat <<EOF
+OTHER_FILES=(
 ./reverie-helper/src/memrchr.rs
-EOF
 )
 
-# ALL_FILES="${ORIG_FILES} ${MODIFIED_FILES} ${NEW_FILES} ${OTHER_FILES}"
-ALL_FILES=$(cat ${ORIG_FILES} ${MODIFIED_FILES} ${NEW_FILES} ${OTHER_FILES})
+#ALL_FILES=("${ORIG_FILES[@]}" "${MODIFIED_FILES[@]}" "${NEW_FILES[@]}" "${OTHER_FILES[@]}")
 
 # ------------------------------------------------------------------------------
 
@@ -165,35 +160,36 @@ ALL_FILES=$(cat ${ORIG_FILES} ${MODIFIED_FILES} ${NEW_FILES} ${OTHER_FILES})
 function update_hdr() {
     local file=$1
     local hdr=$2
-    if head -n 20 $file | grep -q Copyright ; then
-	echo "Skipping, copyright already present: $file"
+    if head -n 20 "$file" | grep -q Copyright ; then
+        echo "Skipping, copyright already present: $file"
     else
-	local newfile=$(mktemp)
-	echo "Adding header to orig file: $file"
-	cat $hdr $file > $newfile
-	mv $newfile $file
+        local newfile
+        newfile=$(mktemp)
+        echo "Adding header to orig file: $file"
+        cat "$hdr" "$file" > "$newfile"
+        mv "$newfile" "$file"
     fi
 }
 
-for f in $ORIG_FILES; do
-    update_hdr $f $ORIG_HDR
+for f in "${ORIG_FILES[@]}"; do
+    update_hdr "$f" "$ORIG_HDR"
 done
 
-for f in $MODIFIED_FILES; do
-    update_hdr $f $MODIFIED_HDR
+for f in "${MODIFIED_FILES[@]}"; do
+    update_hdr "$f" "$MODIFIED_HDR"
 done
 
-for f in $NEW_FILES; do
-    update_hdr $f $NEW_HDR
+for f in "${NEW_FILES[@]}"; do
+    update_hdr "$f" "$NEW_HDR"
 done
 
 echo "Cleaning up..."
-rm $ORIG_HDR $MODIFIED_HDR $NEW_HDR
+rm "$ORIG_HDR" "$MODIFIED_HDR" "$NEW_HDR"
 
-for f in $OTHER_FILES; do
-    if ! grep -q Copyright $f; then
-	echo "ERROR: this file with third-party source lacks a copyright header: $f"
-	exit 1
+for f in "${OTHER_FILES[@]}"; do
+    if ! grep -q Copyright "$f"; then
+        echo "ERROR: this file with third-party source lacks a copyright header: $f"
+        exit 1
     fi
 done
 

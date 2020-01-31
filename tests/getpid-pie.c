@@ -17,8 +17,8 @@
 __attribute__((noinline)) static int sys_getpid(void) {
   int ret;
   asm volatile  ("mov $0x27, %%eax\n\t"
-			 "syscall\n\t"
-			 : "=r"(ret));
+       "syscall\n\t"
+       : "=r"(ret));
   return ret;
 }
 

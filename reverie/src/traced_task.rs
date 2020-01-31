@@ -1314,7 +1314,7 @@ fn do_ptrace_seccomp<G>(
     // NB: in multi-threaded context, one core could enter ptrace_event_seccomp
     // even another core already patched the very same syscall
     // we skip the (seccomp) syscall, do a synchronization, and let
-    // it rerun from the begining of the patched instruction.
+    // it rerun from the beginning of the patched instruction.
     if !is_syscall_insn(tid, rip_before_syscall)? {
         let mut new_regs = regs;
         new_regs.rax = regs.orig_rax;

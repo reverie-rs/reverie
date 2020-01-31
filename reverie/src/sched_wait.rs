@@ -117,7 +117,7 @@ impl<G> SchedWait<G> {
     }
     /// `Scheduler` (main) event loop
     ///
-    /// The `Scheduler` continously pick next ready
+    /// The `Scheduler` continuously pick next ready
     /// task and schedule/run it, unless there's no
     /// more task left, i.e.: when all tasks are exited.
     pub fn run_all(&mut self) -> i32 {
@@ -243,7 +243,7 @@ fn ptracer_get_next<G>(tasks: &mut SchedWait<G>) -> Option<TracedTask> {
                 Ok(WaitStatus::Stopped(pid, sig)) => {
                     // ignore group-stop
                     if !is_ptrace_group_stop(pid, sig) {
-                        // NB: we use TaskState::Ready for the intial SIGSTOP
+                        // NB: we use TaskState::Ready for the initial SIGSTOP
                         let mut task = tasks
                             .tasks
                             .remove(&tid)

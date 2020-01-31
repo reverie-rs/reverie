@@ -15,7 +15,7 @@ int segv(int sig, siginfo_t* info, void* u) {
     printf("%02x ", (int)ip[i] & 0xff);
   }
   printf("\n");
-  
+
   return 0;
 }
 
@@ -29,19 +29,18 @@ int main(int argc, char* argv[])
   sa.sa_flags = SA_RESETHAND | SA_SIGINFO;
 
   sigaction(SIGSEGV, &sa, &old_sa);
-  
+
   fd = open(file, 0);
   fprintf(stderr, "openat1: %d\n", fd);
   if (fd < 0) {
-	  fprintf(stderr, "open %s, error: %s\n", file, strerror(errno));
+    fprintf(stderr, "open %s, error: %s\n", file, strerror(errno));
   }
 
   fd = open(file, 0);
   fprintf(stderr, "openat1: %d\n", fd);
   if (fd < 0) {
-	  fprintf(stderr, "open %s, error: %s\n", file, strerror(errno));
+    fprintf(stderr, "open %s, error: %s\n", file, strerror(errno));
   }
 
   return 0;
 }
-

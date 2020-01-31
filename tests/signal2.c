@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
   new.sa_sigaction = handler;
   new.sa_mask = sigset;
   new.sa_flags = SA_RESTART | SA_SIGINFO;
-  
+
   ret = sigaction(SIGALRM, &new, NULL);
   if (ret < 0) {
     perror("rt_sigaction");

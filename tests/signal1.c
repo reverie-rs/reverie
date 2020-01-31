@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
   new.sa__ = (unsigned long)handler;
   new.flags = SA_RESTART | SA_RESTORER | SA_SIGINFO;
   new.restorer = (unsigned long)rt_sigreturn;
-  
+
   ret = rt_sigaction(SIGALRM, &new, NULL);
   if (ret < 0) {
     perror("rt_sigaction");

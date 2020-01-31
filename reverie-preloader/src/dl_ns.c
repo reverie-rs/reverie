@@ -41,8 +41,8 @@ static void __libc_get_nprocs_fixup(void* addr, int nprocs) {
 
   /*
     __libc_get_nprocs:
-        0:	b8 02 00 00 00       	mov    $0x2,%eax
-        5:	c3                   	retq
+        0:  b8 02 00 00 00        mov    $0x2,%eax
+        5:  c3                    retq
   */
   unsigned char fixup_opcode[] = {0xb8, 0x00, 0x00, 0x00, 0x00, 0xc3};
 

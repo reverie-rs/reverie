@@ -56,7 +56,6 @@ int main(int argc, char* argv[])
   }
 
   assert(pthread_attr_destroy(&attr) == 0);
- 
+
   return 0;
 }
-

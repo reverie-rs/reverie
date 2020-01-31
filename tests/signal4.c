@@ -30,9 +30,9 @@ int main(int argc, char* argv[])
   struct sigaction old, new;
 
   pthread_t tid;
-  
+
   pthread_create(&tid, NULL, thread_main, (void*)1UL);
-  
+
   memset(&old, 0, sizeof(old));
   memset(&new, 0, sizeof(new));
 
@@ -40,7 +40,7 @@ int main(int argc, char* argv[])
   new.sa_sigaction = handler;
   new.sa_mask = sigset;
   new.sa_flags = SA_RESTART | SA_SIGINFO;
-  
+
   ret = sigaction(SIGALRM, &new, &old);
   if (ret < 0) {
     perror("rt_sigaction");

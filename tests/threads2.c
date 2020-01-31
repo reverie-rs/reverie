@@ -37,7 +37,7 @@ static void* threaded_0(void* param) {
   write(STDOUT_FILENO, buf, n);
 
   long* p = mmap((void*)THREAD_SHARED_HEAP, 0x2000, PROT_READ | PROT_WRITE,
-		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   assert((void*)p == (void*)THREAD_SHARED_HEAP);
 
@@ -101,7 +101,6 @@ int main(int argc, char* argv[])
     n = snprintf(buf, 128, "threads data: %lx\n", ptr[i]);
     write(STDOUT_FILENO, buf, n);
   }
- 
+
   return 0;
 }
-

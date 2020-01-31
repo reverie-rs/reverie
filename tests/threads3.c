@@ -36,7 +36,7 @@ static void* threaded_0(void* param) {
   printf("thread %ld enter. allocating with mmap\n", k);
 
   long* p = mmap((void*)THREAD_SHARED_HEAP, 0x2000, PROT_READ | PROT_WRITE,
-		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   assert((void*)p == (void*)THREAD_SHARED_HEAP);
 
@@ -155,7 +155,6 @@ int main(int argc, char* argv[])
     // wait for SIGCHLD
     waitpid(pid, &status, 0);
   }
-  
+
   return 0;
 }
-

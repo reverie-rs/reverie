@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
       sigaddset(&set, SIGCHLD);
       sigprocmask(SIG_BLOCK, &set, &oldset);
   }
-  
+
   for (int i = 0; i < TESTS_NLOOPS; i++) {
     kill(getpid(), SIGCHLD);
     pid = fork();

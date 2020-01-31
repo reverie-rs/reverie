@@ -7,15 +7,15 @@
 
 int main(int argc, char* argv[])
 {
-	const char* file = "/etc/passwd";
-	int fd;
+  const char* file = "/etc/passwd";
+  int fd;
 
-	for (int i = 0; i < 100000; i++) {
-		fd = open(file, O_RDONLY);
-		assert(access(file, O_RDONLY) == 0);
-		assert(fd >= 0);
-		close(fd);
-	}
+  for (int i = 0; i < 100000; i++) {
+    fd = open(file, O_RDONLY);
+    assert(access(file, O_RDONLY) == 0);
+    assert(fd >= 0);
+    close(fd);
+  }
 
-	return 0;
+  return 0;
 }

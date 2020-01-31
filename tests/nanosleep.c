@@ -8,7 +8,7 @@
 #define NITERATIONS 1000
 
 static long long diff_time(const struct timespec* begin,
-			   const struct timespec* end) {
+         const struct timespec* end) {
   long long r = 0;
   r = (end->tv_sec - begin->tv_sec) * 1000000000 + (end->tv_nsec - begin->tv_nsec);
   return r / 1000;
@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
   };
   struct timespec begin, end;
   int ntests = NITERATIONS;
-  
+
   // ignore first nanosleep
   nanosleep(&req, NULL);
 
@@ -40,8 +40,7 @@ int main(int argc, char* argv[])
   long long elapsed = diff_time(&begin, &end);
 
   printf("time elapsed %lluus for %u iterations, mean: %.3lfus\n",
-	 elapsed, ntests, (double)elapsed / ntests);
+   elapsed, ntests, (double)elapsed / ntests);
 
   return 0;
 }
-
