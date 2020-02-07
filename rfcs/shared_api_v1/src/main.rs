@@ -3,6 +3,7 @@
  *     ("University Works" via Baojun Wang)
  * Copyright (c) 2018-2019, Ryan Newton
  *     ("Traditional Works of Scholarship")
+ * Copyright (c) 2020-, Facebook, Inc. and its affiliates.
  *
  *  All rights reserved.
  *
@@ -10,7 +11,6 @@
  *  LICENSE file in the root directory of this source tree.
  */
 
-#![feature(async_await)]
 #![allow(dead_code)]
 
 use nix::sys::signal::Signal;
