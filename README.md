@@ -1,4 +1,6 @@
-# reverie
+**🚨 This project has been rewritten and is superseded by https://github.com/facebookexperimental/reverie. This version is archived and will remain for posterity. 🚨**
+
+# Reverie
 
 [![Build Status](https://dev.azure.com/iu-parfunc/reverie/_apis/build/status/iu-parfunc.reverie?branchName=master)](https://dev.azure.com/iu-parfunc/reverie/_build/latest?definitionId=2&branchName=master)
 
